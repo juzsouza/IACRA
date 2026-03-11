@@ -19,6 +19,12 @@ export const Classes: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | null>(null);
+  const [recurrence, setRecurrence] = useState<'none' | 'semanal' | 'quinzenal' | 'mensal'>('none');
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 6);
+    return d.toISOString().split("T")[0];
+  });
 
   const [formData, setFormData] = useState({
     title: "",
@@ -57,7 +63,29 @@ export const Classes: React.FC = () => {
     if (editingClass) {
       updateClass(editingClass.id, formData);
     } else {
-      addClass(formData);
+      if (recurrence === 'none') {
+        addClass(formData);
+      } else {
+        let currentDate = new Date(formData.date + 'T12:00:00');
+        const end = new Date(recurrenceEndDate + 'T12:00:00');
+        
+        while (currentDate <= end) {
+          addClass({
+            ...formData,
+            date: currentDate.toISOString().split("T")[0]
+          });
+          
+          if (recurrence === 'semanal') {
+            currentDate.setDate(currentDate.getDate() + 7);
+          } else if (recurrence === 'quinzenal') {
+            currentDate.setDate(currentDate.getDate() + 14);
+          } else if (recurrence === 'mensal') {
+            currentDate.setMonth(currentDate.getMonth() + 1);
+          } else {
+            break;
+          }
+        }
+      }
     }
     closeModal();
   };
@@ -71,6 +99,10 @@ export const Classes: React.FC = () => {
       });
     } else {
       setEditingClass(null);
+      setRecurrence('none');
+      const d = new Date();
+      d.setMonth(d.getMonth() + 6);
+      setRecurrenceEndDate(d.toISOString().split("T")[0]);
       setFormData({
         title: "",
         teacher_id: state.teachers[0]?.id || "",
@@ -90,11 +122,23 @@ export const Classes: React.FC = () => {
   };
 
   const handleStudentToggle = (studentId: string) => {
+    const isAdding = !formData.student_ids.includes(studentId);
+    
+    if (isAdding && !editingClass && recurrence === 'none') {
+      const enrollment = state.enrollments.find(e => e.student_id === studentId && e.status === 'active');
+      if (enrollment) {
+        const plan = state.financialPlans.find(p => p.id === enrollment.plan_id);
+        if (plan && ['semanal', 'quinzenal', 'mensal'].includes(plan.modality)) {
+          setRecurrence(plan.modality as any);
+        }
+      }
+    }
+
     setFormData((prev) => ({
       ...prev,
-      student_ids: prev.student_ids.includes(studentId)
-        ? prev.student_ids.filter((id) => id !== studentId)
-        : [...prev.student_ids, studentId],
+      student_ids: isAdding
+        ? [...prev.student_ids, studentId]
+        : prev.student_ids.filter((id) => id !== studentId),
     }));
   };
 
@@ -563,6 +607,40 @@ export const Classes: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {!editingClass && (
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-zinc-100">
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 mb-1">
+                        Recorrência
+                      </label>
+                      <select
+                        value={recurrence}
+                        onChange={(e) => setRecurrence(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
+                      >
+                        <option value="none">Não repetir (Avulsa)</option>
+                        <option value="semanal">Semanal</option>
+                        <option value="quinzenal">Quinzenal</option>
+                        <option value="mensal">Mensal</option>
+                      </select>
+                    </div>
+                    {recurrence !== 'none' && (
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-700 mb-1">
+                          Repetir até
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={recurrenceEndDate}
+                          onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="pt-4 flex justify-end space-x-3 shrink-0">
                   <button
