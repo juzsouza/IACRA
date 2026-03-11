@@ -21,9 +21,29 @@ export const Payments: React.FC = () => {
 
     let basePrice = customPrice !== undefined ? customPrice : plan.base_price;
     let totalDiscount = 0;
+    let choirFee = 0;
+    let hasChoir = false;
 
-    // Cross discounts
+    // Cross discounts and Choir fee
     if (studentId) {
+      const activeChoir = state.choirRegistrations.find(r => r.student_id === studentId && r.status === 'approved');
+      if (activeChoir) {
+        // Check if choir fee was already paid this month
+        const monthStr = selectedMonth.toString().padStart(2, '0');
+        const choirAlreadyPaid = state.transactions.some(t => 
+          t.type === 'income' && 
+          t.status === 'completed' &&
+          t.description.includes(`| ${monthStr}/${selectedYear} |`) &&
+          t.description.includes(state.students.find(s => s.id === studentId)?.name || '') &&
+          t.description.includes('+ Coral')
+        );
+
+        if (!choirAlreadyPaid) {
+          choirFee = activeChoir.monthly_fee;
+          hasChoir = true;
+        }
+      }
+
       const studentEnrollments = state.enrollments.filter(e => 
         e.student_id === studentId && 
         e.status === 'active' && 
@@ -41,8 +61,8 @@ export const Payments: React.FC = () => {
       });
     }
 
-    const finalPrice = basePrice - totalDiscount;
-    return { basePrice, finalPrice, totalDiscount, plan };
+    const finalPrice = basePrice - totalDiscount + choirFee;
+    return { basePrice, finalPrice, totalDiscount, plan, choirFee, hasChoir };
   };
 
   const getPaymentStatus = (enrollmentId: string) => {
@@ -104,10 +124,12 @@ export const Payments: React.FC = () => {
     const monthStr = selectedMonth.toString().padStart(2, '0');
     const student = state.students.find(s => s.id === selectedEnrollment.student_id);
 
+    const descriptionSuffix = breakdown.hasChoir ? ` + Coral` : '';
+
     addTransaction({
       type: 'income',
       amount: amountToPay,
-      description: `Mensalidade | ${selectedEnrollment.id} | ${monthStr}/${selectedYear} | ${student?.name} - ${plan.name}`,
+      description: `Mensalidade | ${selectedEnrollment.id} | ${monthStr}/${selectedYear} | ${student?.name} - ${plan.name}${descriptionSuffix}`,
       date: paymentDate,
       status: 'completed'
     });
@@ -280,6 +302,12 @@ export const Payments: React.FC = () => {
                           <div className="flex justify-between text-sm text-emerald-600">
                             <span>Desconto Cruzado:</span>
                             <span>-{formatCurrency(breakdown.totalDiscount)}</span>
+                          </div>
+                        )}
+                        {breakdown.hasChoir && (
+                          <div className="flex justify-between text-sm text-indigo-600">
+                            <span>Adicional Coral:</span>
+                            <span>+{formatCurrency(breakdown.choirFee)}</span>
                           </div>
                         )}
                         {isEarly && (

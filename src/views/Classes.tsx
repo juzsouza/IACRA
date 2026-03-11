@@ -8,12 +8,15 @@ import {
   X,
   Calendar as CalendarIcon,
   Clock,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export const Classes: React.FC = () => {
   const { state, addClass, updateClass, deleteClass } = useAppStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | null>(null);
 
@@ -38,6 +41,17 @@ export const Classes: React.FC = () => {
     )
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  const groupedClasses = filteredClasses.reduce((acc, session) => {
+    const date = session.date;
+    if (!acc[date]) {
+      acc[date] = [];
+    }
+    acc[date].push(session);
+    return acc;
+  }, {} as Record<string, ClassSession[]>);
+
+  const sortedDates = Object.keys(groupedClasses).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingClass) {
@@ -51,7 +65,10 @@ export const Classes: React.FC = () => {
   const openModal = (session?: ClassSession) => {
     if (session) {
       setEditingClass(session);
-      setFormData(session);
+      setFormData({
+        ...session,
+        student_ids: session.student_ids || [],
+      });
     } else {
       setEditingClass(null);
       setFormData({
@@ -102,8 +119,8 @@ export const Classes: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-zinc-100">
-          <div className="relative max-w-md">
+        <div className="p-4 border-b border-zinc-100 flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <div className="relative w-full max-w-md">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-zinc-400" />
             </div>
@@ -115,10 +132,36 @@ export const Classes: React.FC = () => {
               className="block w-full pl-10 pr-3 py-2 border border-zinc-200 rounded-xl leading-5 bg-zinc-50 placeholder-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
             />
           </div>
+          
+          <div className="flex bg-zinc-100 p-1 rounded-lg">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded-md flex items-center transition-colors ${
+                viewMode === 'grid' 
+                  ? 'bg-white text-indigo-600 shadow-sm' 
+                  : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+              title="Visualização em Grade"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-md flex items-center transition-colors ${
+                viewMode === 'list' 
+                  ? 'bg-white text-indigo-600 shadow-sm' 
+                  : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+              title="Visualização em Lista"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-200">
+        {viewMode === 'list' ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-zinc-200">
             <thead className="bg-zinc-50">
               <tr>
                 <th
@@ -166,7 +209,7 @@ export const Classes: React.FC = () => {
                     (t) => t.id === session.teacher_id,
                   );
                   const students = state.students.filter((s) =>
-                    session.student_ids.includes(s.id),
+                    (session.student_ids || []).includes(s.id),
                   );
 
                   return (
@@ -186,7 +229,7 @@ export const Classes: React.FC = () => {
                         </div>
                         <div className="flex items-center text-sm text-zinc-500 mt-1">
                           <Clock className="w-4 h-4 mr-2 text-zinc-400" />
-                          {session.startTime} - {session.endTime}
+                          {session.start_time} - {session.end_time}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -195,14 +238,16 @@ export const Classes: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex -space-x-2 overflow-hidden">
+                        <div className="flex flex-col gap-1">
                           {students.map((student) => (
                             <div
                               key={student.id}
-                              className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs"
-                              title={student.name}
+                              className="flex items-center text-sm text-zinc-900"
                             >
-                              {student.name.charAt(0).toUpperCase()}
+                              <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                              {student.name}
                             </div>
                           ))}
                           {students.length === 0 && (
@@ -259,6 +304,91 @@ export const Classes: React.FC = () => {
             </tbody>
           </table>
         </div>
+        ) : (
+          <div className="p-6 space-y-8 bg-zinc-50/50">
+            {sortedDates.length > 0 ? (
+              sortedDates.map(date => {
+                const dateObj = new Date(date + 'T12:00:00');
+                const dayName = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+                const formattedDate = dateObj.toLocaleDateString('pt-BR');
+                
+                return (
+                  <div key={date} className="space-y-4">
+                    <h3 className="text-lg font-semibold text-zinc-900 capitalize flex items-center">
+                      <CalendarIcon className="w-5 h-5 mr-2 text-indigo-600" />
+                      {dayName}, {formattedDate}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {groupedClasses[date].map(session => {
+                        const teacher = state.teachers.find(t => t.id === session.teacher_id);
+                        const students = state.students.filter(s => (session.student_ids || []).includes(s.id));
+                        
+                        return (
+                          <div key={session.id} className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-all relative group flex flex-col h-full">
+                            <div className="flex justify-between items-start mb-4">
+                              <div>
+                                <h4 className="font-semibold text-zinc-900">{session.title}</h4>
+                                <div className="flex items-center text-xs text-zinc-500 mt-1.5">
+                                  <Clock className="w-3.5 h-3.5 mr-1.5 text-zinc-400" />
+                                  {session.start_time} - {session.end_time}
+                                </div>
+                              </div>
+                              <span className={`px-2.5 py-1 text-[10px] font-medium rounded-full whitespace-nowrap ml-2 ${
+                                session.status === "scheduled" ? "bg-amber-100 text-amber-800" : 
+                                session.status === "completed" ? "bg-emerald-100 text-emerald-800" : 
+                                "bg-rose-100 text-rose-800"
+                              }`}>
+                                {session.status === "scheduled" ? "Agendada" : session.status === "completed" ? "Concluída" : "Cancelada"}
+                              </span>
+                            </div>
+                            
+                            <div className="mb-4">
+                              <div className="text-xs font-medium text-zinc-500 mb-1.5 uppercase tracking-wider">Professor</div>
+                              <div className="text-sm text-zinc-900 flex items-center">
+                                <div className="h-6 w-6 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 font-bold text-xs mr-2">
+                                  {teacher?.name.charAt(0).toUpperCase() || "?"}
+                                </div>
+                                {teacher?.name || "Não atribuído"}
+                              </div>
+                            </div>
+                            
+                            <div className="flex-1">
+                              <div className="text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">Alunos ({students.length})</div>
+                              <div className="flex flex-col gap-2">
+                                {students.map(student => (
+                                  <div key={student.id} className="flex items-center text-sm text-zinc-700 bg-zinc-50 p-1.5 rounded-lg">
+                                    <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2 shrink-0">
+                                      {student.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="truncate">{student.name}</span>
+                                  </div>
+                                ))}
+                                {students.length === 0 && <span className="text-sm text-zinc-400 italic">Nenhum aluno matriculado</span>}
+                              </div>
+                            </div>
+                            
+                            <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1 bg-white/90 backdrop-blur-sm rounded-lg p-1 shadow-sm border border-zinc-100">
+                              <button onClick={() => openModal(session)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors" title="Editar Aula">
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => deleteClass(session.id)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors" title="Excluir Aula">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-zinc-500">Nenhuma aula encontrada.</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Modal */}
@@ -414,7 +544,7 @@ export const Classes: React.FC = () => {
                           >
                             <input
                               type="checkbox"
-                              checked={formData.studentIds.includes(student.id)}
+                              checked={formData.student_ids.includes(student.id)}
                               onChange={() => handleStudentToggle(student.id)}
                               className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
                             />
