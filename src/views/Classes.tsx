@@ -15,6 +15,7 @@ import {
   RefreshCcw,
   FileText,
   MessageCircle,
+  ChevronDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -45,6 +46,8 @@ export const Classes: React.FC = () => {
   });
 
   const [showReport, setShowReport] = useState(false);
+  const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
+  const [studentSearchTerm, setStudentSearchTerm] = useState("");
 
   const filteredClasses = state.classes
     .filter(
@@ -165,10 +168,14 @@ export const Classes: React.FC = () => {
         report: session.report || "",
       });
       setShowReport(false);
+      setStudentSearchTerm("");
+      setIsStudentDropdownOpen(false);
     } else {
       setEditingClass(null);
       setRecurrence('none');
       setShowReport(false);
+      setStudentSearchTerm("");
+      setIsStudentDropdownOpen(false);
       const d = new Date();
       d.setMonth(d.getMonth() + 6);
       setRecurrenceEndDate(d.toISOString().split("T")[0]);
@@ -791,40 +798,95 @@ export const Classes: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-zinc-700 mb-2">
                     Alunos
                   </label>
-                  <div className="border border-zinc-200 rounded-xl max-h-40 overflow-y-auto divide-y divide-zinc-100">
-                    {state.students.filter((s) => s.status === "active")
-                      .length > 0 ? (
-                      state.students
-                        .filter((s) => s.status === "active")
-                        .map((student) => (
-                          <label
-                            key={student.id}
-                            className="flex items-center px-3 py-2 hover:bg-zinc-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={formData.student_ids.includes(student.id)}
-                              onChange={() => handleStudentToggle(student.id)}
-                              className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                            />
-                            <span className="ml-3 text-sm text-zinc-900">
-                              {student.name}
-                            </span>
-                            <span className="ml-auto text-xs text-zinc-500">
-                              {student.instrument}
-                            </span>
-                          </label>
-                        ))
-                    ) : (
-                      <div className="p-3 text-sm text-zinc-500 text-center">
-                        Nenhum aluno ativo encontrado.
-                      </div>
-                    )}
+                  
+                  {/* Selected Students Tags */}
+                  {formData.student_ids.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {formData.student_ids.map(id => {
+                        const student = state.students.find(s => s.id === id);
+                        if (!student) return null;
+                        return (
+                          <span key={id} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700">
+                            {student.name}
+                            <button
+                              type="button"
+                              onClick={() => handleStudentToggle(id)}
+                              className="ml-1.5 inline-flex items-center justify-center text-indigo-400 hover:text-indigo-600 focus:outline-none"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Dropdown Toggle */}
+                  <div 
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl bg-white flex items-center justify-between cursor-pointer hover:border-indigo-500 transition-colors"
+                    onClick={() => setIsStudentDropdownOpen(!isStudentDropdownOpen)}
+                  >
+                    <span className="text-zinc-500 text-sm">
+                      {formData.student_ids.length === 0 ? "Selecione os alunos..." : "Adicionar mais alunos..."}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${isStudentDropdownOpen ? 'rotate-180' : ''}`} />
                   </div>
+
+                  {/* Dropdown Menu */}
+                  {isStudentDropdownOpen && (
+                    <div className="absolute z-10 mt-1 w-full bg-white border border-zinc-200 rounded-xl shadow-lg overflow-hidden">
+                      <div className="p-2 border-b border-zinc-100">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-400" />
+                          <input
+                            type="text"
+                            placeholder="Buscar aluno..."
+                            value={studentSearchTerm}
+                            onChange={(e) => setStudentSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {state.students
+                          .filter((s) => s.status === "active")
+                          .filter(s => s.name.toLowerCase().includes(studentSearchTerm.toLowerCase()) || s.instrument.toLowerCase().includes(studentSearchTerm.toLowerCase()))
+                          .length > 0 ? (
+                          state.students
+                            .filter((s) => s.status === "active")
+                            .filter(s => s.name.toLowerCase().includes(studentSearchTerm.toLowerCase()) || s.instrument.toLowerCase().includes(studentSearchTerm.toLowerCase()))
+                            .map((student) => (
+                              <label
+                                key={student.id}
+                                className="flex items-center px-3 py-2.5 hover:bg-zinc-50 cursor-pointer transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={formData.student_ids.includes(student.id)}
+                                  onChange={() => handleStudentToggle(student.id)}
+                                  className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span className="ml-3 text-sm text-zinc-900 font-medium">
+                                  {student.name}
+                                </span>
+                                <span className="ml-auto text-xs text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full">
+                                  {student.instrument}
+                                </span>
+                              </label>
+                            ))
+                        ) : (
+                          <div className="p-4 text-sm text-zinc-500 text-center">
+                            Nenhum aluno encontrado.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center pt-2">
