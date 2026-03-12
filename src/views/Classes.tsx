@@ -14,6 +14,7 @@ import {
   ChevronRight,
   RefreshCcw,
   FileText,
+  MessageCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -92,6 +93,35 @@ export const Classes: React.FC = () => {
   };
 
   const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+  const sendWhatsAppReminder = (session: ClassSession, studentId?: string) => {
+    const students = state.students.filter(s => (session.student_ids || []).includes(s.id));
+    const targetStudent = studentId ? students.find(s => s.id === studentId) : students[0];
+
+    if (!targetStudent) {
+      alert("Aluno não encontrado.");
+      return;
+    }
+
+    if (!targetStudent.phone) {
+      alert(`O aluno ${targetStudent.name} não possui telefone cadastrado.`);
+      return;
+    }
+
+    const teacher = state.teachers.find(t => t.id === session.teacher_id);
+    const dateObj = new Date(session.date + 'T12:00:00');
+    const formattedDate = dateObj.toLocaleDateString('pt-BR');
+    
+    const message = `Olá, ${targetStudent.name.split(' ')[0]}! Tudo bem? Passando para lembrar da nossa aula de ${session.title} amanhã, ${formattedDate}, às ${session.start_time} com o(a) professor(a) ${teacher?.name || 'da escola'}. Te esperamos!`;
+    
+    let phone = targetStudent.phone.replace(/\D/g, '');
+    if (!phone.startsWith('55')) {
+      phone = '55' + phone;
+    }
+
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -315,7 +345,7 @@ export const Classes: React.FC = () => {
                         <div 
                           key={session.id} 
                           onClick={() => openModal(session)}
-                          className={`text-xs p-1.5 rounded border cursor-pointer hover:shadow-sm transition-shadow ${
+                          className={`text-xs p-1.5 rounded border cursor-pointer hover:shadow-sm transition-shadow group/session ${
                             session.status === 'scheduled' ? 'bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300' :
                             session.status === 'completed' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:border-emerald-300' :
                             'bg-rose-50 border-rose-200 text-rose-800 hover:border-rose-300'
@@ -326,6 +356,15 @@ export const Classes: React.FC = () => {
                             <div className="flex items-center">
                               {session.report && <FileText className="w-3 h-3 ml-1 shrink-0 opacity-70" title="Possui relatório" />}
                               {session.allow_makeup && <RefreshCcw className="w-3 h-3 ml-1 shrink-0" title="Permite reposição" />}
+                              {students.length > 0 && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session); }}
+                                  className="ml-1 text-emerald-600 hover:text-emerald-700 opacity-0 group-hover/session:opacity-100 transition-opacity"
+                                  title="Enviar lembrete pelo WhatsApp"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </button>
+                              )}
                             </div>
                           </div>
                           <div className="truncate opacity-90" title={studentNames}>{studentNames}</div>
@@ -421,12 +460,21 @@ export const Classes: React.FC = () => {
                           {students.map((student) => (
                             <div
                               key={student.id}
-                              className="flex items-center text-sm text-zinc-900"
+                              className="flex items-center justify-between text-sm text-zinc-900 group/student"
                             >
-                              <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
-                                {student.name.charAt(0).toUpperCase()}
+                              <div className="flex items-center">
+                                <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
+                                  {student.name.charAt(0).toUpperCase()}
+                                </div>
+                                {student.name}
                               </div>
-                              {student.name}
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
+                                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
+                                title="Enviar lembrete pelo WhatsApp"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </button>
                             </div>
                           ))}
                           {students.length === 0 && (
@@ -562,11 +610,20 @@ export const Classes: React.FC = () => {
                               <div className="text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">Alunos ({students.length})</div>
                               <div className="flex flex-col gap-2">
                                 {students.map(student => (
-                                  <div key={student.id} className="flex items-center text-sm text-zinc-700 bg-zinc-50 p-1.5 rounded-lg">
-                                    <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2 shrink-0">
-                                      {student.name.charAt(0).toUpperCase()}
+                                  <div key={student.id} className="flex items-center justify-between text-sm text-zinc-700 bg-zinc-50 p-1.5 rounded-lg group/student">
+                                    <div className="flex items-center truncate">
+                                      <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2 shrink-0">
+                                        {student.name.charAt(0).toUpperCase()}
+                                      </div>
+                                      <span className="truncate">{student.name}</span>
                                     </div>
-                                    <span className="truncate">{student.name}</span>
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
+                                      className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
+                                      title="Enviar lembrete pelo WhatsApp"
+                                    >
+                                      <MessageCircle className="w-4 h-4" />
+                                    </button>
                                   </div>
                                 ))}
                                 {students.length === 0 && <span className="text-sm text-zinc-400 italic">Nenhum aluno matriculado</span>}
