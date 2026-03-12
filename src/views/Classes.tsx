@@ -10,13 +10,16 @@ import {
   Clock,
   LayoutGrid,
   List,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCcw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export const Classes: React.FC = () => {
   const { state, addClass, updateClass, deleteClass } = useAppStore();
   const [searchTerm, setSearchTerm] = useState("");
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [viewMode, setViewMode] = useState<'list' | 'grid' | 'calendar'>('calendar');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | null>(null);
   const [recurrence, setRecurrence] = useState<'none' | 'semanal' | 'quinzenal' | 'mensal'>('none');
@@ -25,6 +28,7 @@ export const Classes: React.FC = () => {
     d.setMonth(d.getMonth() + 6);
     return d.toISOString().split("T")[0];
   });
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const [formData, setFormData] = useState({
     title: "",
@@ -34,6 +38,7 @@ export const Classes: React.FC = () => {
     start_time: "09:00",
     end_time: "10:00",
     status: "scheduled" as "scheduled" | "completed" | "cancelled",
+    allow_makeup: false,
   });
 
   const filteredClasses = state.classes
@@ -57,6 +62,32 @@ export const Classes: React.FC = () => {
   }, {} as Record<string, ClassSession[]>);
 
   const sortedDates = Object.keys(groupedClasses).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfMonth = new Date(year, month, 1).getDay();
+    
+    const days = [];
+    for (let i = 0; i < firstDayOfMonth; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+  };
+
+  const prevMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  };
+
+  const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +127,7 @@ export const Classes: React.FC = () => {
       setFormData({
         ...session,
         student_ids: session.student_ids || [],
+        allow_makeup: session.allow_makeup || false,
       });
     } else {
       setEditingClass(null);
@@ -111,6 +143,7 @@ export const Classes: React.FC = () => {
         start_time: "09:00",
         end_time: "10:00",
         status: "scheduled",
+        allow_makeup: false,
       });
     }
     setIsModalOpen(true);
@@ -179,6 +212,17 @@ export const Classes: React.FC = () => {
           
           <div className="flex bg-zinc-100 p-1 rounded-lg">
             <button
+              onClick={() => setViewMode('calendar')}
+              className={`p-2 rounded-md flex items-center transition-colors ${
+                viewMode === 'calendar' 
+                  ? 'bg-white text-indigo-600 shadow-sm' 
+                  : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+              title="Visualização em Calendário"
+            >
+              <CalendarIcon className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => setViewMode('grid')}
               className={`p-2 rounded-md flex items-center transition-colors ${
                 viewMode === 'grid' 
@@ -203,7 +247,82 @@ export const Classes: React.FC = () => {
           </div>
         </div>
 
-        {viewMode === 'list' ? (
+        {viewMode === 'calendar' ? (
+          <div className="p-6 bg-zinc-50/50">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-zinc-900">
+                {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+              </h2>
+              <div className="flex space-x-2">
+                <button
+                  onClick={prevMonth}
+                  className="p-2 rounded-lg border border-zinc-200 hover:bg-zinc-100 transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5 text-zinc-600" />
+                </button>
+                <button
+                  onClick={nextMonth}
+                  className="p-2 rounded-lg border border-zinc-200 hover:bg-zinc-100 transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5 text-zinc-600" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-px bg-zinc-200 rounded-xl overflow-hidden border border-zinc-200">
+              {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => (
+                <div key={day} className="bg-zinc-50 py-2 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                  {day}
+                </div>
+              ))}
+              
+              {getDaysInMonth(currentMonth).map((date, index) => {
+                if (!date) {
+                  return <div key={`empty-${index}`} className="bg-zinc-50/50 min-h-[120px]" />;
+                }
+                
+                const dateStr = date.toISOString().split('T')[0];
+                const dayClasses = groupedClasses[dateStr] || [];
+                const isToday = new Date().toISOString().split('T')[0] === dateStr;
+                
+                return (
+                  <div key={dateStr} className={`bg-white min-h-[120px] p-2 ${isToday ? 'ring-2 ring-indigo-500 ring-inset' : ''}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-zinc-700'}`}>
+                        {date.getDate()}
+                      </span>
+                      {dayClasses.length > 0 && (
+                        <span className="text-xs font-medium text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-md">
+                          {dayClasses.length}
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
+                      {dayClasses.map(session => (
+                        <div 
+                          key={session.id} 
+                          onClick={() => openModal(session)}
+                          className={`text-xs p-1.5 rounded border cursor-pointer hover:shadow-sm transition-shadow ${
+                            session.status === 'scheduled' ? 'bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300' :
+                            session.status === 'completed' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:border-emerald-300' :
+                            'bg-rose-50 border-rose-200 text-rose-800 hover:border-rose-300'
+                          }`}
+                        >
+                          <div className="font-semibold truncate flex items-center justify-between">
+                            <span className="truncate">{session.start_time}</span>
+                            {session.allow_makeup && <RefreshCcw className="w-3 h-3 ml-1 shrink-0" title="Permite reposição" />}
+                          </div>
+                          <div className="truncate opacity-90">{session.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : viewMode === 'list' ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-zinc-200">
             <thead className="bg-zinc-50">
@@ -302,21 +421,29 @@ export const Classes: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2.5 py-1 inline-flex text-xs leading-5 font-medium rounded-full ${
-                            session.status === "scheduled"
-                              ? "bg-amber-100 text-amber-800"
+                        <div className="flex flex-col gap-2">
+                          <span
+                            className={`px-2.5 py-1 inline-flex text-xs leading-5 font-medium rounded-full w-fit ${
+                              session.status === "scheduled"
+                                ? "bg-amber-100 text-amber-800"
+                                : session.status === "completed"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-rose-100 text-rose-800"
+                            }`}
+                          >
+                            {session.status === "scheduled"
+                              ? "Agendada"
                               : session.status === "completed"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {session.status === "scheduled"
-                            ? "Agendada"
-                            : session.status === "completed"
-                              ? "Concluída"
-                              : "Cancelada"}
-                        </span>
+                                ? "Concluída"
+                                : "Cancelada"}
+                          </span>
+                          {session.allow_makeup && (
+                            <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md w-fit">
+                              <RefreshCcw className="w-3 h-3 mr-1" />
+                              Reposição
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
@@ -386,6 +513,13 @@ export const Classes: React.FC = () => {
                               </span>
                             </div>
                             
+                            {session.allow_makeup && (
+                              <div className="mb-3 flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 w-fit px-2 py-1 rounded-md">
+                                <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
+                                Permite Reposição
+                              </div>
+                            )}
+
                             <div className="mb-4">
                               <div className="text-xs font-medium text-zinc-500 mb-1.5 uppercase tracking-wider">Professor</div>
                               <div className="text-sm text-zinc-900 flex items-center">
@@ -606,6 +740,19 @@ export const Classes: React.FC = () => {
                       </div>
                     )}
                   </div>
+                </div>
+
+                <div className="flex items-center pt-2">
+                  <input
+                    type="checkbox"
+                    id="allow_makeup"
+                    checked={formData.allow_makeup}
+                    onChange={(e) => setFormData({ ...formData, allow_makeup: e.target.checked })}
+                    className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="allow_makeup" className="ml-2 block text-sm text-zinc-900">
+                    Permite reposição
+                  </label>
                 </div>
 
                 {!editingClass && (

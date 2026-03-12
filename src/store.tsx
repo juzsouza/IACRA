@@ -28,6 +28,7 @@ export type ClassSession = {
   start_time: string;
   end_time: string;
   status: "scheduled" | "completed" | "cancelled";
+  allow_makeup?: boolean;
 };
 
 export type Transaction = {
