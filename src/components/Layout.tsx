@@ -9,11 +9,12 @@ import {
   X,
   Music,
   LogOut,
+  RefreshCcw,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
 
-type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups";
+type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups" | "makeups";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -36,6 +37,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "payments", label: "Pagamentos", icon: Wallet },
     { id: "teachers", label: "Professores", icon: GraduationCap },
     { id: "classes", label: "Aulas", icon: CalendarDays },
+    { id: "makeups", label: "Reposições", icon: RefreshCcw },
     { id: "finance", label: "Financeiro", icon: Wallet },
     { id: "financial_plans", label: "Planos", icon: Wallet },
     { id: "discount_rules", label: "Regras de Desconto", icon: Wallet },

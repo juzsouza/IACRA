@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCcw,
+  FileText,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -39,7 +40,10 @@ export const Classes: React.FC = () => {
     end_time: "10:00",
     status: "scheduled" as "scheduled" | "completed" | "cancelled",
     allow_makeup: false,
+    report: "",
   });
+
+  const [showReport, setShowReport] = useState(false);
 
   const filteredClasses = state.classes
     .filter(
@@ -128,10 +132,13 @@ export const Classes: React.FC = () => {
         ...session,
         student_ids: session.student_ids || [],
         allow_makeup: session.allow_makeup || false,
+        report: session.report || "",
       });
+      setShowReport(false);
     } else {
       setEditingClass(null);
       setRecurrence('none');
+      setShowReport(false);
       const d = new Date();
       d.setMonth(d.getMonth() + 6);
       setRecurrenceEndDate(d.toISOString().split("T")[0]);
@@ -144,6 +151,7 @@ export const Classes: React.FC = () => {
         end_time: "10:00",
         status: "scheduled",
         allow_makeup: false,
+        report: "",
       });
     }
     setIsModalOpen(true);
@@ -299,7 +307,11 @@ export const Classes: React.FC = () => {
                     </div>
                     
                     <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
-                      {dayClasses.map(session => (
+                      {dayClasses.map(session => {
+                        const students = state.students.filter(s => (session.student_ids || []).includes(s.id));
+                        const studentNames = students.map(s => s.name.split(' ')[0]).join(', ') || 'Sem alunos';
+                        
+                        return (
                         <div 
                           key={session.id} 
                           onClick={() => openModal(session)}
@@ -311,11 +323,15 @@ export const Classes: React.FC = () => {
                         >
                           <div className="font-semibold truncate flex items-center justify-between">
                             <span className="truncate">{session.start_time}</span>
-                            {session.allow_makeup && <RefreshCcw className="w-3 h-3 ml-1 shrink-0" title="Permite reposição" />}
+                            <div className="flex items-center">
+                              {session.report && <FileText className="w-3 h-3 ml-1 shrink-0 opacity-70" title="Possui relatório" />}
+                              {session.allow_makeup && <RefreshCcw className="w-3 h-3 ml-1 shrink-0" title="Permite reposição" />}
+                            </div>
                           </div>
-                          <div className="truncate opacity-90">{session.title}</div>
+                          <div className="truncate opacity-90" title={studentNames}>{studentNames}</div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -438,9 +454,15 @@ export const Classes: React.FC = () => {
                                 : "Cancelada"}
                           </span>
                           {session.allow_makeup && (
-                            <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md w-fit">
+                            <span className="inline-flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md w-fit mt-2">
                               <RefreshCcw className="w-3 h-3 mr-1" />
                               Reposição
+                            </span>
+                          )}
+                          {session.report && (
+                            <span className="inline-flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md w-fit mt-2">
+                              <FileText className="w-3 h-3 mr-1" />
+                              Relatório
                             </span>
                           )}
                         </div>
@@ -517,6 +539,12 @@ export const Classes: React.FC = () => {
                               <div className="mb-3 flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 w-fit px-2 py-1 rounded-md">
                                 <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
                                 Permite Reposição
+                              </div>
+                            )}
+                            {session.report && (
+                              <div className="mb-3 flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-md">
+                                <FileText className="w-3.5 h-3.5 mr-1.5" />
+                                Possui Relatório
                               </div>
                             )}
 
@@ -754,6 +782,40 @@ export const Classes: React.FC = () => {
                     Permite reposição
                   </label>
                 </div>
+
+                {editingClass && (
+                  <div className="pt-2 border-t border-zinc-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowReport(!showReport)}
+                      className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      {showReport ? "Ocultar Relatório" : "Adicionar/Ver Relatório da Aula"}
+                    </button>
+                    
+                    <AnimatePresence>
+                      {showReport && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden mt-3"
+                        >
+                          <label className="block text-sm font-medium text-zinc-700 mb-1">
+                            Relatório / Anotações
+                          </label>
+                          <textarea
+                            value={formData.report}
+                            onChange={(e) => setFormData({ ...formData, report: e.target.value })}
+                            placeholder="Anote o que foi feito na aula, desempenho do aluno, tarefas de casa, etc..."
+                            className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none min-h-[120px] resize-y"
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
 
                 {!editingClass && (
                   <div className="grid grid-cols-2 gap-4 pt-2 border-t border-zinc-100">

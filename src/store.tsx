@@ -29,6 +29,8 @@ export type ClassSession = {
   end_time: string;
   status: "scheduled" | "completed" | "cancelled";
   allow_makeup?: boolean;
+  makeup_scheduled?: boolean;
+  report?: string;
 };
 
 export type Transaction = {

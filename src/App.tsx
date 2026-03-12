@@ -17,10 +17,11 @@ import { Enrollments } from "./views/Enrollments";
 import { DiscountRules } from "./views/DiscountRules";
 import { Payments } from "./views/Payments";
 import { Groups } from "./views/Groups";
+import { Makeups } from "./views/Makeups";
 import { Login } from "./views/Login";
 import { supabase } from "./lib/supabase";
 
-type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups";
+type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups" | "makeups";
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>("dashboard");
@@ -58,6 +59,8 @@ function AppContent() {
         return <Payments />;
       case "groups":
         return <Groups />;
+      case "makeups":
+        return <Makeups />;
       default:
         return <Dashboard />;
     }
