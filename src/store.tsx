@@ -241,28 +241,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         setState(s => {
           // Sync local data to Supabase if it exists locally but not in Supabase
           const syncToSupabase = async () => {
-            if (s.students.length > 0 && (!students || students.length === 0)) {
-              await supabase.from('students').insert(s.students);
-            }
-            if (s.teachers.length > 0 && (!teachers || teachers.length === 0)) {
-              await supabase.from('teachers').insert(s.teachers);
-            }
-            if (s.classes.length > 0 && (!classes || classes.length === 0)) {
-              const classesToInsert = s.classes.map(({ student_ids, ...rest }) => rest);
-              await supabase.from('classes').insert(classesToInsert);
-              
-              const classStudentsToInsert = s.classes.flatMap(c => 
-                (c.student_ids || []).map(student_id => ({ class_id: c.id, student_id }))
-              );
-              if (classStudentsToInsert.length > 0) {
-                await supabase.from('class_students').insert(classStudentsToInsert);
+            try {
+              if (s.students.length > 0 && (!students || students.length === 0)) {
+                const { error } = await supabase.from('students').insert(s.students);
+                if (error) console.error('Error syncing students:', error);
               }
-            }
-            if (s.transactions.length > 0 && (!transactions || transactions.length === 0)) {
-              await supabase.from('transactions').insert(s.transactions);
-            }
-            if (s.financialPlans.length > 0 && (!financialPlans || financialPlans.length === 0)) {
-              await supabase.from('financial_plans').insert(s.financialPlans);
+              if (s.teachers.length > 0 && (!teachers || teachers.length === 0)) {
+                const { error } = await supabase.from('teachers').insert(s.teachers);
+                if (error) console.error('Error syncing teachers:', error);
+              }
+              if (s.classes.length > 0 && (!classes || classes.length === 0)) {
+                const classesToInsert = s.classes.map(({ student_ids, ...rest }) => rest);
+                const { error: classesError } = await supabase.from('classes').insert(classesToInsert);
+                if (classesError) console.error('Error syncing classes:', classesError);
+                
+                const classStudentsToInsert = s.classes.flatMap(c => 
+                  (c.student_ids || []).map(student_id => ({ class_id: c.id, student_id }))
+                );
+                if (classStudentsToInsert.length > 0) {
+                  const { error: csError } = await supabase.from('class_students').insert(classStudentsToInsert);
+                  if (csError) console.error('Error syncing class_students:', csError);
+                }
+              }
+              if (s.transactions.length > 0 && (!transactions || transactions.length === 0)) {
+                const { error } = await supabase.from('transactions').insert(s.transactions);
+                if (error) console.error('Error syncing transactions:', error);
+              }
+              if (s.financialPlans.length > 0 && (!financialPlans || financialPlans.length === 0)) {
+                const { error } = await supabase.from('financial_plans').insert(s.financialPlans);
+                if (error) console.error('Error syncing financial_plans:', error);
+              }
+            } catch (err) {
+              console.error('Unexpected error during syncToSupabase:', err);
             }
           };
           
