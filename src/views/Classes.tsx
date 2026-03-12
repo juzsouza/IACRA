@@ -970,20 +970,37 @@ export const Classes: React.FC = () => {
                   </div>
                 )}
 
-                <div className="pt-4 flex justify-end space-x-3 shrink-0">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
-                  >
-                    Salvar
-                  </button>
+                <div className="pt-4 flex justify-between items-center shrink-0">
+                  {editingClass ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deleteClass(editingClass.id);
+                        closeModal();
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-rose-600 bg-rose-50 rounded-xl hover:bg-rose-100 transition-colors flex items-center"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Excluir
+                    </button>
+                  ) : (
+                    <div></div>
+                  )}
+                  <div className="flex space-x-3">
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                      Salvar
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>
