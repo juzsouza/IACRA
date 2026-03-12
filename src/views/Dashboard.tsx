@@ -158,30 +158,42 @@ export const Dashboard: React.FC = () => {
               state.transactions
                 .slice(-5)
                 .reverse()
-                .map((t) => (
-                  <div
-                    key={t.id}
-                    className="px-6 py-4 flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-zinc-900">
-                        {t.description}
-                      </p>
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        {new Date(t.date).toLocaleDateString("pt-BR")}
-                      </p>
-                    </div>
+                .map((t) => {
+                  let displayDescription = t.description;
+                  if (displayDescription.startsWith('Mensalidade |')) {
+                    const parts = displayDescription.split(' | ');
+                    if (parts.length >= 4) {
+                      // Remove the ID part (index 1)
+                      parts.splice(1, 1);
+                      displayDescription = parts.join(' | ');
+                    }
+                  }
+
+                  return (
                     <div
-                      className={`text-sm font-semibold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}
+                      key={t.id}
+                      className="px-6 py-4 flex items-center justify-between"
                     >
-                      {t.type === "income" ? "+" : "-"}
-                      {new Intl.NumberFormat("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                      }).format(t.amount)}
+                      <div>
+                        <p className="text-sm font-medium text-zinc-900">
+                          {displayDescription}
+                        </p>
+                        <p className="text-xs text-zinc-500 mt-0.5">
+                          {new Date(t.date).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <div
+                        className={`text-sm font-semibold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}
+                      >
+                        {t.type === "income" ? "+" : "-"}
+                        {new Intl.NumberFormat("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        }).format(t.amount)}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
             ) : (
               <div className="px-6 py-8 text-center text-sm text-zinc-500">
                 Nenhuma transação recente.
