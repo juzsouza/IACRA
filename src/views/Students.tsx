@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAppStore, Student } from "../store";
-import { Plus, Search, Edit2, Trash2, X } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X, FileText, Calendar as CalendarIcon, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export const Students: React.FC = () => {
@@ -8,6 +8,8 @@ export const Students: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isReportsModalOpen, setIsReportsModalOpen] = useState(false);
+  const [selectedStudentForReports, setSelectedStudentForReports] = useState<Student | null>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -55,6 +57,16 @@ export const Students: React.FC = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingStudent(null);
+  };
+
+  const openReportsModal = (student: Student) => {
+    setSelectedStudentForReports(student);
+    setIsReportsModalOpen(true);
+  };
+
+  const closeReportsModal = () => {
+    setIsReportsModalOpen(false);
+    setSelectedStudentForReports(null);
   };
 
   return (
@@ -179,6 +191,13 @@ export const Students: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => openReportsModal(student)}
+                        className="text-emerald-600 hover:text-emerald-900 mr-4"
+                        title="Ver Relatórios"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => openModal(student)}
                         className="text-indigo-600 hover:text-indigo-900 mr-4"
@@ -350,6 +369,110 @@ export const Students: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reports Modal */}
+      <AnimatePresence>
+        {isReportsModalOpen && selectedStudentForReports && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={closeReportsModal}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden relative z-10 flex flex-col max-h-[90vh]"
+            >
+              <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center bg-white shrink-0">
+                <div>
+                  <h3 className="text-lg font-semibold text-zinc-900 flex items-center">
+                    <FileText className="w-5 h-5 mr-2 text-emerald-600" />
+                    Relatórios de Aulas
+                  </h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Aluno: <span className="font-medium text-zinc-900">{selectedStudentForReports.name}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={closeReportsModal}
+                  className="text-zinc-400 hover:text-zinc-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-zinc-50/50">
+                {(() => {
+                  const studentClassesWithReports = state.classes
+                    .filter(c => (c.student_ids || []).includes(selectedStudentForReports.id) && c.report && c.report.trim() !== "")
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                  if (studentClassesWithReports.length === 0) {
+                    return (
+                      <div className="text-center py-12 bg-white rounded-xl border border-zinc-200">
+                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-zinc-100 mb-3">
+                          <FileText className="w-6 h-6 text-zinc-400" />
+                        </div>
+                        <h4 className="text-sm font-medium text-zinc-900 mb-1">Nenhum relatório encontrado</h4>
+                        <p className="text-xs text-zinc-500">
+                          Este aluno ainda não possui relatórios de aulas registrados.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {studentClassesWithReports.map(session => {
+                        const teacher = state.teachers.find(t => t.id === session.teacher_id);
+                        return (
+                          <div key={session.id} className="bg-white p-5 rounded-xl border border-zinc-200 shadow-sm">
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <h4 className="font-medium text-zinc-900">{session.title}</h4>
+                                <div className="flex items-center text-xs text-zinc-500 mt-1 space-x-3">
+                                  <span className="flex items-center">
+                                    <CalendarIcon className="w-3.5 h-3.5 mr-1" />
+                                    {new Date(session.date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                  </span>
+                                  <span className="flex items-center">
+                                    <Clock className="w-3.5 h-3.5 mr-1" />
+                                    {session.start_time} - {session.end_time}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-xs font-medium bg-zinc-100 text-zinc-700 px-2 py-1 rounded-md flex items-center">
+                                Prof. {teacher?.name.split(' ')[0] || "Desconhecido"}
+                              </div>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-zinc-100">
+                              <p className="text-sm text-zinc-700 whitespace-pre-wrap leading-relaxed">
+                                {session.report}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="px-6 py-4 border-t border-zinc-100 bg-white shrink-0 flex justify-end">
+                <button
+                  onClick={closeReportsModal}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
