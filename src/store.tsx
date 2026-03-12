@@ -238,24 +238,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           supabase.from('groups').select('*')
         ]);
 
-        setState(s => ({
-          students: students && students.length > 0 ? students : s.students,
-          teachers: teachers && teachers.length > 0 ? teachers : s.teachers,
-          classes: classes && classes.length > 0 ? classes.map(c => {
-            const { class_students, ...rest } = c;
-            return {
-              ...rest,
-              student_ids: class_students?.map((cs: any) => cs.student_id) || []
-            };
-          }) : s.classes,
-          transactions: transactions && transactions.length > 0 ? transactions : s.transactions,
-          financialPlans: financialPlans && financialPlans.length > 0 ? financialPlans : s.financialPlans,
-          choirVoiceTypes: choirVoiceTypes && choirVoiceTypes.length > 0 ? choirVoiceTypes : s.choirVoiceTypes,
-          choirRegistrations: choirRegistrations && choirRegistrations.length > 0 ? choirRegistrations : s.choirRegistrations,
-          enrollments: enrollments && enrollments.length > 0 ? enrollments : s.enrollments,
-          discountRules: discountRules && discountRules.length > 0 ? discountRules : s.discountRules,
-          groups: groups && groups.length > 0 ? groups : s.groups,
-        }));
+        setState(s => {
+          // Sync local data to Supabase if it exists locally but not in Supabase
+          const syncToSupabase = async () => {
+            if (s.students.length > 0 && (!students || students.length === 0)) {
+              await supabase.from('students').insert(s.students);
+            }
+            if (s.teachers.length > 0 && (!teachers || teachers.length === 0)) {
+              await supabase.from('teachers').insert(s.teachers);
+            }
+            if (s.classes.length > 0 && (!classes || classes.length === 0)) {
+              const classesToInsert = s.classes.map(({ student_ids, ...rest }) => rest);
+              await supabase.from('classes').insert(classesToInsert);
+              
+              const classStudentsToInsert = s.classes.flatMap(c => 
+                (c.student_ids || []).map(student_id => ({ class_id: c.id, student_id }))
+              );
+              if (classStudentsToInsert.length > 0) {
+                await supabase.from('class_students').insert(classStudentsToInsert);
+              }
+            }
+            if (s.transactions.length > 0 && (!transactions || transactions.length === 0)) {
+              await supabase.from('transactions').insert(s.transactions);
+            }
+            if (s.financialPlans.length > 0 && (!financialPlans || financialPlans.length === 0)) {
+              await supabase.from('financial_plans').insert(s.financialPlans);
+            }
+          };
+          
+          syncToSupabase();
+
+          return {
+            students: students && students.length > 0 ? students : s.students,
+            teachers: teachers && teachers.length > 0 ? teachers : s.teachers,
+            classes: classes && classes.length > 0 ? classes.map(c => {
+              const { class_students, ...rest } = c;
+              return {
+                ...rest,
+                student_ids: class_students?.map((cs: any) => cs.student_id) || []
+              };
+            }) : s.classes,
+            transactions: transactions && transactions.length > 0 ? transactions : s.transactions,
+            financialPlans: financialPlans && financialPlans.length > 0 ? financialPlans : s.financialPlans,
+            choirVoiceTypes: choirVoiceTypes && choirVoiceTypes.length > 0 ? choirVoiceTypes : s.choirVoiceTypes,
+            choirRegistrations: choirRegistrations && choirRegistrations.length > 0 ? choirRegistrations : s.choirRegistrations,
+            enrollments: enrollments && enrollments.length > 0 ? enrollments : s.enrollments,
+            discountRules: discountRules && discountRules.length > 0 ? discountRules : s.discountRules,
+            groups: groups && groups.length > 0 ? groups : s.groups,
+          };
+        });
       } catch (error) {
         console.error('Error fetching from Supabase:', error);
       }
@@ -272,29 +303,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
     if (true) {
       const { error } = await supabase.from('students').insert([newStudent]);
-      if (error) console.error('Error adding student:', error);
+      if (error) {
+        console.error('Error adding student:', error);
+        alert('Erro ao salvar aluno no banco de dados. Por favor, tente novamente.');
+        // Revert local state
+        setState((s) => ({
+          ...s,
+          students: s.students.filter(st => st.id !== newStudent.id),
+        }));
+      }
     }
   };
   const updateStudent = async (id: string, updates: Partial<Student>) => {
-    setState((s) => ({
-      ...s,
-      students: s.students.map((st) =>
-        st.id === id ? { ...st, ...updates } : st,
-      ),
-    }));
+    // Save previous state for rollback
+    let previousStudent: Student | undefined;
+    setState((s) => {
+      previousStudent = s.students.find(st => st.id === id);
+      return {
+        ...s,
+        students: s.students.map((st) =>
+          st.id === id ? { ...st, ...updates } : st,
+        ),
+      };
+    });
     if (true) {
       const { error } = await supabase.from('students').update(updates).eq('id', id);
-      if (error) console.error('Error updating student:', error);
+      if (error) {
+        console.error('Error updating student:', error);
+        alert('Erro ao atualizar aluno no banco de dados.');
+        // Revert local state
+        if (previousStudent) {
+          setState((s) => ({
+            ...s,
+            students: s.students.map((st) =>
+              st.id === id ? previousStudent! : st,
+            ),
+          }));
+        }
+      }
     }
   };
   const deleteStudent = async (id: string) => {
-    setState((s) => ({
-      ...s,
-      students: s.students.filter((st) => st.id !== id),
-    }));
+    let deletedStudent: Student | undefined;
+    setState((s) => {
+      deletedStudent = s.students.find(st => st.id === id);
+      return {
+        ...s,
+        students: s.students.filter((st) => st.id !== id),
+      };
+    });
     if (true) {
       const { error } = await supabase.from('students').delete().eq('id', id);
-      if (error) console.error('Error deleting student:', error);
+      if (error) {
+        console.error('Error deleting student:', error);
+        alert('Erro ao excluir aluno no banco de dados.');
+        // Revert local state
+        if (deletedStudent) {
+          setState((s) => ({
+            ...s,
+            students: [...s.students, deletedStudent!],
+          }));
+        }
+      }
     }
   };
 
@@ -339,7 +409,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     if (true) {
       const { student_ids, ...classData } = newClass;
       const { error } = await supabase.from('classes').insert([classData]);
-      if (error) console.error('Error adding class:', error);
+      if (error) {
+        console.error('Error adding class:', error);
+        alert('Erro ao salvar aula no banco de dados. Verifique se o schema.sql foi atualizado no Supabase.');
+        setState((s) => ({
+          ...s,
+          classes: s.classes.filter(c => c.id !== newClass.id),
+        }));
+      }
       else if (student_ids && student_ids.length > 0) {
         const classStudents = student_ids.map(student_id => ({ class_id: newClass.id, student_id }));
         await supabase.from('class_students').insert(classStudents);

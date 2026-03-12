@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS public.classes (
   start_time time NOT NULL,
   end_time time NOT NULL,
   status text CHECK (status IN ('scheduled', 'completed', 'cancelled')),
+  allow_makeup boolean DEFAULT false,
+  makeup_scheduled boolean DEFAULT false,
+  report text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.enrollments (
+  id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+  student_id uuid REFERENCES public.students(id) ON DELETE CASCADE,
+  plan_id uuid REFERENCES public.financial_plans(id),
+  start_date date NOT NULL,
+  status text CHECK (status IN ('active', 'inactive', 'cancelled')),
+  due_day integer NOT NULL,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -142,6 +155,7 @@ INSERT INTO public.choir_voice_types (name, max_slots) VALUES
 ON CONFLICT DO NOTHING;
 
 -- Enable RLS
+ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.financial_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.financial_discount_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.choir_voice_types ENABLE ROW LEVEL SECURITY;
@@ -156,6 +170,7 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
 
 -- Create policies (allow all for authenticated users)
+CREATE POLICY "Allow all for authenticated" ON public.enrollments FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated" ON public.financial_plans FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated" ON public.financial_discount_rules FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated" ON public.choir_voice_types FOR ALL USING (auth.role() = 'authenticated');
