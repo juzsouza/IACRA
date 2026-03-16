@@ -7,12 +7,14 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [isSignUp, setIsSignUp] = useState(false);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       if (isSignUp) {
@@ -21,7 +23,7 @@ export const Login: React.FC = () => {
           password,
         });
         if (error) throw error;
-        alert('Cadastro realizado com sucesso! Verifique seu email se necessário, ou faça login.');
+        setSuccess('Cadastro realizado com sucesso! Verifique seu email se necessário, ou faça login.');
         setIsSignUp(false);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
@@ -59,6 +61,11 @@ export const Login: React.FC = () => {
             {error && (
               <div className="bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-xl text-sm">
                 {error}
+              </div>
+            )}
+            {success && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-3 rounded-xl text-sm">
+                {success}
               </div>
             )}
             

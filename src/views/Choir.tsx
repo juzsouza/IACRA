@@ -4,10 +4,16 @@ import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, XCircle, Clock } fr
 import { motion, AnimatePresence } from 'motion/react';
 
 export const Choir: React.FC = () => {
-  const { state, addChoirRegistration, updateChoirRegistration, deleteChoirRegistration } = useAppStore();
+  const { state, addChoirRegistration, updateChoirRegistration, deleteChoirRegistration, addChoirVoiceType, updateChoirVoiceType, deleteChoirVoiceType } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isVoiceTypeModalOpen, setIsVoiceTypeModalOpen] = useState(false);
   const [editingRegistration, setEditingRegistration] = useState<ChoirRegistration | null>(null);
+  const [editingVoiceType, setEditingVoiceType] = useState<any | null>(null);
+  const [voiceTypeFormData, setVoiceTypeFormData] = useState({ name: '', max_slots: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [voiceTypeError, setVoiceTypeError] = useState<string | null>(null);
+  const [voiceTypeToDelete, setVoiceTypeToDelete] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Omit<ChoirRegistration, 'id'>>({
     student_id: '',
@@ -51,6 +57,7 @@ export const Choir: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     
     // Validate slots if approving
     if (formData.status === 'approved') {
@@ -58,7 +65,7 @@ export const Choir: React.FC = () => {
       const isCurrentlyApproved = editingRegistration?.status === 'approved';
       
       if (!isCurrentlyApproved && stats.available <= 0) {
-        alert('Não há vagas disponíveis para este naipe.');
+        setError('Não há vagas disponíveis para este naipe.');
         return;
       }
     }
@@ -97,6 +104,7 @@ export const Choir: React.FC = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingRegistration(null);
+    setError(null);
   };
 
   const getStatusBadge = (status: string) => {
@@ -117,13 +125,22 @@ export const Choir: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Coral</h1>
           <p className="text-sm text-zinc-500 mt-1">Gestão de vagas, naipes e inscrições do coral.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Nova Inscrição
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={() => setIsVoiceTypeModalOpen(true)}
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Gerenciar Naipes
+          </button>
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Nova Inscrição
+          </button>
+        </div>
       </div>
 
       {/* Voice Types Stats */}
@@ -255,6 +272,11 @@ export const Choir: React.FC = () => {
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                {error && (
+                  <div className="p-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl">
+                    {error}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">Aluno</label>
                   <select
@@ -340,6 +362,175 @@ export const Choir: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Voice Types Modal */}
+      <AnimatePresence>
+        {isVoiceTypeModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => {
+                setIsVoiceTypeModalOpen(false);
+                setEditingVoiceType(null);
+                setVoiceTypeFormData({ name: '', max_slots: 0 });
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden relative z-10 max-h-[90vh] flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center shrink-0">
+                <h3 className="text-lg font-semibold text-zinc-900">Gerenciar Naipes</h3>
+                <button
+                  onClick={() => {
+                    setIsVoiceTypeModalOpen(false);
+                    setEditingVoiceType(null);
+                    setVoiceTypeFormData({ name: '', max_slots: 0 });
+                  }}
+                  className="text-zinc-400 hover:text-zinc-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto space-y-6">
+                {/* Add/Edit Form */}
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (editingVoiceType) {
+                    updateChoirVoiceType(editingVoiceType.id, voiceTypeFormData);
+                  } else {
+                    addChoirVoiceType(voiceTypeFormData);
+                  }
+                  setEditingVoiceType(null);
+                  setVoiceTypeFormData({ name: '', max_slots: 0 });
+                }} className="bg-zinc-50 p-4 rounded-xl border border-zinc-200">
+                  <h4 className="text-sm font-medium text-zinc-900 mb-3">
+                    {editingVoiceType ? 'Editar Naipe' : 'Novo Naipe'}
+                  </h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 mb-1">Nome</label>
+                      <input
+                        required
+                        type="text"
+                        value={voiceTypeFormData.name}
+                        onChange={e => setVoiceTypeFormData({...voiceTypeFormData, name: e.target.value})}
+                        className="w-full px-3 py-1.5 text-sm border border-zinc-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="Ex: Soprano"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 mb-1">Vagas</label>
+                      <input
+                        required
+                        type="number"
+                        min="1"
+                        value={voiceTypeFormData.max_slots || ''}
+                        onChange={e => setVoiceTypeFormData({...voiceTypeFormData, max_slots: parseInt(e.target.value) || 0})}
+                        className="w-full px-3 py-1.5 text-sm border border-zinc-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end space-x-2">
+                    {editingVoiceType && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingVoiceType(null);
+                          setVoiceTypeFormData({ name: '', max_slots: 0 });
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-zinc-700 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                    >
+                      {editingVoiceType ? 'Salvar' : 'Adicionar'}
+                    </button>
+                  </div>
+                </form>
+
+                {/* List */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-zinc-900 mb-2">Naipes Cadastrados</h4>
+                  {voiceTypeError && (
+                    <div className="p-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl mb-3">
+                      {voiceTypeError}
+                    </div>
+                  )}
+                  {state.choirVoiceTypes.map(voice => (
+                    <div key={voice.id} className="flex items-center justify-between p-3 bg-white border border-zinc-200 rounded-xl">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-900">{voice.name}</p>
+                        <p className="text-xs text-zinc-500">{voice.max_slots} vagas no total</p>
+                      </div>
+                      {voiceTypeToDelete === voice.id ? (
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-rose-600 font-medium">Excluir?</span>
+                          <button
+                            onClick={() => {
+                              deleteChoirVoiceType(voice.id);
+                              setVoiceTypeToDelete(null);
+                            }}
+                            className="px-2 py-1 text-xs font-medium text-white bg-rose-600 rounded hover:bg-rose-700"
+                          >
+                            Sim
+                          </button>
+                          <button
+                            onClick={() => setVoiceTypeToDelete(null)}
+                            className="px-2 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded hover:bg-zinc-200"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingVoiceType(voice);
+                              setVoiceTypeFormData({ name: voice.name, max_slots: voice.max_slots });
+                              setVoiceTypeError(null);
+                            }}
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const hasRegistrations = state.choirRegistrations.some(r => r.voice_type_id === voice.id);
+                              if (hasRegistrations) {
+                                setVoiceTypeError('Não é possível excluir este naipe pois existem alunos matriculados nele. Remova ou transfira os alunos antes de excluir.');
+                                return;
+                              }
+                              setVoiceTypeError(null);
+                              setVoiceTypeToDelete(voice.id);
+                            }}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {state.choirVoiceTypes.length === 0 && (
+                    <p className="text-sm text-zinc-500 text-center py-4">Nenhum naipe cadastrado.</p>
+                  )}
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

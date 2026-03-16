@@ -21,11 +21,14 @@ import { Makeups } from "./views/Makeups";
 import { Login } from "./views/Login";
 import { supabase } from "./lib/supabase";
 
+import { X } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+
 type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups" | "makeups";
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>("dashboard");
-  const { state, deleteFinancialPlan } = useAppStore();
+  const { state, deleteFinancialPlan, setGlobalError } = useAppStore();
 
   useEffect(() => {
     // Cleanup Acordo Especial plans
@@ -68,6 +71,24 @@ function AppContent() {
 
   return (
     <Layout currentView={currentView} onViewChange={setCurrentView}>
+      <AnimatePresence>
+        {state.globalError && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 right-4 z-50 max-w-md bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-xl shadow-lg flex items-start justify-between"
+          >
+            <span className="text-sm font-medium mr-4">{state.globalError}</span>
+            <button
+              onClick={() => setGlobalError(null)}
+              className="p-1 hover:bg-rose-100 rounded-lg transition-colors flex-shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {renderView()}
     </Layout>
   );

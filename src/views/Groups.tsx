@@ -8,6 +8,7 @@ export const Groups: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
+  const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -136,22 +137,41 @@ export const Groups: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => openModal(group)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm('Tem certeza que deseja excluir este grupo?')) {
-                              deleteGroup(group.id);
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-900 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {groupToDelete === group.id ? (
+                          <div className="flex items-center justify-end space-x-2">
+                            <span className="text-xs text-rose-600 font-medium">Excluir?</span>
+                            <button
+                              onClick={() => {
+                                deleteGroup(group.id);
+                                setGroupToDelete(null);
+                              }}
+                              className="px-2 py-1 text-xs font-medium text-white bg-rose-600 rounded hover:bg-rose-700"
+                            >
+                              Sim
+                            </button>
+                            <button
+                              onClick={() => setGroupToDelete(null)}
+                              className="px-2 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded hover:bg-zinc-200"
+                            >
+                              Não
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => openModal(group)}
+                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setGroupToDelete(group.id)}
+                              className="text-red-600 hover:text-red-900 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

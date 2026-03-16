@@ -25,6 +25,7 @@ export const Classes: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'calendar'>('calendar');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [recurrence, setRecurrence] = useState<'none' | 'semanal' | 'quinzenal' | 'mensal'>('none');
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(() => {
     const d = new Date();
@@ -98,16 +99,19 @@ export const Classes: React.FC = () => {
   const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
   const sendWhatsAppReminder = (session: ClassSession, studentId?: string) => {
+    setError(null);
     const students = state.students.filter(s => (session.student_ids || []).includes(s.id));
     const targetStudent = studentId ? students.find(s => s.id === studentId) : students[0];
 
     if (!targetStudent) {
-      alert("Aluno não encontrado.");
+      setError("Aluno não encontrado.");
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
     if (!targetStudent.phone) {
-      alert(`O aluno ${targetStudent.name} não possui telefone cadastrado.`);
+      setError(`O aluno ${targetStudent.name} não possui telefone cadastrado.`);
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
@@ -222,6 +226,23 @@ export const Classes: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Error Message */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl flex items-center justify-between"
+          >
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="p-1 hover:bg-rose-100 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">
@@ -347,6 +368,13 @@ export const Classes: React.FC = () => {
                       {dayClasses.map(session => {
                         const students = state.students.filter(s => (session.student_ids || []).includes(s.id));
                         const studentNames = students.map(s => s.name.split(' ')[0]).join(', ') || 'Sem alunos';
+                        const groupMatch = state.groups.find(g => 
+                          session.title === `Aula de ${g.name}` || 
+                          session.title === g.name ||
+                          session.title.startsWith(`${g.name} -`) ||
+                          session.title.endsWith(`- ${g.name}`)
+                        );
+                        const displayNames = groupMatch ? `Grupo: ${groupMatch.name}` : studentNames;
                         
                         return (
                         <div 
@@ -363,7 +391,7 @@ export const Classes: React.FC = () => {
                             <div className="flex items-center">
                               {session.report && <FileText className="w-3 h-3 ml-1 shrink-0 opacity-70" title="Possui relatório" />}
                               {session.allow_makeup && <RefreshCcw className="w-3 h-3 ml-1 shrink-0" title="Permite reposição" />}
-                              {students.length > 0 && (
+                              {students.length > 0 && !groupMatch && (
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session); }}
                                   className="ml-1 text-emerald-600 hover:text-emerald-700 opacity-0 group-hover/session:opacity-100 transition-opacity"
@@ -374,7 +402,7 @@ export const Classes: React.FC = () => {
                               )}
                             </div>
                           </div>
-                          <div className="truncate opacity-90" title={studentNames}>{studentNames}</div>
+                          <div className="truncate opacity-90" title={displayNames}>{displayNames}</div>
                         </div>
                         );
                       })}
@@ -464,31 +492,53 @@ export const Classes: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">
-                          {students.map((student) => (
-                            <div
-                              key={student.id}
-                              className="flex items-center justify-between text-sm text-zinc-900 group/student"
-                            >
-                              <div className="flex items-center">
-                                <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
-                                  {student.name.charAt(0).toUpperCase()}
+                          {(() => {
+                            const groupMatch = state.groups.find(g => 
+                              session.title === `Aula de ${g.name}` || 
+                              session.title === g.name ||
+                              session.title.startsWith(`${g.name} -`) ||
+                              session.title.endsWith(`- ${g.name}`)
+                            );
+                            if (groupMatch) {
+                              return (
+                                <div className="flex items-center text-sm text-zinc-900">
+                                  <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
+                                    {groupMatch.name.charAt(0).toUpperCase()}
+                                  </div>
+                                  Grupo: {groupMatch.name}
                                 </div>
-                                {student.name}
-                              </div>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
-                                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
-                                title="Enviar lembrete pelo WhatsApp"
+                              );
+                            }
+                            
+                            if (students.length === 0) {
+                              return (
+                                <span className="text-sm text-zinc-500">
+                                  Nenhum
+                                </span>
+                              );
+                            }
+
+                            return students.map((student) => (
+                              <div
+                                key={student.id}
+                                className="flex items-center justify-between text-sm text-zinc-900 group/student"
                               >
-                                <MessageCircle className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                          {students.length === 0 && (
-                            <span className="text-sm text-zinc-500">
-                              Nenhum
-                            </span>
-                          )}
+                                <div className="flex items-center">
+                                  <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2">
+                                    {student.name.charAt(0).toUpperCase()}
+                                  </div>
+                                  {student.name}
+                                </div>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
+                                  className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
+                                  title="Enviar lembrete pelo WhatsApp"
+                                >
+                                  <MessageCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ));
+                          })()}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -614,27 +664,53 @@ export const Classes: React.FC = () => {
                             </div>
                             
                             <div className="flex-1">
-                              <div className="text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">Alunos ({students.length})</div>
-                              <div className="flex flex-col gap-2">
-                                {students.map(student => (
-                                  <div key={student.id} className="flex items-center justify-between text-sm text-zinc-700 bg-zinc-50 p-1.5 rounded-lg group/student">
-                                    <div className="flex items-center truncate">
-                                      <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2 shrink-0">
-                                        {student.name.charAt(0).toUpperCase()}
+                              {(() => {
+                                const groupMatch = state.groups.find(g => 
+                                  session.title === `Aula de ${g.name}` || 
+                                  session.title === g.name ||
+                                  session.title.startsWith(`${g.name} -`) ||
+                                  session.title.endsWith(`- ${g.name}`)
+                                );
+                                if (groupMatch) {
+                                  return (
+                                    <>
+                                      <div className="text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">Grupo</div>
+                                      <div className="flex items-center text-sm text-zinc-700 bg-zinc-50 p-2 rounded-lg">
+                                        <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm mr-3 shrink-0">
+                                          {groupMatch.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <span className="font-medium">{groupMatch.name}</span>
                                       </div>
-                                      <span className="truncate">{student.name}</span>
+                                    </>
+                                  );
+                                }
+
+                                return (
+                                  <>
+                                    <div className="text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wider">Alunos ({students.length})</div>
+                                    <div className="flex flex-col gap-2">
+                                      {students.map(student => (
+                                        <div key={student.id} className="flex items-center justify-between text-sm text-zinc-700 bg-zinc-50 p-1.5 rounded-lg group/student">
+                                          <div className="flex items-center truncate">
+                                            <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-2 shrink-0">
+                                              {student.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <span className="truncate">{student.name}</span>
+                                          </div>
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
+                                            className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
+                                            title="Enviar lembrete pelo WhatsApp"
+                                          >
+                                            <MessageCircle className="w-4 h-4" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                      {students.length === 0 && <span className="text-sm text-zinc-400 italic">Nenhum aluno matriculado</span>}
                                     </div>
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); sendWhatsAppReminder(session, student.id); }}
-                                      className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-md transition-colors opacity-0 group-hover/student:opacity-100"
-                                      title="Enviar lembrete pelo WhatsApp"
-                                    >
-                                      <MessageCircle className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                ))}
-                                {students.length === 0 && <span className="text-sm text-zinc-400 italic">Nenhum aluno matriculado</span>}
-                              </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                             
                             <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1 bg-white/90 backdrop-blur-sm rounded-lg p-1 shadow-sm border border-zinc-100">
@@ -693,6 +769,44 @@ export const Classes: React.FC = () => {
                 onSubmit={handleSubmit}
                 className="p-6 space-y-4 overflow-y-auto"
               >
+                {!editingClass && (
+                  <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                    <label className="block text-sm font-medium text-indigo-900 mb-1">
+                      Agendar para um Grupo (Opcional)
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const groupId = e.target.value;
+                        if (!groupId) return;
+                        const group = state.groups.find(g => g.id === groupId);
+                        if (group) {
+                          const enrolledStudents = state.enrollments
+                            .filter(en => en.group_id === groupId && en.status === 'active')
+                            .map(en => en.student_id);
+                          
+                          setFormData({
+                            ...formData,
+                            title: `Aula de ${group.name}`,
+                            teacher_id: group.teacher_id || formData.teacher_id,
+                            student_ids: enrolledStudents
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-indigo-900"
+                    >
+                      <option value="">Selecione um grupo para preencher...</option>
+                      {state.groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-indigo-700 mt-2">
+                      Ao selecionar um grupo, o título, professor e alunos serão preenchidos automaticamente.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">
                     Título da Aula

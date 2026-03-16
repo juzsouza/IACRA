@@ -146,6 +146,65 @@ CREATE TABLE IF NOT EXISTS public.academic_calendar (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Migration for existing databases (will fail gracefully if columns are already text)
+DO $$
+BEGIN
+  -- Drop foreign keys first
+  ALTER TABLE public.enrollments DROP CONSTRAINT IF EXISTS enrollments_student_id_fkey;
+  ALTER TABLE public.enrollments DROP CONSTRAINT IF EXISTS enrollments_plan_id_fkey;
+  ALTER TABLE public.class_students DROP CONSTRAINT IF EXISTS class_students_class_id_fkey;
+  ALTER TABLE public.class_students DROP CONSTRAINT IF EXISTS class_students_student_id_fkey;
+  ALTER TABLE public.classes DROP CONSTRAINT IF EXISTS classes_teacher_id_fkey;
+  ALTER TABLE public.teacher_choir_payments DROP CONSTRAINT IF EXISTS teacher_choir_payments_teacher_id_fkey;
+  ALTER TABLE public.choir_registrations DROP CONSTRAINT IF EXISTS choir_registrations_student_id_fkey;
+  ALTER TABLE public.choir_registrations DROP CONSTRAINT IF EXISTS choir_registrations_voice_type_id_fkey;
+  ALTER TABLE public.financial_discount_rules DROP CONSTRAINT IF EXISTS financial_discount_rules_trigger_plan_id_fkey;
+  ALTER TABLE public.financial_discount_rules DROP CONSTRAINT IF EXISTS financial_discount_rules_target_plan_id_fkey;
+  ALTER TABLE public.groups DROP CONSTRAINT IF EXISTS groups_teacher_id_fkey;
+
+  -- Alter columns to text
+  ALTER TABLE public.students ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.teachers ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.classes ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.classes ALTER COLUMN teacher_id TYPE text USING teacher_id::text;
+  ALTER TABLE public.financial_plans ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.enrollments ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.enrollments ALTER COLUMN student_id TYPE text USING student_id::text;
+  ALTER TABLE public.enrollments ALTER COLUMN plan_id TYPE text USING plan_id::text;
+  ALTER TABLE public.class_students ALTER COLUMN class_id TYPE text USING class_id::text;
+  ALTER TABLE public.class_students ALTER COLUMN student_id TYPE text USING student_id::text;
+  ALTER TABLE public.transactions ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.financial_discount_rules ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.financial_discount_rules ALTER COLUMN trigger_plan_id TYPE text USING trigger_plan_id::text;
+  ALTER TABLE public.financial_discount_rules ALTER COLUMN target_plan_id TYPE text USING target_plan_id::text;
+  ALTER TABLE public.choir_voice_types ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.choir_registrations ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.choir_registrations ALTER COLUMN student_id TYPE text USING student_id::text;
+  ALTER TABLE public.choir_registrations ALTER COLUMN voice_type_id TYPE text USING voice_type_id::text;
+  ALTER TABLE public.teacher_choir_payments ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.teacher_choir_payments ALTER COLUMN teacher_id TYPE text USING teacher_id::text;
+  ALTER TABLE public.academic_calendar ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.groups ALTER COLUMN id TYPE text USING id::text;
+  ALTER TABLE public.groups ALTER COLUMN teacher_id TYPE text USING teacher_id::text;
+
+  -- Recreate foreign keys
+  ALTER TABLE public.enrollments ADD CONSTRAINT enrollments_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
+  ALTER TABLE public.enrollments ADD CONSTRAINT enrollments_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.financial_plans(id);
+  ALTER TABLE public.class_students ADD CONSTRAINT class_students_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE;
+  ALTER TABLE public.class_students ADD CONSTRAINT class_students_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
+  ALTER TABLE public.classes ADD CONSTRAINT classes_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id);
+  ALTER TABLE public.teacher_choir_payments ADD CONSTRAINT teacher_choir_payments_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE CASCADE;
+  ALTER TABLE public.choir_registrations ADD CONSTRAINT choir_registrations_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
+  ALTER TABLE public.choir_registrations ADD CONSTRAINT choir_registrations_voice_type_id_fkey FOREIGN KEY (voice_type_id) REFERENCES public.choir_voice_types(id);
+  ALTER TABLE public.financial_discount_rules ADD CONSTRAINT financial_discount_rules_trigger_plan_id_fkey FOREIGN KEY (trigger_plan_id) REFERENCES public.financial_plans(id);
+  ALTER TABLE public.financial_discount_rules ADD CONSTRAINT financial_discount_rules_target_plan_id_fkey FOREIGN KEY (target_plan_id) REFERENCES public.financial_plans(id);
+  ALTER TABLE public.groups ADD CONSTRAINT groups_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE SET NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Ignore errors if columns are already text or other migration issues
+    NULL;
+END $$;
+
 -- Insert initial data for choir_voice_types
 INSERT INTO public.choir_voice_types (id, name, max_slots) VALUES
 ('soprano-id', 'Soprano', 25),
@@ -184,61 +243,31 @@ CREATE POLICY "Allow all for authenticated" ON public.class_students FOR ALL USI
 CREATE POLICY "Allow all for authenticated" ON public.transactions FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Allow all for authenticated" ON public.groups FOR ALL USING (auth.role() = 'authenticated');
 
--- Migration for existing databases (will fail gracefully if columns are already text)
+-- Cleanup duplicate choir_voice_types and enforce unique name
 DO $$
 BEGIN
-  -- Drop foreign keys first
-  ALTER TABLE public.enrollments DROP CONSTRAINT IF EXISTS enrollments_student_id_fkey;
-  ALTER TABLE public.enrollments DROP CONSTRAINT IF EXISTS enrollments_plan_id_fkey;
-  ALTER TABLE public.class_students DROP CONSTRAINT IF EXISTS class_students_class_id_fkey;
-  ALTER TABLE public.class_students DROP CONSTRAINT IF EXISTS class_students_student_id_fkey;
-  ALTER TABLE public.classes DROP CONSTRAINT IF EXISTS classes_teacher_id_fkey;
-  ALTER TABLE public.teacher_choir_payments DROP CONSTRAINT IF EXISTS teacher_choir_payments_teacher_id_fkey;
-  ALTER TABLE public.choir_registrations DROP CONSTRAINT IF EXISTS choir_registrations_student_id_fkey;
-  ALTER TABLE public.choir_registrations DROP CONSTRAINT IF EXISTS choir_registrations_voice_type_id_fkey;
-  ALTER TABLE public.financial_discount_rules DROP CONSTRAINT IF EXISTS financial_discount_rules_trigger_plan_id_fkey;
-  ALTER TABLE public.financial_discount_rules DROP CONSTRAINT IF EXISTS financial_discount_rules_target_plan_id_fkey;
-  ALTER TABLE public.groups DROP CONSTRAINT IF EXISTS groups_teacher_id_fkey;
+  -- Update registrations to point to the canonical IDs based on the name of their current voice type
+  UPDATE public.choir_registrations cr
+  SET voice_type_id = 
+    CASE (SELECT name FROM public.choir_voice_types WHERE id = cr.voice_type_id)
+      WHEN 'Soprano' THEN 'soprano-id'
+      WHEN 'Contralto' THEN 'contralto-id'
+      WHEN 'Tenor' THEN 'tenor-id'
+      WHEN 'Barítono' THEN 'baritono-id'
+      ELSE cr.voice_type_id
+    END;
 
-  -- Alter columns to text
-  ALTER TABLE public.students ALTER COLUMN id TYPE text;
-  ALTER TABLE public.teachers ALTER COLUMN id TYPE text;
-  ALTER TABLE public.classes ALTER COLUMN id TYPE text;
-  ALTER TABLE public.classes ALTER COLUMN teacher_id TYPE text;
-  ALTER TABLE public.financial_plans ALTER COLUMN id TYPE text;
-  ALTER TABLE public.enrollments ALTER COLUMN id TYPE text;
-  ALTER TABLE public.enrollments ALTER COLUMN student_id TYPE text;
-  ALTER TABLE public.enrollments ALTER COLUMN plan_id TYPE text;
-  ALTER TABLE public.class_students ALTER COLUMN class_id TYPE text;
-  ALTER TABLE public.class_students ALTER COLUMN student_id TYPE text;
-  ALTER TABLE public.transactions ALTER COLUMN id TYPE text;
-  ALTER TABLE public.financial_discount_rules ALTER COLUMN id TYPE text;
-  ALTER TABLE public.financial_discount_rules ALTER COLUMN trigger_plan_id TYPE text;
-  ALTER TABLE public.financial_discount_rules ALTER COLUMN target_plan_id TYPE text;
-  ALTER TABLE public.choir_voice_types ALTER COLUMN id TYPE text;
-  ALTER TABLE public.choir_registrations ALTER COLUMN id TYPE text;
-  ALTER TABLE public.choir_registrations ALTER COLUMN student_id TYPE text;
-  ALTER TABLE public.choir_registrations ALTER COLUMN voice_type_id TYPE text;
-  ALTER TABLE public.teacher_choir_payments ALTER COLUMN id TYPE text;
-  ALTER TABLE public.teacher_choir_payments ALTER COLUMN teacher_id TYPE text;
-  ALTER TABLE public.academic_calendar ALTER COLUMN id TYPE text;
-  ALTER TABLE public.groups ALTER COLUMN id TYPE text;
-  ALTER TABLE public.groups ALTER COLUMN teacher_id TYPE text;
+  -- Delete all voice types that are not the canonical ones
+  DELETE FROM public.choir_voice_types 
+  WHERE id NOT IN ('soprano-id', 'contralto-id', 'tenor-id', 'baritono-id');
 
-  -- Recreate foreign keys
-  ALTER TABLE public.enrollments ADD CONSTRAINT enrollments_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
-  ALTER TABLE public.enrollments ADD CONSTRAINT enrollments_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.financial_plans(id);
-  ALTER TABLE public.class_students ADD CONSTRAINT class_students_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE;
-  ALTER TABLE public.class_students ADD CONSTRAINT class_students_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
-  ALTER TABLE public.classes ADD CONSTRAINT classes_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id);
-  ALTER TABLE public.teacher_choir_payments ADD CONSTRAINT teacher_choir_payments_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE CASCADE;
-  ALTER TABLE public.choir_registrations ADD CONSTRAINT choir_registrations_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE;
-  ALTER TABLE public.choir_registrations ADD CONSTRAINT choir_registrations_voice_type_id_fkey FOREIGN KEY (voice_type_id) REFERENCES public.choir_voice_types(id);
-  ALTER TABLE public.financial_discount_rules ADD CONSTRAINT financial_discount_rules_trigger_plan_id_fkey FOREIGN KEY (trigger_plan_id) REFERENCES public.financial_plans(id);
-  ALTER TABLE public.financial_discount_rules ADD CONSTRAINT financial_discount_rules_target_plan_id_fkey FOREIGN KEY (target_plan_id) REFERENCES public.financial_plans(id);
-  ALTER TABLE public.groups ADD CONSTRAINT groups_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE SET NULL;
+  -- Add unique constraint if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'choir_voice_types_name_key'
+  ) THEN
+    ALTER TABLE public.choir_voice_types ADD CONSTRAINT choir_voice_types_name_key UNIQUE (name);
+  END IF;
 EXCEPTION
   WHEN OTHERS THEN
-    -- Ignore errors if columns are already text or other migration issues
     NULL;
 END $$;

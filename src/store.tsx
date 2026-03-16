@@ -66,7 +66,7 @@ export type FinancialPlan = {
 
 export type ChoirVoiceType = {
   id: string;
-  name: 'Soprano' | 'Contralto' | 'Tenor' | 'Barítono';
+  name: string;
   max_slots: number;
 };
 
@@ -121,10 +121,12 @@ type AppState = {
   enrollments: Enrollment[];
   discountRules: DiscountRule[];
   groups: Group[];
+  globalError: string | null;
 };
 
 type AppContextType = {
   state: AppState;
+  setGlobalError: (error: string | null) => void;
   addStudent: (student: Omit<Student, "id">) => void;
   updateStudent: (id: string, student: Partial<Student>) => void;
   deleteStudent: (id: string) => void;
@@ -144,6 +146,10 @@ type AppContextType = {
   addFinancialPlan: (plan: Omit<FinancialPlan, "id">) => void;
   updateFinancialPlan: (id: string, plan: Partial<FinancialPlan>) => void;
   deleteFinancialPlan: (id: string) => void;
+
+  addChoirVoiceType: (voiceType: Omit<ChoirVoiceType, "id">) => void;
+  updateChoirVoiceType: (id: string, voiceType: Partial<ChoirVoiceType>) => void;
+  deleteChoirVoiceType: (id: string) => void;
 
   addChoirRegistration: (registration: Omit<ChoirRegistration, "id">) => void;
   updateChoirRegistration: (id: string, registration: Partial<ChoirRegistration>) => void;
@@ -181,6 +187,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       enrollments: [],
       discountRules: [],
       groups: [],
+      globalError: null,
     };
     const saved = localStorage.getItem("music_school_state");
     if (saved) {
@@ -210,6 +217,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     localStorage.setItem("music_school_state", JSON.stringify(state));
   }, [state]);
+
+  const setGlobalError = (error: string | null) => {
+    setState((s) => ({ ...s, globalError: error }));
+  };
 
   useEffect(() => {
     const fetchFromSupabase = async () => {
@@ -315,7 +326,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error } = await supabase.from('students').insert([newStudent]);
       if (error) {
         console.error('Error adding student:', error);
-        alert('Erro ao salvar aluno no banco de dados. Por favor, tente novamente.');
+        setGlobalError('Erro ao salvar aluno no banco de dados. Por favor, tente novamente.');
         // Revert local state
         setState((s) => ({
           ...s,
@@ -340,7 +351,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error } = await supabase.from('students').update(updates).eq('id', id);
       if (error) {
         console.error('Error updating student:', error);
-        alert('Erro ao atualizar aluno no banco de dados.');
+        setGlobalError('Erro ao atualizar aluno no banco de dados.');
         // Revert local state
         if (previousStudent) {
           setState((s) => ({
@@ -366,7 +377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error } = await supabase.from('students').delete().eq('id', id);
       if (error) {
         console.error('Error deleting student:', error);
-        alert('Erro ao excluir aluno no banco de dados.');
+        setGlobalError('Erro ao excluir aluno no banco de dados.');
         // Revert local state
         if (deletedStudent) {
           setState((s) => ({
@@ -421,7 +432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error } = await supabase.from('classes').insert([classData]);
       if (error) {
         console.error('Error adding class:', error);
-        alert('Erro ao salvar aula no banco de dados. Verifique se o schema.sql foi atualizado no Supabase.');
+        setGlobalError('Erro ao salvar aula no banco de dados. Verifique se o schema.sql foi atualizado no Supabase.');
         setState((s) => ({
           ...s,
           classes: s.classes.filter(c => c.id !== newClass.id),
@@ -526,6 +537,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     if (true) {
       const { error } = await supabase.from('financial_plans').delete().eq('id', id);
       if (error) console.error('Error deleting financial plan:', error);
+    }
+  };
+
+  const addChoirVoiceType = async (voiceType: Omit<ChoirVoiceType, "id">) => {
+    const newVoiceType = { ...voiceType, id: generateId() };
+    setState((s) => ({
+      ...s,
+      choirVoiceTypes: [...s.choirVoiceTypes, newVoiceType],
+    }));
+    if (true) {
+      const { error } = await supabase.from('choir_voice_types').insert([newVoiceType]);
+      if (error) console.error('Error adding choir voice type:', error);
+    }
+  };
+  const updateChoirVoiceType = async (id: string, updates: Partial<ChoirVoiceType>) => {
+    setState((s) => ({
+      ...s,
+      choirVoiceTypes: s.choirVoiceTypes.map((v) =>
+        v.id === id ? { ...v, ...updates } : v,
+      ),
+    }));
+    if (true) {
+      const { error } = await supabase.from('choir_voice_types').update(updates).eq('id', id);
+      if (error) console.error('Error updating choir voice type:', error);
+    }
+  };
+  const deleteChoirVoiceType = async (id: string) => {
+    setState((s) => ({
+      ...s,
+      choirVoiceTypes: s.choirVoiceTypes.filter((v) => v.id !== id),
+    }));
+    if (true) {
+      const { error } = await supabase.from('choir_voice_types').delete().eq('id', id);
+      if (error) console.error('Error deleting choir voice type:', error);
     }
   };
 
@@ -669,6 +714,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     <AppContext.Provider
       value={{
         state,
+        setGlobalError,
         addStudent,
         updateStudent,
         deleteStudent,
@@ -684,6 +730,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         addFinancialPlan,
         updateFinancialPlan,
         deleteFinancialPlan,
+        addChoirVoiceType,
+        updateChoirVoiceType,
+        deleteChoirVoiceType,
         addChoirRegistration,
         updateChoirRegistration,
         deleteChoirRegistration,
