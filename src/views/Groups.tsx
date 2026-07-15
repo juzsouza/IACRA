@@ -3,8 +3,12 @@ import { useAppStore, Group } from '../store';
 import { Users, Plus, Search, Edit2, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+};
+
 export const Groups: React.FC = () => {
-  const { state, addGroup, updateGroup, deleteGroup } = useAppStore();
+  const { state, addGroup, updateGroup, deleteGroup, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
@@ -14,7 +18,9 @@ export const Groups: React.FC = () => {
     name: '',
     teacher_id: '',
     schedule: '',
-    max_students: ''
+    max_students: '',
+    payment_type: 'individual' as 'group' | 'individual',
+    price: ''
   });
 
   const filteredGroups = state.groups.filter(g =>
@@ -28,7 +34,9 @@ export const Groups: React.FC = () => {
         name: group.name,
         teacher_id: group.teacher_id || '',
         schedule: group.schedule || '',
-        max_students: group.max_students?.toString() || ''
+        max_students: group.max_students?.toString() || '',
+        payment_type: group.payment_type || 'individual',
+        price: group.price?.toString() || ''
       });
     } else {
       setEditingGroup(null);
@@ -36,7 +44,9 @@ export const Groups: React.FC = () => {
         name: '',
         teacher_id: '',
         schedule: '',
-        max_students: ''
+        max_students: '',
+        payment_type: 'individual',
+        price: ''
       });
     }
     setIsModalOpen(true);
@@ -53,7 +63,9 @@ export const Groups: React.FC = () => {
       name: formData.name,
       teacher_id: formData.teacher_id || undefined,
       schedule: formData.schedule || undefined,
-      max_students: formData.max_students ? parseInt(formData.max_students, 10) : undefined
+      max_students: formData.max_students ? parseInt(formData.max_students, 10) : undefined,
+      payment_type: formData.payment_type,
+      price: formData.payment_type === 'group' && formData.price ? parseFloat(formData.price) : undefined
     };
 
     if (editingGroup) {
@@ -71,13 +83,15 @@ export const Groups: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Grupos</h1>
           <p className="text-sm text-zinc-500 mt-1">Gerencie os grupos e turmas da escola.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Novo Grupo
-        </button>
+        {currentUserProfile?.role === "super_admin" && (
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Novo Grupo
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -96,9 +110,9 @@ export const Groups: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)]">
           <table className="min-w-full divide-y divide-zinc-200">
-            <thead className="bg-zinc-50">
+            <thead className="bg-zinc-50 sticky top-0 z-10 shadow-sm">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Nome do Grupo</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Professor</th>
@@ -122,6 +136,15 @@ export const Groups: React.FC = () => {
                           </div>
                           <div className="ml-4">
                             <div className="text-sm font-medium text-zinc-900">{group.name}</div>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium mt-1 border ${
+                              group.payment_type === 'group' 
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}>
+                              {group.payment_type === 'group' 
+                                ? `Cobrança: Por Grupo (${group.price !== undefined ? formatCurrency(group.price) : 'Valor não definido'})` 
+                                : 'Cobrança: Individual'}
+                            </span>
                           </div>
                         </div>
                       </td>
@@ -131,46 +154,74 @@ export const Groups: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-zinc-900">{group.schedule || '-'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-zinc-900">
-                          {enrolledCount} {group.max_students ? `/ ${group.max_students}` : ''}
+                      <td className="px-6 py-4">
+                        <div className={`text-sm font-semibold mb-1 flex items-center gap-1.5 ${
+                          group.max_students && enrolledCount > group.max_students 
+                            ? 'text-rose-600' 
+                            : 'text-zinc-900'
+                        }`}>
+                          <span>{enrolledCount} {group.max_students ? `/ ${group.max_students}` : ''}</span>
+                          {group.max_students && enrolledCount > group.max_students && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md">
+                              Excedido
+                            </span>
+                          )}
                         </div>
+                        {(() => {
+                          const enrolledStudents = state.students.filter(st =>
+                            state.enrollments.some(e => e.group_id === group.id && e.student_id === st.id && e.status === 'active')
+                          );
+                          if (enrolledStudents.length > 0) {
+                            return (
+                              <div className="flex flex-wrap gap-1 max-w-xs mt-1">
+                                {enrolledStudents.map(st => (
+                                  <span key={st.id} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
+                                    {st.name}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return <span className="text-xs text-zinc-400">Nenhum aluno ativo</span>;
+                        })()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        {groupToDelete === group.id ? (
-                          <div className="flex items-center justify-end space-x-2">
-                            <span className="text-xs text-rose-600 font-medium">Excluir?</span>
-                            <button
-                              onClick={() => {
-                                deleteGroup(group.id);
-                                setGroupToDelete(null);
-                              }}
-                              className="px-2 py-1 text-xs font-medium text-white bg-rose-600 rounded hover:bg-rose-700"
-                            >
-                              Sim
-                            </button>
-                            <button
-                              onClick={() => setGroupToDelete(null)}
-                              className="px-2 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded hover:bg-zinc-200"
-                            >
-                              Não
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => openModal(group)}
-                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setGroupToDelete(group.id)}
-                              className="text-red-600 hover:text-red-900 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
+                        {currentUserProfile?.role === "super_admin" && (
+                          groupToDelete === group.id ? (
+                            <div className="flex items-center justify-end space-x-2">
+                              <span className="text-xs text-rose-600 font-medium">Excluir?</span>
+                              <button
+                                onClick={() => {
+                                  deleteGroup(group.id);
+                                  setGroupToDelete(null);
+                                }}
+                                className="px-2 py-1 text-xs font-medium text-white bg-rose-600 rounded hover:bg-rose-700"
+                              >
+                                Sim
+                              </button>
+                              <button
+                                onClick={() => setGroupToDelete(null)}
+                                className="px-2 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded hover:bg-zinc-200"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => openModal(group)}
+                                className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setGroupToDelete(group.id)}
+                                className="text-red-600 hover:text-red-900 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )
                         )}
                       </td>
                     </tr>
@@ -258,6 +309,32 @@ export const Groups: React.FC = () => {
                     placeholder="Ex: 15"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">Tipo de Cobrança / Pagamento</label>
+                  <select
+                    value={formData.payment_type}
+                    onChange={(e) => setFormData({ ...formData, payment_type: e.target.value as 'group' | 'individual' })}
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                  >
+                    <option value="individual">Individual (Cada aluno paga individualmente)</option>
+                    <option value="group">Por Grupo (O valor é unificado / cobrado de forma unificada)</option>
+                  </select>
+                </div>
+                {formData.payment_type === 'group' && (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Valor do Grupo (R$)</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.01"
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                      placeholder="Ex: 500"
+                    />
+                  </div>
+                )}
                 <div className="pt-4 flex justify-end gap-3">
                   <button
                     type="button"

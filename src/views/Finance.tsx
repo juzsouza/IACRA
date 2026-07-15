@@ -6,7 +6,9 @@ import {
   Users,
   GraduationCap,
   Wallet,
-  Building2
+  Building2,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -16,6 +18,14 @@ export const Finance: React.FC = () => {
   const [reportType, setReportType] = useState<'projected' | 'actual'>('projected');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [expandedTeachers, setExpandedTeachers] = useState<Record<string, boolean>>({});
+
+  const toggleTeacher = (id: string) => {
+    setExpandedTeachers(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
 
   // Calculate financials based on active enrollments or actual transactions
   const calculateFinancials = () => {
@@ -27,6 +37,21 @@ export const Finance: React.FC = () => {
 
     const teacherPayouts: Record<string, number> = {};
     let secretaryPayout = 0;
+    const teacherBreakdowns: Record<string, Array<{
+      studentName: string,
+      planName: string,
+      totalPrice: number,
+      teacherShare: number,
+      status: string
+    }>> = {};
+
+    const secretaryBreakdown: Array<{
+      studentName: string,
+      planName: string,
+      totalPrice: number,
+      secretaryShare: number,
+      status: string
+    }> = [];
 
     if (reportType === 'projected') {
       // Process regular enrollments
@@ -74,9 +99,30 @@ export const Finance: React.FC = () => {
         const effectiveTeacherId = plan.exclusive_teacher_id || enrollment.teacher_id;
         if (effectiveTeacherId) {
           teacherPayouts[effectiveTeacherId] = (teacherPayouts[effectiveTeacherId] || 0) + teacherShare;
+          
+          if (!teacherBreakdowns[effectiveTeacherId]) {
+            teacherBreakdowns[effectiveTeacherId] = [];
+          }
+          const student = state.students.find(s => s.id === enrollment.student_id);
+          teacherBreakdowns[effectiveTeacherId].push({
+            studentName: student?.name || 'Desconhecido',
+            planName: plan.name,
+            totalPrice: finalPrice,
+            teacherShare: teacherShare,
+            status: 'Ativo (Projetado)'
+          });
         }
         
         secretaryPayout += secShare;
+
+        const student = state.students.find(s => s.id === enrollment.student_id);
+        secretaryBreakdown.push({
+          studentName: student?.name || 'Desconhecido',
+          planName: plan.name,
+          totalPrice: finalPrice,
+          secretaryShare: secShare,
+          status: 'Ativo (Projetado)'
+        });
       });
 
       // Process choir registrations
@@ -116,8 +162,29 @@ export const Finance: React.FC = () => {
               const effectiveTeacherId = plan.exclusive_teacher_id || enrollment.teacher_id;
               if (effectiveTeacherId) {
                 teacherPayouts[effectiveTeacherId] = (teacherPayouts[effectiveTeacherId] || 0) + teacherShare;
+                
+                if (!teacherBreakdowns[effectiveTeacherId]) {
+                  teacherBreakdowns[effectiveTeacherId] = [];
+                }
+                const student = state.students.find(s => s.id === enrollment.student_id);
+                teacherBreakdowns[effectiveTeacherId].push({
+                  studentName: student?.name || 'Desconhecido',
+                  planName: plan.name,
+                  totalPrice: t.amount,
+                  teacherShare: teacherShare,
+                  status: 'Pago (Confirmado)'
+                });
               }
               secretaryPayout += secShare;
+
+              const student = state.students.find(s => s.id === enrollment.student_id);
+              secretaryBreakdown.push({
+                studentName: student?.name || 'Desconhecido',
+                planName: plan.name,
+                totalPrice: t.amount,
+                secretaryShare: secShare,
+                status: 'Pago (Confirmado)'
+              });
             }
           }
         } else {
@@ -135,7 +202,9 @@ export const Finance: React.FC = () => {
       totalSchoolShare,
       totalMargin,
       teacherPayouts,
-      secretaryPayout
+      secretaryPayout,
+      teacherBreakdowns,
+      secretaryBreakdown
     };
   };
 
@@ -308,49 +377,183 @@ export const Finance: React.FC = () => {
           )}
 
           {activeTab === 'teachers' && (
-            <div>
-              <table className="min-w-full divide-y divide-zinc-200">
-                <thead className="bg-zinc-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Professor</th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Total a Receber</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-zinc-200">
-                  {Object.entries(financials.teacherPayouts).map(([teacherId, amount]) => {
-                    const teacher = state.teachers.find(t => t.id === teacherId);
-                    return (
-                      <tr key={teacherId}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-zinc-900">
-                          {teacher?.name || 'Professor Desconhecido'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-indigo-600">
-                          {formatCurrency(amount)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {Object.keys(financials.teacherPayouts).length === 0 && (
-                    <tr>
-                      <td colSpan={2} className="px-6 py-8 text-center text-sm text-zinc-500">
-                        Nenhum repasse de professor calculado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              <div className="text-sm text-zinc-500 mb-2">
+                Selecione um professor para visualizar o extrato detalhado de seus alunos e os respectivos repasses.
+              </div>
+              <div className="divide-y divide-zinc-200 border border-zinc-200 rounded-2xl overflow-hidden bg-white">
+                {Object.entries(financials.teacherPayouts).map(([teacherId, amount]) => {
+                  const teacher = state.teachers.find(t => t.id === teacherId);
+                  const isExpanded = !!expandedTeachers[teacherId];
+                  const breakdown = financials.teacherBreakdowns[teacherId] || [];
+
+                  return (
+                    <div key={teacherId} className="transition-colors">
+                      <button
+                        onClick={() => toggleTeacher(teacherId)}
+                        className="w-full flex items-center justify-between p-5 text-left hover:bg-zinc-50 focus:outline-none transition-colors"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                            <GraduationCap className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-sm font-bold text-zinc-900 block">
+                              {teacher?.name || 'Professor Desconhecido'}
+                            </span>
+                            <span className="text-xs text-zinc-500">
+                              {breakdown.length} {breakdown.length === 1 ? 'aluno vinculado' : 'alunos vinculados'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                          <span className="text-sm font-bold text-indigo-600">
+                            {formatCurrency(amount)}
+                          </span>
+                          {isExpanded ? (
+                            <ChevronUp className="w-5 h-5 text-zinc-400" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 text-zinc-400" />
+                          )}
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="bg-zinc-50/50 px-5 pb-5 pt-2 border-t border-zinc-100">
+                          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white mt-2">
+                            <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                              <thead className="bg-zinc-50">
+                                <tr>
+                                  <th scope="col" className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Aluno</th>
+                                  <th scope="col" className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Plano</th>
+                                  <th scope="col" className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Valor do Aluno</th>
+                                  <th scope="col" className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Repasse Professor</th>
+                                  <th scope="col" className="px-4 py-2.5 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100">
+                                {breakdown.map((item, idx) => (
+                                  <tr key={idx} className="hover:bg-zinc-50/50 transition-colors">
+                                    <td className="px-4 py-3 whitespace-nowrap font-medium text-zinc-900">
+                                      {item.studentName}
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-zinc-600">
+                                      {item.planName}
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-right text-zinc-950 font-medium">
+                                      {formatCurrency(item.totalPrice)}
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-right text-indigo-600 font-semibold">
+                                      {formatCurrency(item.teacherShare)}
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-center">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+                                        item.status.includes('Pago') 
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                          : 'bg-zinc-100 text-zinc-700 border-zinc-200'
+                                      }`}>
+                                        {item.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {breakdown.length === 0 && (
+                                  <tr>
+                                    <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                                      Nenhuma informação detalhada para este professor.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {Object.keys(financials.teacherPayouts).length === 0 && (
+                  <div className="p-8 text-center text-sm text-zinc-500">
+                    Nenhum repasse de professor calculado.
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {activeTab === 'secretary' && (
-            <div className="max-w-md mx-auto mt-8">
-              <div className="bg-amber-50 rounded-2xl p-8 text-center border border-amber-100">
-                <Users className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-zinc-900 mb-2">Repasse Total da Secretária</h3>
-                <p className="text-4xl font-bold text-amber-600">{formatCurrency(financials.secretaryPayout)}</p>
-                <p className="text-sm text-amber-700/70 mt-4">
-                  Calculado com base nas taxas configuradas em cada plano ativo.
-                </p>
+            <div className="space-y-6">
+              <div className="bg-amber-50/60 rounded-2xl p-6 border border-amber-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center space-x-4">
+                  <div className="p-3 bg-amber-100 rounded-xl text-amber-600">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Extrato Consolidado da Secretária</h3>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      {reportType === 'projected' 
+                        ? 'Baseado em matrículas ativas projetadas para este mês.' 
+                        : 'Baseado em pagamentos reais recebidos no mês selecionado.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-left md:text-right bg-white px-5 py-3 rounded-xl border border-zinc-150 shadow-sm md:self-stretch flex flex-col justify-center">
+                  <span className="text-xs text-zinc-400 font-medium uppercase">Repasse Total do Período</span>
+                  <span className="text-2xl font-black text-amber-600">
+                    {formatCurrency(financials.secretaryPayout)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-zinc-800">Detalhamento por Aluno e Plano</h4>
+                <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+                  <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Aluno</th>
+                        <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Plano</th>
+                        <th scope="col" className="px-6 py-3.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Valor do Aluno</th>
+                        <th scope="col" className="px-6 py-3.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Taxa Secretária</th>
+                        <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {financials.secretaryBreakdown.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap font-medium text-zinc-900">
+                            {item.studentName}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-zinc-600">
+                            {item.planName}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-zinc-950 font-medium">
+                            {formatCurrency(item.totalPrice)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-amber-600 font-bold">
+                            {formatCurrency(item.secretaryShare)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                              item.status.includes('Pago') 
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                : 'bg-zinc-100 text-zinc-700 border-zinc-200'
+                            }`}>
+                              {item.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {financials.secretaryBreakdown.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center text-zinc-400">
+                            Nenhum repasse de secretaria encontrado para este período.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

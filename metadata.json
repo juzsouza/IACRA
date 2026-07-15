@@ -1,5 +1,6 @@
 {
   "name": "Music School Manager",
   "description": "A comprehensive management system for music schools, covering students, teachers, classes, and finances.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -11,10 +11,11 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 
 export const Makeups: React.FC = () => {
-  const { state, addClass, updateClass } = useAppStore();
+  const { state, addClass, updateClass, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassSession | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split("T")[0],
@@ -30,8 +31,8 @@ export const Makeups: React.FC = () => {
     const students = state.students.filter(s => (c.student_ids || []).includes(s.id));
     const studentNames = students.map(s => s.name).join(", ");
     return (
-      c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      studentNames.toLowerCase().includes(searchTerm.toLowerCase())
+      (c.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (studentNames || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -43,34 +44,43 @@ export const Makeups: React.FC = () => {
       end_time: session.end_time,
       teacher_id: session.teacher_id,
     });
+    setIsSubmitting(false);
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
+    if (isSubmitting) return;
     setIsModalOpen(false);
     setSelectedClass(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedClass) return;
+    if (!selectedClass || isSubmitting) return;
 
-    // Create the new makeup class
-    addClass({
-      title: `${selectedClass.title} (Reposição)`,
-      teacher_id: formData.teacher_id,
-      student_ids: selectedClass.student_ids,
-      date: formData.date,
-      start_time: formData.start_time,
-      end_time: formData.end_time,
-      status: "scheduled",
-      allow_makeup: false, // Usually makeup classes don't allow another makeup
-    });
+    setIsSubmitting(true);
+    try {
+      // Create the new makeup class
+      await addClass({
+        title: `${selectedClass.title} (Reposição)`,
+        teacher_id: formData.teacher_id,
+        student_ids: selectedClass.student_ids,
+        date: formData.date,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        status: "scheduled",
+        allow_makeup: false, // Usually makeup classes don't allow another makeup
+      });
 
-    // Mark the original class as having its makeup scheduled
-    updateClass(selectedClass.id, { makeup_scheduled: true });
-
-    closeModal();
+      // Mark the original class as having its makeup scheduled
+      await updateClass(selectedClass.id, { makeup_scheduled: true });
+      setIsModalOpen(false);
+      setSelectedClass(null);
+    } catch (err) {
+      console.error("Error scheduling makeup:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -84,6 +94,29 @@ export const Makeups: React.FC = () => {
             Gerencie as aulas canceladas que têm direito a reposição.
           </p>
         </div>
+        {pendingMakeups.length > 0 && (currentUserProfile?.role === "super_admin" || currentUserProfile?.role === "admin") && (
+          <button
+            onClick={async () => {
+              if (window.confirm(`Deseja marcar todas as ${pendingMakeups.length} reposições pendentes listadas como já agendadas/resolvidas?`)) {
+                setIsSubmitting(true);
+                try {
+                  for (const session of pendingMakeups) {
+                    await updateClass(session.id, { makeup_scheduled: true });
+                  }
+                } catch (err) {
+                  console.error("Error clearing pending makeups:", err);
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }
+            }}
+            disabled={isSubmitting}
+            className="inline-flex items-center justify-center px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors rounded-xl shadow-sm disabled:opacity-50"
+          >
+            <Check className="w-4 h-4 mr-2" />
+            Limpar Todas as Pendentes
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -153,13 +186,36 @@ export const Makeups: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => openModal(session)}
-                      className="w-full mt-auto inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
-                    >
-                      <RefreshCcw className="w-4 h-4 mr-2" />
-                      Agendar Reposição
-                    </button>
+                    {(currentUserProfile?.role === "super_admin" || currentUserProfile?.role === "admin") && (
+                      <div className="mt-auto flex flex-col gap-2 pt-2">
+                        <button
+                          onClick={() => openModal(session)}
+                          className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
+                        >
+                          <RefreshCcw className="w-4 h-4 mr-2" />
+                          Agendar Reposição
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm("Deseja marcar esta reposição como já agendada/resolvida para removê-la da lista?")) {
+                              setIsSubmitting(true);
+                              try {
+                                await updateClass(session.id, { makeup_scheduled: true });
+                              } catch (err) {
+                                console.error("Error updating class makeup status:", err);
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }
+                          }}
+                          disabled={isSubmitting}
+                          className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl hover:bg-zinc-100 transition-colors disabled:opacity-50"
+                        >
+                          <Check className="w-4 h-4 mr-2 text-emerald-600" />
+                          Marcar como Já Agendada
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -285,16 +341,18 @@ export const Makeups: React.FC = () => {
                 <div className="pt-4 flex justify-end space-x-3">
                   <button
                     type="button"
+                    disabled={isSubmitting}
                     onClick={closeModal}
-                    className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50"
                   >
-                    Confirmar Agendamento
+                    {isSubmitting ? "Agendando..." : "Confirmar Agendamento"}
                   </button>
                 </div>
               </form>

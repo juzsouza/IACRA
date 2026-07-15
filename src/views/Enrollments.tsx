@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useAppStore, Enrollment, FinancialPlan } from '../store';
-import { Plus, Search, Edit2, Trash2, X, FileText } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, FileText, ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const Enrollments: React.FC = () => {
-  const { state, addEnrollment, updateEnrollment, deleteEnrollment } = useAppStore();
+  const { state, addEnrollment, updateEnrollment, deleteEnrollment, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const [formData, setFormData] = useState<Omit<Enrollment, 'id'>>({
     student_id: '',
@@ -17,15 +20,17 @@ export const Enrollments: React.FC = () => {
     custom_price: undefined,
     status: 'active',
     enrollment_date: new Date().toISOString().split('T')[0],
+    start_date: new Date().toISOString().split('T')[0],
     due_date_day: 5,
   });
 
   const filteredEnrollments = state.enrollments.filter(e => {
     const student = state.students.find(s => s.id === e.student_id);
+    if (student?.not_eligible || student?.status === 'inactive') return false;
     const plan = state.financialPlans.find(p => p.id === e.plan_id);
     return (
-      student?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      plan?.name.toLowerCase().includes(searchTerm.toLowerCase())
+      (student?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (plan?.name || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
   });
 
@@ -74,6 +79,34 @@ export const Enrollments: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.student_id) {
+      setErrorMsg("Por favor, selecione um aluno.");
+      return;
+    }
+
+    const student = state.students.find(s => s.id === formData.student_id);
+    if (student?.status === 'inactive' || student?.not_eligible) {
+      setErrorMsg(`Este aluno (${student.name}) está inativo/não elegível e não pode ser matriculado. Reative-o primeiro para prosseguir.`);
+      return;
+    }
+    
+    // Check for duplicate active enrollment in the same group
+    if (formData.group_id) {
+      const duplicate = state.enrollments.find(env => 
+        env.student_id === formData.student_id && 
+        env.group_id === formData.group_id && 
+        env.status === 'active' &&
+        env.id !== editingEnrollment?.id
+      );
+      if (duplicate) {
+        const student = state.students.find(s => s.id === formData.student_id);
+        const group = state.groups.find(g => g.id === formData.group_id);
+        setErrorMsg(`Este aluno (${student?.name || 'Aluno'}) já possui uma matrícula ativa no grupo "${group?.name || 'Grupo selecionado'}".`);
+        return;
+      }
+    }
+
+    setErrorMsg('');
     if (editingEnrollment) {
       updateEnrollment(editingEnrollment.id, formData);
     } else {
@@ -83,6 +116,9 @@ export const Enrollments: React.FC = () => {
   };
 
   const openModal = (enrollment?: Enrollment) => {
+    setStudentSearch('');
+    setIsStudentDropdownOpen(false);
+    setErrorMsg('');
     if (enrollment) {
       setEditingEnrollment(enrollment);
       setFormData({
@@ -90,6 +126,7 @@ export const Enrollments: React.FC = () => {
         teacher_id: enrollment.teacher_id || '',
         group_id: enrollment.group_id || '',
         custom_price: enrollment.custom_price,
+        start_date: enrollment.start_date || enrollment.enrollment_date,
       });
     } else {
       setEditingEnrollment(null);
@@ -101,6 +138,7 @@ export const Enrollments: React.FC = () => {
         custom_price: undefined,
         status: 'active',
         enrollment_date: new Date().toISOString().split('T')[0],
+        start_date: new Date().toISOString().split('T')[0],
         due_date_day: 5,
       });
     }
@@ -110,6 +148,9 @@ export const Enrollments: React.FC = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingEnrollment(null);
+    setStudentSearch('');
+    setIsStudentDropdownOpen(false);
+    setErrorMsg('');
   };
 
   const formatCurrency = (value: number) => {
@@ -123,13 +164,15 @@ export const Enrollments: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Matrículas</h1>
           <p className="text-sm text-zinc-500 mt-1">Vincule alunos aos planos financeiros e gere mensalidades.</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Nova Matrícula
-        </button>
+        {currentUserProfile?.role === "super_admin" && (
+          <button
+            onClick={() => openModal()}
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Nova Matrícula
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -148,9 +191,9 @@ export const Enrollments: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)]">
           <table className="min-w-full divide-y divide-zinc-200">
-            <thead className="bg-zinc-50">
+            <thead className="bg-zinc-50 sticky top-0 z-10 shadow-sm">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Aluno</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Plano</th>
@@ -202,12 +245,16 @@ export const Enrollments: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button onClick={() => openModal(enrollment)} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteEnrollment(enrollment.id)} className="text-rose-600 hover:text-rose-900">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {currentUserProfile?.role === "super_admin" && (
+                          <>
+                            <button onClick={() => openModal(enrollment)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => deleteEnrollment(enrollment.id)} className="text-rose-600 hover:text-rose-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -253,17 +300,103 @@ export const Enrollments: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-zinc-700 mb-1">Aluno</label>
-                    <select
-                      required
-                      value={formData.student_id}
-                      onChange={e => setFormData({...formData, student_id: e.target.value})}
-                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                    >
-                      <option value="">Selecione um aluno</option>
-                      {state.students.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsStudentDropdownOpen(!isStudentDropdownOpen)}
+                        className="w-full px-3 py-2 border border-zinc-200 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white flex justify-between items-center shadow-sm text-sm"
+                      >
+                        <span className={formData.student_id ? "text-zinc-900 font-medium" : "text-zinc-400"}>
+                          {formData.student_id
+                            ? (() => {
+                                const st = state.students.find(s => s.id === formData.student_id);
+                                return st ? `${st.name}${st.cpf ? ` (CPF: ${st.cpf})` : ''}` : "Aluno selecionado";
+                              })()
+                            : "Selecione um aluno"}
+                        </span>
+                        <ChevronDown className="w-4 h-4 text-zinc-400" />
+                      </button>
+
+                      {isStudentDropdownOpen && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-20"
+                            onClick={() => {
+                              setIsStudentDropdownOpen(false);
+                              setStudentSearch('');
+                            }}
+                          />
+                          <div className="absolute left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-lg z-30 overflow-hidden flex flex-col max-h-60">
+                            <div className="p-2 border-b border-zinc-100 shrink-0 flex items-center space-x-2 bg-zinc-50">
+                              <Search className="w-4 h-4 text-zinc-400 shrink-0" />
+                              <input
+                                type="text"
+                                placeholder="Pesquisar aluno por nome ou CPF..."
+                                value={studentSearch}
+                                onChange={e => setStudentSearch(e.target.value)}
+                                className="w-full text-xs outline-none bg-transparent placeholder-zinc-400 text-zinc-700 py-1"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="overflow-y-auto max-h-48 py-1 divide-y divide-zinc-50">
+                              {state.students
+                                .filter(s => {
+                                  if (s.not_eligible || s.status === 'inactive') return false;
+                                  const nameMatch = (s.name || '').toLowerCase().includes(studentSearch.toLowerCase());
+                                  const cleanSearch = studentSearch.replace(/\D/g, '');
+                                  const cpfMatch = cleanSearch ? (s.cpf || '').replace(/\D/g, '').includes(cleanSearch) : false;
+                                  return nameMatch || cpfMatch;
+                                })
+                                .map(s => {
+                                  const isSelected = s.id === formData.student_id;
+                                  return (
+                                    <button
+                                      key={s.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setFormData({...formData, student_id: s.id});
+                                        setIsStudentDropdownOpen(false);
+                                        setStudentSearch('');
+                                      }}
+                                      className={`w-full text-left px-4 py-2 text-xs flex justify-between items-center hover:bg-zinc-50 transition-colors ${
+                                        isSelected ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-zinc-700"
+                                      }`}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span className="font-medium">{s.name}</span>
+                                        {s.cpf && <span className="text-[10px] text-zinc-400 font-normal">CPF: {s.cpf}</span>}
+                                      </div>
+                                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                                    </button>
+                                  );
+                                })}
+                              {state.students.filter(s => {
+                                if (s.not_eligible || s.status === 'inactive') return false;
+                                const nameMatch = (s.name || '').toLowerCase().includes(studentSearch.toLowerCase());
+                                const cleanSearch = studentSearch.replace(/\D/g, '');
+                                const cpfMatch = cleanSearch ? (s.cpf || '').replace(/\D/g, '').includes(cleanSearch) : false;
+                                return nameMatch || cpfMatch;
+                              }).length === 0 && (
+                                <div className="p-4 text-center text-xs text-zinc-400">
+                                  Nenhum aluno encontrado
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">CPF do Aluno</label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={formData.student_id ? (state.students.find(s => s.id === formData.student_id)?.cpf || 'Não cadastrado') : ''}
+                      placeholder="Nenhum aluno selecionado"
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl bg-zinc-50 text-zinc-500 text-sm outline-none cursor-not-allowed"
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-zinc-700 mb-1">Plano Financeiro</label>
@@ -325,6 +458,16 @@ export const Enrollments: React.FC = () => {
                       type="date"
                       value={formData.enrollment_date}
                       onChange={e => setFormData({...formData, enrollment_date: e.target.value})}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Data de Início</label>
+                    <input
+                      required
+                      type="date"
+                      value={formData.start_date || formData.enrollment_date}
+                      onChange={e => setFormData({...formData, start_date: e.target.value})}
                       className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                     />
                   </div>
@@ -406,6 +549,12 @@ export const Enrollments: React.FC = () => {
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+
+                {errorMsg && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-xl leading-relaxed">
+                    {errorMsg}
                   </div>
                 )}
 

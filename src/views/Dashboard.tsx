@@ -9,7 +9,9 @@ import {
 } from "lucide-react";
 
 export const Dashboard: React.FC = () => {
-  const { state } = useAppStore();
+  const { state, currentUserProfile } = useAppStore();
+
+  const isSuperAdmin = currentUserProfile?.role === "super_admin";
 
   const activeStudents = state.students.filter(
     (s) => s.status === "active",
@@ -51,7 +53,7 @@ export const Dashboard: React.FC = () => {
       color: "text-amber-600",
       bg: "bg-amber-100",
     },
-    {
+    ...(isSuperAdmin ? [{
       label: "Saldo Mensal",
       value: new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -60,7 +62,7 @@ export const Dashboard: React.FC = () => {
       icon: balance >= 0 ? TrendingUp : TrendingDown,
       color: balance >= 0 ? "text-indigo-600" : "text-rose-600",
       bg: balance >= 0 ? "bg-indigo-100" : "bg-rose-100",
-    },
+    }] : []),
   ];
 
   return (
@@ -74,7 +76,7 @@ export const Dashboard: React.FC = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-4`}>
         {stats.map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -96,7 +98,7 @@ export const Dashboard: React.FC = () => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 ${isSuperAdmin ? "lg:grid-cols-2" : ""} gap-6`}>
         {/* Recent Classes */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="px-6 py-5 border-b border-zinc-100">
@@ -129,7 +131,7 @@ export const Dashboard: React.FC = () => {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium text-zinc-900">
-                          {new Date(c.date).toLocaleDateString("pt-BR")}
+                          {new Date(c.date + "T12:00:00").toLocaleDateString("pt-BR")}
                         </p>
                         <p className="text-xs text-zinc-500 mt-0.5">
                           {c.start_time} - {c.end_time}
@@ -147,60 +149,62 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Recent Transactions */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-zinc-100">
-            <h3 className="text-base font-semibold text-zinc-900">
-              Últimas Transações
-            </h3>
-          </div>
-          <div className="divide-y divide-zinc-100">
-            {state.transactions.slice(-5).reverse().length > 0 ? (
-              state.transactions
-                .slice(-5)
-                .reverse()
-                .map((t) => {
-                  let displayDescription = t.description;
-                  if (displayDescription.startsWith('Mensalidade |')) {
-                    const parts = displayDescription.split(' | ');
-                    if (parts.length >= 4) {
-                      // Remove the ID part (index 1)
-                      parts.splice(1, 1);
-                      displayDescription = parts.join(' | ');
+        {isSuperAdmin && (
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-zinc-100">
+              <h3 className="text-base font-semibold text-zinc-900">
+                Últimas Transações
+              </h3>
+            </div>
+            <div className="divide-y divide-zinc-100">
+              {state.transactions.slice(-5).reverse().length > 0 ? (
+                state.transactions
+                  .slice(-5)
+                  .reverse()
+                  .map((t) => {
+                    let displayDescription = t.description;
+                    if (displayDescription.startsWith('Mensalidade |')) {
+                      const parts = displayDescription.split(' | ');
+                      if (parts.length >= 4) {
+                        // Remove the ID part (index 1)
+                        parts.splice(1, 1);
+                        displayDescription = parts.join(' | ');
+                      }
                     }
-                  }
 
-                  return (
-                    <div
-                      key={t.id}
-                      className="px-6 py-4 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-zinc-900">
-                          {displayDescription}
-                        </p>
-                        <p className="text-xs text-zinc-500 mt-0.5">
-                          {new Date(t.date).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
+                    return (
                       <div
-                        className={`text-sm font-semibold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}
+                        key={t.id}
+                        className="px-6 py-4 flex items-center justify-between"
                       >
-                        {t.type === "income" ? "+" : "-"}
-                        {new Intl.NumberFormat("pt-BR", {
-                          style: "currency",
-                          currency: "BRL",
-                        }).format(t.amount)}
+                        <div>
+                          <p className="text-sm font-medium text-zinc-900">
+                            {displayDescription}
+                          </p>
+                          <p className="text-xs text-zinc-500 mt-0.5">
+                            {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")}
+                          </p>
+                        </div>
+                        <div
+                          className={`text-sm font-semibold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}
+                        >
+                          {t.type === "income" ? "+" : "-"}
+                          {new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          }).format(t.amount)}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-            ) : (
-              <div className="px-6 py-8 text-center text-sm text-zinc-500">
-                Nenhuma transação recente.
-              </div>
-            )}
+                    );
+                  })
+              ) : (
+                <div className="px-6 py-8 text-center text-sm text-zinc-500">
+                  Nenhuma transação recente.
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

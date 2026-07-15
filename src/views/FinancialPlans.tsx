@@ -4,7 +4,7 @@ import { Plus, Search, Edit2, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const FinancialPlans: React.FC = () => {
-  const { state, addFinancialPlan, updateFinancialPlan, deleteFinancialPlan } = useAppStore();
+  const { state, addFinancialPlan, updateFinancialPlan, deleteFinancialPlan, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<FinancialPlan | null>(null);
@@ -261,21 +261,23 @@ export const FinancialPlans: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Planos Financeiros</h1>
           <p className="text-sm text-zinc-500 mt-1">Configure os planos, valores e regras de repasse.</p>
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={seedDefaultPlans}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-500 transition-colors shadow-sm"
-          >
-            Atualizar Repasses
-          </button>
-          <button
-            onClick={() => openModal()}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Plano
-          </button>
-        </div>
+        {currentUserProfile?.role === "super_admin" && (
+          <div className="flex space-x-3">
+            <button
+              onClick={seedDefaultPlans}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-500 transition-colors shadow-sm"
+            >
+              Atualizar Repasses
+            </button>
+            <button
+              onClick={() => openModal()}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Plano
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -346,12 +348,16 @@ export const FinancialPlans: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button onClick={() => openModal(plan)} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => deleteFinancialPlan(plan.id)} className="text-rose-600 hover:text-rose-900">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {currentUserProfile?.role === "super_admin" && (
+                        <>
+                          <button onClick={() => openModal(plan)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => deleteFinancialPlan(plan.id)} className="text-rose-600 hover:text-rose-900">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))

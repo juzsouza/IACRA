@@ -10,6 +10,7 @@ import { Dashboard } from "./views/Dashboard";
 import { Students } from "./views/Students";
 import { Teachers } from "./views/Teachers";
 import { Classes } from "./views/Classes";
+import { ClassReports } from "./views/ClassReports";
 import { Finance } from "./views/Finance";
 import { FinancialPlans } from "./views/FinancialPlans";
 import { Choir } from "./views/Choir";
@@ -18,17 +19,46 @@ import { DiscountRules } from "./views/DiscountRules";
 import { Payments } from "./views/Payments";
 import { Groups } from "./views/Groups";
 import { Makeups } from "./views/Makeups";
+import { Prospects } from "./views/Prospects";
+import { Profiles } from "./views/Profiles";
 import { Login } from "./views/Login";
+import { NotEligible } from "./views/NotEligible";
 import { supabase } from "./lib/supabase";
 
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups" | "makeups";
+type View =
+  | "dashboard"
+  | "students"
+  | "teachers"
+  | "classes"
+  | "class_reports"
+  | "finance"
+  | "financial_plans"
+  | "choir"
+  | "enrollments"
+  | "discount_rules"
+  | "payments"
+  | "groups"
+  | "makeups"
+  | "prospects"
+  | "profiles"
+  | "not_eligible";
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<View>("dashboard");
-  const { state, deleteFinancialPlan, setGlobalError } = useAppStore();
+  const { state, deleteFinancialPlan, setGlobalError, currentUserProfile } = useAppStore();
+  const [currentView, setCurrentView] = useState<View>("students");
+
+  useEffect(() => {
+    if (currentUserProfile) {
+      if (currentUserProfile.role === "teacher") {
+        setCurrentView("students");
+      } else {
+        setCurrentView("dashboard");
+      }
+    }
+  }, [currentUserProfile?.role]);
 
   useEffect(() => {
     // Cleanup Acordo Especial plans
@@ -48,6 +78,8 @@ function AppContent() {
         return <Teachers />;
       case "classes":
         return <Classes />;
+      case "class_reports":
+        return <ClassReports />;
       case "finance":
         return <Finance />;
       case "financial_plans":
@@ -64,8 +96,14 @@ function AppContent() {
         return <Groups />;
       case "makeups":
         return <Makeups />;
+      case "prospects":
+        return <Prospects />;
+      case "profiles":
+        return <Profiles />;
+      case "not_eligible":
+        return <NotEligible />;
       default:
-        return <Dashboard />;
+        return <Students />;
     }
   };
 
@@ -99,10 +137,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Error getting session, possibly due to network failure:", err);
+        setLoading(false);
+      });
 
     const {
       data: { subscription },
@@ -110,8 +153,58 @@ export default function App() {
       setSession(session);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
+
+  // 5 minutes inactivity and storage/cookie clear checks
+  useEffect(() => {
+    if (!session) return;
+
+    let timeoutId: any;
+
+    const handleLogout = () => {
+      supabase.auth.signOut().catch((err) => {
+        console.error("Erro ao realizar saída automática:", err);
+      });
+    };
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        handleLogout();
+      }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    };
+
+    // Listen to user interactions to reset timer
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => {
+      window.addEventListener(event, resetTimer);
+    });
+
+    // Start inactivity timer initially
+    resetTimer();
+
+    // Periodically verify if session storage was cleared (logout/cleared cookies)
+    const checkSessionInterval = setInterval(() => {
+      const keys = Object.keys(sessionStorage);
+      const hasAuthKey = keys.some(key => key.startsWith('sb-') && key.endsWith('-auth-token'));
+      if (!hasAuthKey) {
+        handleLogout();
+      }
+    }, 2000);
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      clearInterval(checkSessionInterval);
+      events.forEach(event => {
+        window.removeEventListener(event, resetTimer);
+      });
+    };
+  }, [session]);
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-zinc-50">Carregando...</div>;

@@ -4,7 +4,7 @@ import { Plus, Search, Edit2, Trash2, X, Percent } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const DiscountRules: React.FC = () => {
-  const { state, addDiscountRule, updateDiscountRule, deleteDiscountRule } = useAppStore();
+  const { state, addDiscountRule, updateDiscountRule, deleteDiscountRule, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<DiscountRule | null>(null);
@@ -23,9 +23,9 @@ export const DiscountRules: React.FC = () => {
     const triggerPlan = state.financialPlans.find(p => p.id === r.trigger_plan_id);
     const targetPlan = state.financialPlans.find(p => p.id === r.target_plan_id);
     return (
-      r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      triggerPlan?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      targetPlan?.name.toLowerCase().includes(searchTerm.toLowerCase())
+      (r.description || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (triggerPlan?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (targetPlan?.name || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
   });
 
@@ -149,21 +149,23 @@ export const DiscountRules: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Regras de Desconto</h1>
           <p className="text-sm text-zinc-500 mt-1">Configure descontos cruzados entre planos (ex: Aluno de Canto ganha desconto no Violão).</p>
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={seedDefaultRules}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-500 transition-colors shadow-sm"
-          >
-            Carregar Regras Padrão
-          </button>
-          <button
-            onClick={() => openModal()}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Nova Regra
-          </button>
-        </div>
+        {currentUserProfile?.role === "super_admin" && (
+          <div className="flex space-x-3">
+            <button
+              onClick={seedDefaultRules}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-500 transition-colors shadow-sm"
+            >
+              Carregar Regras Padrão
+            </button>
+            <button
+              onClick={() => openModal()}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nova Regra
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -224,12 +226,16 @@ export const DiscountRules: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button onClick={() => openModal(rule)} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteDiscountRule(rule.id)} className="text-rose-600 hover:text-rose-900">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {currentUserProfile?.role === "super_admin" && (
+                          <>
+                            <button onClick={() => openModal(rule)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => deleteDiscountRule(rule.id)} className="text-rose-600 hover:text-rose-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

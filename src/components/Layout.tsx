@@ -10,11 +10,32 @@ import {
   Music,
   LogOut,
   RefreshCcw,
+  FileText,
+  Shield,
+  Ban,
+  ClipboardCheck,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
+import { useAppStore } from "../store";
 
-type View = "dashboard" | "students" | "teachers" | "classes" | "finance" | "financial_plans" | "choir" | "enrollments" | "discount_rules" | "payments" | "groups" | "makeups";
+type View =
+  | "dashboard"
+  | "students"
+  | "teachers"
+  | "classes"
+  | "class_reports"
+  | "finance"
+  | "financial_plans"
+  | "choir"
+  | "enrollments"
+  | "discount_rules"
+  | "payments"
+  | "groups"
+  | "makeups"
+  | "prospects"
+  | "profiles"
+  | "not_eligible";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -28,21 +49,29 @@ export const Layout: React.FC<LayoutProps> = ({
   onViewChange,
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { currentUserProfile } = useAppStore();
 
-  const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "students", label: "Alunos", icon: Users },
-    { id: "enrollments", label: "Matrículas", icon: GraduationCap },
-    { id: "groups", label: "Grupos", icon: Users },
-    { id: "payments", label: "Pagamentos", icon: Wallet },
-    { id: "teachers", label: "Professores", icon: GraduationCap },
-    { id: "classes", label: "Aulas", icon: CalendarDays },
-    { id: "makeups", label: "Reposições", icon: RefreshCcw },
-    { id: "finance", label: "Financeiro", icon: Wallet },
-    { id: "financial_plans", label: "Planos", icon: Wallet },
-    { id: "discount_rules", label: "Regras de Desconto", icon: Wallet },
-    { id: "choir", label: "Coral", icon: Users },
+  const allNavItems = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin"] },
+    { id: "prospects", label: "Pré-cadastros", icon: FileText, roles: ["super_admin", "admin"] },
+    { id: "students", label: "Alunos", icon: Users, roles: ["super_admin", "admin", "teacher"] },
+    { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
+    { id: "groups", label: "Grupos", icon: Users, roles: ["super_admin", "admin"] },
+    { id: "not_eligible", label: "Não Elegíveis", icon: Ban, roles: ["super_admin", "admin"] },
+    { id: "payments", label: "Pagamentos", icon: Wallet, roles: ["super_admin"] },
+    { id: "teachers", label: "Professores", icon: GraduationCap, roles: ["super_admin", "admin"] },
+    { id: "classes", label: "Aulas", icon: CalendarDays, roles: ["super_admin", "admin", "teacher"] },
+    { id: "class_reports", label: "Relatórios de Aulas", icon: ClipboardCheck, roles: ["super_admin", "admin", "teacher"] },
+    { id: "makeups", label: "Reposições", icon: RefreshCcw, roles: ["super_admin", "admin"] },
+    { id: "finance", label: "Financeiro", icon: Wallet, roles: ["super_admin"] },
+    { id: "financial_plans", label: "Planos", icon: Wallet, roles: ["super_admin"] },
+    { id: "discount_rules", label: "Regras de Desconto", icon: Wallet, roles: ["super_admin"] },
+    { id: "choir", label: "Coral", icon: Users, roles: ["super_admin", "admin"] },
+    { id: "profiles", label: "Usuários", icon: Shield, roles: ["super_admin"] },
   ] as const;
+
+  const userRole = currentUserProfile?.role || "teacher";
+  const navItems = allNavItems.filter((item) => item.roles.includes(userRole));
 
   return (
     <div className="min-h-screen bg-zinc-50 flex text-zinc-900 font-sans">
@@ -106,13 +135,19 @@ export const Layout: React.FC<LayoutProps> = ({
 
         <div className="p-4 border-t border-zinc-100">
           <div className="flex items-center px-3 py-2 justify-between">
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-semibold text-sm">
-                A
+            <div className="flex items-center min-w-0">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-semibold text-sm flex-shrink-0">
+                {currentUserProfile?.email ? currentUserProfile.email[0].toUpperCase() : "U"}
               </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-zinc-900">Admin</p>
-                <p className="text-xs text-zinc-500">Escola de Música</p>
+              <div className="ml-3 min-w-0">
+                <p className="text-sm font-semibold text-zinc-900 truncate">
+                  {currentUserProfile?.role === "super_admin"
+                    ? "Super Admin"
+                    : currentUserProfile?.role === "admin"
+                    ? "Admin"
+                    : "Professor"}
+                </p>
+                <p className="text-xs text-zinc-500 truncate">{currentUserProfile?.email}</p>
               </div>
             </div>
             <button

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useAppStore, ChoirRegistration } from '../store';
-import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, XCircle, Clock, ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const Choir: React.FC = () => {
-  const { state, addChoirRegistration, updateChoirRegistration, deleteChoirRegistration, addChoirVoiceType, updateChoirVoiceType, deleteChoirVoiceType } = useAppStore();
+  const { state, addChoirRegistration, updateChoirRegistration, deleteChoirRegistration, addChoirVoiceType, updateChoirVoiceType, deleteChoirVoiceType, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isVoiceTypeModalOpen, setIsVoiceTypeModalOpen] = useState(false);
   const [editingRegistration, setEditingRegistration] = useState<ChoirRegistration | null>(null);
@@ -25,7 +27,7 @@ export const Choir: React.FC = () => {
 
   const filteredRegistrations = state.choirRegistrations.filter(r => {
     const student = state.students.find(s => s.id === r.student_id);
-    return student?.name.toLowerCase().includes(searchTerm.toLowerCase());
+    return (student?.name || "").toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   const getVoiceTypeStats = (voiceTypeId: string) => {
@@ -79,6 +81,8 @@ export const Choir: React.FC = () => {
   };
 
   const openModal = (registration?: ChoirRegistration) => {
+    setStudentSearch('');
+    setIsStudentDropdownOpen(false);
     if (registration) {
       const hasActiveEnrollment = state.enrollments.some(e => e.student_id === registration.student_id && e.status === 'active');
       
@@ -105,6 +109,8 @@ export const Choir: React.FC = () => {
     setIsModalOpen(false);
     setEditingRegistration(null);
     setError(null);
+    setStudentSearch('');
+    setIsStudentDropdownOpen(false);
   };
 
   const getStatusBadge = (status: string) => {
@@ -125,22 +131,24 @@ export const Choir: React.FC = () => {
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Coral</h1>
           <p className="text-sm text-zinc-500 mt-1">Gestão de vagas, naipes e inscrições do coral.</p>
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => setIsVoiceTypeModalOpen(true)}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-          >
-            <Users className="w-4 h-4 mr-2" />
-            Gerenciar Naipes
-          </button>
-          <button
-            onClick={() => openModal()}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Nova Inscrição
-          </button>
-        </div>
+        {currentUserProfile?.role === "super_admin" && (
+          <div className="flex space-x-3">
+            <button
+              onClick={() => setIsVoiceTypeModalOpen(true)}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-zinc-700 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Gerenciar Naipes
+            </button>
+            <button
+              onClick={() => openModal()}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nova Inscrição
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Voice Types Stats */}
@@ -224,12 +232,16 @@ export const Choir: React.FC = () => {
                         {getStatusBadge(reg.status)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button onClick={() => openModal(reg)} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteChoirRegistration(reg.id)} className="text-rose-600 hover:text-rose-900">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {currentUserProfile?.role === "super_admin" && (
+                          <>
+                            <button onClick={() => openModal(reg)} className="text-indigo-600 hover:text-indigo-900 mr-4">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => deleteChoirRegistration(reg.id)} className="text-rose-600 hover:text-rose-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -279,17 +291,74 @@ export const Choir: React.FC = () => {
                 )}
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">Aluno</label>
-                  <select
-                    required
-                    value={formData.student_id}
-                    onChange={e => handleStudentChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                  >
-                    <option value="">Selecione um aluno</option>
-                    {state.students.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsStudentDropdownOpen(!isStudentDropdownOpen)}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white flex justify-between items-center shadow-sm text-sm"
+                    >
+                      <span className={formData.student_id ? "text-zinc-900 font-medium" : "text-zinc-400"}>
+                        {formData.student_id
+                          ? state.students.find(s => s.id === formData.student_id)?.name || "Aluno selecionado"
+                          : "Selecione um aluno"}
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-zinc-400" />
+                    </button>
+
+                    {isStudentDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-20"
+                          onClick={() => {
+                            setIsStudentDropdownOpen(false);
+                            setStudentSearch('');
+                          }}
+                        />
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-lg z-30 overflow-hidden flex flex-col max-h-60">
+                          <div className="p-2 border-b border-zinc-100 shrink-0 flex items-center space-x-2 bg-zinc-50">
+                            <Search className="w-4 h-4 text-zinc-400 shrink-0" />
+                            <input
+                              type="text"
+                              placeholder="Pesquisar aluno por nome..."
+                              value={studentSearch}
+                              onChange={e => setStudentSearch(e.target.value)}
+                              className="w-full text-xs outline-none bg-transparent placeholder-zinc-400 text-zinc-700 py-1"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="overflow-y-auto max-h-48 py-1 divide-y divide-zinc-50">
+                            {state.students
+                              .filter(s => (!s.not_eligible && s.status !== 'inactive' || s.id === formData.student_id) && (s.name || '').toLowerCase().includes(studentSearch.toLowerCase()))
+                              .map(s => {
+                                const isSelected = s.id === formData.student_id;
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => {
+                                      handleStudentChange(s.id);
+                                      setIsStudentDropdownOpen(false);
+                                      setStudentSearch('');
+                                    }}
+                                    className={`w-full text-left px-4 py-2 text-xs flex justify-between items-center hover:bg-zinc-50 transition-colors ${
+                                      isSelected ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-zinc-700"
+                                    }`}
+                                  >
+                                    <span>{s.name}</span>
+                                    {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                                  </button>
+                                );
+                              })}
+                            {state.students.filter(s => (!s.not_eligible && s.status !== 'inactive' || s.id === formData.student_id) && (s.name || '').toLowerCase().includes(studentSearch.toLowerCase())).length === 0 && (
+                              <div className="p-4 text-center text-xs text-zinc-400">
+                                Nenhum aluno elegível encontrado
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div>
