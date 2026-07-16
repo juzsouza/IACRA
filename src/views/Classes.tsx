@@ -280,7 +280,7 @@ export const Classes: React.FC = () => {
   }, [state.students, getConsecutiveAbsences]);
 
   const baseClasses = React.useMemo(() => {
-    let classes = state.classes;
+    let classes = state.classes.filter((c) => c.status !== "cancelled");
     if (currentUserProfile?.role === "teacher" && currentUserProfile.teacher_id) {
       classes = classes.filter((c) => {
         if (c.teacher_id === currentUserProfile.teacher_id) return true;
@@ -1272,7 +1272,9 @@ export const Classes: React.FC = () => {
                     >
                       <option value="scheduled">Agendada</option>
                       <option value="completed">Concluída</option>
-                      <option value="cancelled">Cancelada</option>
+                      {currentUserProfile?.role === "super_admin" && (
+                        <option value="cancelled">Cancelada</option>
+                      )}
                     </select>
                   </div>
                 </div>

@@ -60,9 +60,12 @@ export const Makeups: React.FC = () => {
 
     setIsSubmitting(true);
     try {
+      const originalDateFormatted = new Date(selectedClass.date + 'T12:00:00').toLocaleDateString('pt-BR');
+      const originalTimeFormatted = `${selectedClass.start_time} - ${selectedClass.end_time}`;
+
       // Create the new makeup class
       await addClass({
-        title: `${selectedClass.title} (Reposição)`,
+        title: `${selectedClass.title} (Reposição de ${originalDateFormatted} às ${selectedClass.start_time})`,
         teacher_id: formData.teacher_id,
         student_ids: selectedClass.student_ids,
         date: formData.date,
@@ -70,6 +73,7 @@ export const Makeups: React.FC = () => {
         end_time: formData.end_time,
         status: "scheduled",
         allow_makeup: false, // Usually makeup classes don't allow another makeup
+        report: `Aula de reposição referente à aula original de ${originalDateFormatted} das ${selectedClass.start_time} às ${selectedClass.end_time}.`,
       });
 
       // Mark the original class as having its makeup scheduled

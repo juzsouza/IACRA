@@ -68,6 +68,7 @@ export const ClassReports: React.FC = () => {
   // Filter and prepare classes
   const classesWithMetadata = useMemo(() => {
     return state.classes
+      .filter((session) => session.status !== "cancelled")
       .map((session) => {
         const teacher = state.teachers.find((t) => t.id === session.teacher_id);
         const students = state.students.filter((s) => (session.student_ids || []).includes(s.id));
