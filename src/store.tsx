@@ -286,7 +286,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const syncTriggeredRef = useRef(false);
 
   useEffect(() => {
+    let active = true;
+
     const fetchFromSupabase = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('No active Supabase session. Skipping database sync.');
+        return;
+      }
+
       try {
         const [
           { data: students, error: studentsErr },
@@ -311,6 +319,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           supabase.from('financial_discount_rules').select('*'),
           supabase.from('groups').select('*')
         ]);
+
+        if (!active) return;
 
         if (studentsErr || teachersErr || classesErr || transactionsErr || plansErr || voiceErr || regErr || enrollmentsErr || rulesErr || groupsErr) {
           console.warn('One or more fetch requests had errors (this is normal if some tables are not yet queried or empty):', {
@@ -804,12 +814,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           };
         });
       } catch (error: any) {
+        if (!active) return;
         console.error('Error fetching from Supabase:', error);
         setGlobalError('Não foi possível conectar ao banco de dados Supabase. O aplicativo continuará funcionando em modo offline com os dados salvos localmente no seu navegador.');
       }
     };
 
     fetchFromSupabase();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && active) {
+        console.log('Auth state changed - Session active. Running fetchFromSupabase.');
+        fetchFromSupabase();
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const addStudent = async (student: Omit<Student, "id">) => {
