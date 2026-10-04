@@ -14,28 +14,18 @@ import {
   Shield,
   Ban,
   ClipboardCheck,
+  ShieldCheck,
+  CheckCircle2,
+  AlertTriangle,
+  Share2,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppStore } from "../store";
-
-type View =
-  | "dashboard"
-  | "students"
-  | "teachers"
-  | "classes"
-  | "class_reports"
-  | "finance"
-  | "financial_plans"
-  | "choir"
-  | "enrollments"
-  | "discount_rules"
-  | "payments"
-  | "groups"
-  | "makeups"
-  | "prospects"
-  | "profiles"
-  | "not_eligible";
+import { ClassAuditModal } from "./ClassAuditModal";
+import { RaphaelBillingSimulatorModal } from "./RaphaelBillingSimulatorModal";
+import { Calculator } from "lucide-react";
+import { View } from "../utils/navigation";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -49,13 +39,16 @@ export const Layout: React.FC<LayoutProps> = ({
   onViewChange,
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { currentUserProfile } = useAppStore();
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isSimulatorModalOpen, setIsSimulatorModalOpen] = useState(false);
+  const { currentUserProfile, pendingSyncCount, latestAuditSummary } = useAppStore();
 
   const allNavItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin"] },
     { id: "prospects", label: "Pré-cadastros", icon: FileText, roles: ["super_admin", "admin"] },
     { id: "students", label: "Alunos", icon: Users, roles: ["super_admin", "admin", "teacher"] },
     { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
+    { id: "affiliates", label: "Afiliados", icon: Share2, roles: ["super_admin", "admin"] },
     { id: "groups", label: "Grupos", icon: Users, roles: ["super_admin", "admin"] },
     { id: "not_eligible", label: "Não Elegíveis", icon: Ban, roles: ["super_admin", "admin"] },
     { id: "payments", label: "Pagamentos", icon: Wallet, roles: ["super_admin"] },
@@ -90,7 +83,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* Sidebar */}
       <motion.aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-zinc-200 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-zinc-200 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 print:hidden ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -158,12 +151,21 @@ export const Layout: React.FC<LayoutProps> = ({
               <LogOut className="w-5 h-5" />
             </button>
           </div>
+          <div className="mt-2 pt-2 border-t border-zinc-100 flex items-center justify-between px-3 text-[11px] text-zinc-400">
+            <a
+              href="/politica-de-privacidade"
+              className="hover:text-zinc-600 hover:underline transition-colors"
+            >
+              Política de Privacidade
+            </a>
+            <span>EAVRA</span>
+          </div>
         </div>
       </motion.aside>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 bg-white border-b border-zinc-200">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible print:block">
+        <header className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 bg-white border-b border-zinc-200 print:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden p-2 -ml-2 text-zinc-500 hover:text-zinc-700 rounded-lg hover:bg-zinc-100"
@@ -171,8 +173,96 @@ export const Layout: React.FC<LayoutProps> = ({
             <Menu className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center space-x-4 ml-auto">
-            <span className="text-sm text-zinc-500 font-medium">
+          <div className="flex items-center space-x-3 ml-auto">
+            {/* Sync & Integrity Status Indicator */}
+            {currentUserProfile?.role === "teacher" ? (
+              // FRIENDLY INDICATOR FOR TEACHERS: 🟢 Salvo e sincronizado / 🟠 Aguardando sincronização / 🔴 Não foi possível sincronizar
+              pendingSyncCount > 0 ? (
+                <div
+                  id="layout-teacher-sync-status"
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg shadow-2xs cursor-default"
+                  title="Seus dados foram preservados com segurança neste computador e serão sincronizados assim que a conexão estiver disponível."
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  <span>Aguardando sincronização</span>
+                </div>
+              ) : (
+                <div
+                  id="layout-teacher-sync-status"
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg shadow-2xs cursor-default"
+                  title="Todos os seus dados estão salvos e sincronizados."
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>Salvo e sincronizado</span>
+                </div>
+              )
+            ) : (
+              // TECHNICAL AUDIT INDICATORS FOR SUPER_ADMIN AND ADMIN
+              <>
+                {latestAuditSummary?.conflictCount && latestAuditSummary.conflictCount > 0 ? (
+                  <button
+                    id="layout-sync-status-conflict-btn"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors shadow-2xs"
+                    title={`${latestAuditSummary.conflictCount} conflito(s) pedagógico(s) detectado(s). Clique para auditar.`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                    <span>{latestAuditSummary.conflictCount} Conflito(s)</span>
+                  </button>
+                ) : latestAuditSummary?.manualCheckCount && latestAuditSummary.manualCheckCount > 0 ? (
+                  <button
+                    id="layout-sync-status-manual-check-btn"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors shadow-2xs"
+                    title={`${latestAuditSummary.manualCheckCount} divergência(s) estrutural(is) detectada(s). Clique para auditar.`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span>{latestAuditSummary.manualCheckCount} Conferência(s)</span>
+                  </button>
+                ) : pendingSyncCount > 0 || (latestAuditSummary?.pendingCount && latestAuditSummary.pendingCount > 0) ? (
+                  <button
+                    id="layout-sync-status-pending-btn"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors shadow-2xs"
+                    title={`${pendingSyncCount || latestAuditSummary?.pendingCount} pendência(s) local(is) aguardando sincronização com a nuvem. Clique para auditar.`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span>{pendingSyncCount || latestAuditSummary?.pendingCount} Pendência(s)</span>
+                  </button>
+                ) : (
+                  <button
+                    id="layout-sync-status-synced-btn"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-2xs"
+                    title="Todos os dados locais estão sincronizados com o Supabase. Clique para auditar."
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>Sincronizado</span>
+                  </button>
+                )}
+
+                <button
+                  id="layout-open-simulator-btn"
+                  onClick={() => setIsSimulatorModalOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors shadow-2xs"
+                  title="Simulador de Faturamento por Aula - Prof. Raphael (Etapa 1)"
+                >
+                  <Calculator className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden md:inline">Simulador Raphael</span>
+                </button>
+
+                <button
+                  id="layout-open-audit-btn"
+                  onClick={() => setIsAuditModalOpen(true)}
+                  className="p-1.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  title="Auditoria e Recuperação Segura de Dados"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                </button>
+              </>
+            )}
+
+            <span className="text-sm text-zinc-500 font-medium hidden sm:inline-block">
               {new Date().toLocaleDateString("pt-BR", {
                 weekday: "long",
                 year: "numeric",
@@ -183,14 +273,24 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <ClassAuditModal
+          isOpen={isAuditModalOpen}
+          onClose={() => setIsAuditModalOpen(false)}
+        />
+
+        <RaphaelBillingSimulatorModal
+          isOpen={isSimulatorModalOpen}
+          onClose={() => setIsSimulatorModalOpen(false)}
+        />
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:p-0 print:overflow-visible">
           <motion.div
             key={currentView}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="max-w-7xl mx-auto"
+            className="max-w-7xl mx-auto print:max-w-none print:w-full"
           >
             {children}
           </motion.div>

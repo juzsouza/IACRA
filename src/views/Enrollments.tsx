@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore, Enrollment, FinancialPlan } from '../store';
+import { findDuplicateActiveEnrollment, normalizeOptionalFk } from '../utils/enrollmentPersistence';
 import { Plus, Search, Edit2, Trash2, X, FileText, ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -11,6 +12,7 @@ export const Enrollments: React.FC = () => {
   const [studentSearch, setStudentSearch] = useState('');
   const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const [formData, setFormData] = useState<Omit<Enrollment, 'id'>>({
     student_id: '',
@@ -22,6 +24,7 @@ export const Enrollments: React.FC = () => {
     enrollment_date: new Date().toISOString().split('T')[0],
     start_date: new Date().toISOString().split('T')[0],
     due_date_day: 5,
+    affiliate_id: '',
   });
 
   const filteredEnrollments = state.enrollments.filter(e => {
@@ -77,10 +80,17 @@ export const Enrollments: React.FC = () => {
     return { basePrice, finalPrice, finalSchoolShare, teacherShare, secretaryShare, margin, totalDiscount };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
+
     if (!formData.student_id) {
       setErrorMsg("Por favor, selecione um aluno.");
+      return;
+    }
+
+    if (!formData.plan_id) {
+      setErrorMsg("Por favor, selecione um plano financeiro.");
       return;
     }
 
@@ -90,29 +100,54 @@ export const Enrollments: React.FC = () => {
       return;
     }
     
-    // Check for duplicate active enrollment in the same group
-    if (formData.group_id) {
-      const duplicate = state.enrollments.find(env => 
-        env.student_id === formData.student_id && 
-        env.group_id === formData.group_id && 
-        env.status === 'active' &&
-        env.id !== editingEnrollment?.id
-      );
-      if (duplicate) {
-        const student = state.students.find(s => s.id === formData.student_id);
-        const group = state.groups.find(g => g.id === formData.group_id);
+    const duplicate = findDuplicateActiveEnrollment(
+      {
+        id: editingEnrollment?.id,
+        student_id: formData.student_id,
+        plan_id: formData.plan_id,
+        group_id: formData.group_id,
+        status: formData.status,
+      },
+      state.enrollments
+    );
+    if (duplicate) {
+      const normalizedGroupId = normalizeOptionalFk(formData.group_id);
+      if (normalizedGroupId) {
+        const group = state.groups.find(g => g.id === normalizedGroupId);
         setErrorMsg(`Este aluno (${student?.name || 'Aluno'}) já possui uma matrícula ativa no grupo "${group?.name || 'Grupo selecionado'}".`);
-        return;
+      } else {
+        const plan = state.financialPlans.find(p => p.id === formData.plan_id);
+        setErrorMsg(`Este aluno (${student?.name || 'Aluno'}) já possui uma matrícula individual ativa no plano "${plan?.name || 'Plano selecionado'}".`);
       }
+      return;
     }
 
     setErrorMsg('');
-    if (editingEnrollment) {
-      updateEnrollment(editingEnrollment.id, formData);
-    } else {
-      addEnrollment(formData);
+    setIsSaving(true);
+
+    try {
+      // Construir payload limpo sem end_date (coluna inexistente em public.enrollments)
+      const { end_date: _ignoredEndDate, ...cleanForm } = formData as any;
+      const dataToSave: Omit<Enrollment, 'id'> = {
+        ...cleanForm,
+        teacher_id: normalizeOptionalFk(formData.teacher_id) ?? undefined,
+        group_id: normalizeOptionalFk(formData.group_id) ?? undefined,
+        affiliate_id: normalizeOptionalFk(formData.affiliate_id) ?? undefined,
+      };
+
+      const result = editingEnrollment
+        ? await updateEnrollment(editingEnrollment.id, dataToSave)
+        : await addEnrollment(dataToSave);
+
+      if (!result.success) {
+        setErrorMsg(result.error || 'Não foi possível salvar a matrícula no banco de dados. Verifique os dados e tente novamente.');
+        return;
+      }
+
+      closeModal();
+    } finally {
+      setIsSaving(false);
     }
-    closeModal();
   };
 
   const openModal = (enrollment?: Enrollment) => {
@@ -127,6 +162,8 @@ export const Enrollments: React.FC = () => {
         group_id: enrollment.group_id || '',
         custom_price: enrollment.custom_price,
         start_date: enrollment.start_date || enrollment.enrollment_date,
+        end_date: enrollment.end_date || '',
+        affiliate_id: enrollment.affiliate_id || '',
       });
     } else {
       setEditingEnrollment(null);
@@ -139,7 +176,9 @@ export const Enrollments: React.FC = () => {
         status: 'active',
         enrollment_date: new Date().toISOString().split('T')[0],
         start_date: new Date().toISOString().split('T')[0],
+        end_date: undefined,
         due_date_day: 5,
+        affiliate_id: '',
       });
     }
     setIsModalOpen(true);
@@ -198,7 +237,9 @@ export const Enrollments: React.FC = () => {
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Aluno</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Plano</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Grupo</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Valor Final</th>
+                {currentUserProfile?.role === "super_admin" && (
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Valor Final</th>
+                )}
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Vencimento</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Ações</th>
@@ -211,11 +252,17 @@ export const Enrollments: React.FC = () => {
                   const plan = state.financialPlans.find(p => p.id === enrollment.plan_id);
                   const group = state.groups.find(g => g.id === enrollment.group_id);
                   const breakdown = calculateBreakdown(enrollment.plan_id, enrollment.student_id, enrollment.id, enrollment.custom_price);
+                  const affiliate = enrollment.affiliate_id ? state.affiliates?.find(a => a.id === enrollment.affiliate_id) : null;
 
                   return (
                     <tr key={enrollment.id} className="hover:bg-zinc-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-zinc-900">{student?.name || 'Desconhecido'}</div>
+                        {affiliate && (
+                          <div className="mt-0.5 inline-flex items-center text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            Afiliado: {affiliate.name}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-zinc-900">{plan?.name || 'Desconhecido'}</div>
@@ -226,14 +273,16 @@ export const Enrollments: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-zinc-900">{group?.name || '-'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-zinc-900">
-                          {breakdown ? formatCurrency(breakdown.finalPrice) : '-'}
-                        </div>
-                        {breakdown && breakdown.totalDiscount > 0 && (
-                          <div className="text-xs text-zinc-500 line-through">{formatCurrency(breakdown.basePrice)}</div>
-                        )}
-                      </td>
+                      {currentUserProfile?.role === "super_admin" && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-zinc-900">
+                            {breakdown ? formatCurrency(breakdown.finalPrice) : '-'}
+                          </div>
+                          {breakdown && breakdown.totalDiscount > 0 && (
+                            <div className="text-xs text-zinc-500 line-through">{formatCurrency(breakdown.basePrice)}</div>
+                          )}
+                        </td>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-zinc-900">Dia {enrollment.due_date_day}</div>
                       </td>
@@ -420,9 +469,13 @@ export const Enrollments: React.FC = () => {
                       className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                     >
                       <option value="">Selecione um professor</option>
-                      {state.teachers.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
+                      {state.teachers
+                        .filter(t => t.status === 'active' || (editingEnrollment && t.id === formData.teacher_id))
+                        .map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}{t.status === 'inactive' ? ' (Inativo)' : ''}
+                          </option>
+                        ))}
                     </select>
                     <p className="text-xs text-zinc-500 mt-1">Se o plano já tiver um professor exclusivo, ele será priorizado.</p>
                   </div>
@@ -434,9 +487,13 @@ export const Enrollments: React.FC = () => {
                       className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                     >
                       <option value="">Selecione um grupo</option>
-                      {state.groups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
+                      {state.groups
+                        .filter(g => (g.status !== 'inactive') || (formData.group_id === g.id))
+                        .map(g => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}{g.status === 'inactive' ? ' (Inativo)' : ''}
+                          </option>
+                        ))}
                     </select>
                   </div>
                   <div>
@@ -470,6 +527,9 @@ export const Enrollments: React.FC = () => {
                       onChange={e => setFormData({...formData, start_date: e.target.value})}
                       className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                     />
+                    <p className="text-[11px] text-indigo-600 mt-1">
+                      A fatura e a inclusão na agenda serão geradas somente a partir do mês de referência ({new Date((formData.start_date || formData.enrollment_date) + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}).
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-zinc-700 mb-1">Dia de Vencimento</label>
@@ -493,6 +553,41 @@ export const Enrollments: React.FC = () => {
                     >
                       <option value="active">Ativo</option>
                       <option value="inactive">Inativo</option>
+                    </select>
+                  </div>
+                  {formData.status === 'inactive' && (
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 mb-1">
+                        Data de Encerramento (Desmatrícula)
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.end_date || new Date().toISOString().split('T')[0]}
+                        onChange={e => setFormData({...formData, end_date: e.target.value})}
+                        className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                      />
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        Competências até esta data mantêm cobranças devidas. Competências futuras não são geradas.
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">
+                      Afiliado / Indicação <span className="text-zinc-400 font-normal text-xs">(Opcional)</span>
+                    </label>
+                    <select
+                      value={formData.affiliate_id || ''}
+                      onChange={e => setFormData({...formData, affiliate_id: e.target.value || undefined})}
+                      className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+                    >
+                      <option value="">Nenhum afiliado (matrícula direta)</option>
+                      {(state.affiliates || [])
+                        .filter(a => a.status === 'active' || a.id === formData.affiliate_id)
+                        .map(aff => (
+                          <option key={aff.id} value={aff.id}>
+                            {aff.name} {aff.referral_code ? `(${aff.referral_code})` : ''}
+                          </option>
+                        ))}
                     </select>
                   </div>
                 </div>
@@ -532,10 +627,12 @@ export const Enrollments: React.FC = () => {
                                 <span>Professor:</span>
                                 <span>{formatCurrency(breakdown.teacherShare)}</span>
                               </div>
-                              <div className="flex justify-between">
-                                <span>Secretária:</span>
-                                <span>{formatCurrency(breakdown.secretaryShare)}</span>
-                              </div>
+                              {breakdown.secretaryShare > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Secretária:</span>
+                                  <span>{formatCurrency(breakdown.secretaryShare)}</span>
+                                </div>
+                              )}
                               <div className="flex justify-between">
                                 <span>Escola:</span>
                                 <span>{formatCurrency(breakdown.finalSchoolShare)}</span>
@@ -561,16 +658,18 @@ export const Enrollments: React.FC = () => {
                 <div className="pt-4 flex justify-end space-x-3 shrink-0">
                   <button
                     type="button"
+                    disabled={isSaving}
                     onClick={closeModal}
-                    className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+                    disabled={isSaving}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50"
                   >
-                    Salvar Matrícula
+                    {isSaving ? 'Salvando...' : 'Salvar Matrícula'}
                   </button>
                 </div>
               </form>

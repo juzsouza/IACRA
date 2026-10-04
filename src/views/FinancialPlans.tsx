@@ -315,7 +315,10 @@ export const FinancialPlans: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-zinc-900">{plan.name}</div>
                       {plan.exclusive_teacher_id && (
-                        <div className="text-xs text-zinc-500">Exclusivo: {state.teachers.find(t => t.id === plan.exclusive_teacher_id)?.name}</div>
+                        <div className="text-xs text-zinc-500">
+                          Exclusivo: {state.teachers.find(t => t.id === plan.exclusive_teacher_id)?.name}
+                          {state.teachers.find(t => t.id === plan.exclusive_teacher_id)?.status === 'inactive' ? ' (Inativo)' : ''}
+                        </div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -420,9 +423,13 @@ export const FinancialPlans: React.FC = () => {
                         className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                       >
                         <option value="">Nenhum (Plano Geral)</option>
-                        {state.teachers.map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
+                        {state.teachers
+                          .filter(t => t.status === 'active' || (editingPlan && t.id === formData.exclusive_teacher_id))
+                          .map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}{t.status === 'inactive' ? ' (Inativo)' : ''}
+                            </option>
+                          ))}
                       </select>
                     </div>
                     <div>

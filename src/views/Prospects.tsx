@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Plus, Search, Edit2, Trash2, X, FileCheck, CheckCircle2, AlertCircle, MessageSquare, Clock, Phone, Send, Ban } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X, FileCheck, CheckCircle2, AlertCircle, MessageSquare, Clock, Phone, Send, Ban, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppStore, Prospect } from "../store";
+import { getWhatsAppPhoneDetails } from "../utils/phone";
 
 const formatCPF = (value: string) => {
   const digits = value.replace(/\D/g, "");
@@ -15,8 +16,6 @@ const formatCPF = (value: string) => {
 export const Prospects: React.FC = () => {
   const { state, addProspect, updateProspect, deleteProspect, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterApproved, setFilterApproved] = useState<"all" | "pending" | "approved">("all");
-  const [filterTerm, setFilterTerm] = useState<"all" | "signed" | "unsigned">("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProspect, setEditingProspect] = useState<Prospect | null>(null);
 
@@ -24,7 +23,7 @@ export const Prospects: React.FC = () => {
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [activeProspect, setActiveProspect] = useState<Prospect | null>(null);
   const [newMessageNote, setNewMessageNote] = useState("");
-  const [newMessageStatus, setNewMessageStatus] = useState<"contato_iniciado" | "aguardando_retorno" | "nao_deu_retorno" | "">("");
+  const [newMessageStatus, setNewMessageStatus] = useState<"contato_iniciado" | "aguardando_retorno" | "nao_deu_retorno" | "matriculado" | "">("");
 
   // States for prospect ineligibility justification modal
   const [isJustificationModalOpen, setIsJustificationModalOpen] = useState(false);
@@ -40,29 +39,26 @@ export const Prospects: React.FC = () => {
     term_signed: false,
     approved: false,
     notes: "",
-    lead_status: "" as "contato_iniciado" | "aguardando_retorno" | "nao_deu_retorno" | "",
+    lead_status: "" as "contato_iniciado" | "aguardando_retorno" | "nao_deu_retorno" | "matriculado" | "",
     not_eligible: false,
     ineligibility_reason: "",
   });
 
   const filteredProspects = state.prospects.filter((p) => {
-    const matchesSearch =
-      (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.instrument || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.email && p.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.cpf && p.cpf.replace(/\D/g, "").includes(searchTerm.replace(/\D/g, "")));
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
 
-    const matchesApproved =
-      filterApproved === "all" ||
-      (filterApproved === "approved" && p.approved) ||
-      (filterApproved === "pending" && !p.approved);
+    const digits = term.replace(/\D/g, "");
 
-    const matchesTerm =
-      filterTerm === "all" ||
-      (filterTerm === "signed" && p.term_signed) ||
-      (filterTerm === "unsigned" && !p.term_signed);
+    const matchesName = (p.name || "").toLowerCase().includes(term);
+    const matchesPhone =
+      (p.phone || "").toLowerCase().includes(term) ||
+      (digits.length > 0 && (p.phone || "").replace(/\D/g, "").includes(digits));
+    const matchesEmail = (p.email || "").toLowerCase().includes(term);
+    const matchesInstrument = (p.instrument || "").toLowerCase().includes(term);
+    const matchesCpf = digits.length > 0 && (p.cpf || "").replace(/\D/g, "").includes(digits);
 
-    return matchesSearch && matchesApproved && matchesTerm;
+    return matchesName || matchesPhone || matchesEmail || matchesInstrument || matchesCpf;
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -70,8 +66,8 @@ export const Prospects: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    if (!formData.name.trim() || !formData.instrument.trim()) {
-      alert("Por favor, preencha o nome e o instrumento.");
+    if (!formData.name.trim() || !formData.phone.trim() || !formData.instrument.trim()) {
+      alert("Por favor, preencha os campos obrigatórios: Nome Completo, Telefone e Instrumento.");
       return;
     }
 
@@ -185,7 +181,7 @@ export const Prospects: React.FC = () => {
             Pré-cadastro de Prospectos
           </h1>
           <p className="text-zinc-500 text-sm">
-            Gerencie os interessados que se tornarão alunos após aprovações e termo assinado.
+            Controle de Leads e atualização de informações do setor de vendas.
           </p>
         </div>
         <button
@@ -203,40 +199,12 @@ export const Prospects: React.FC = () => {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Buscar por nome, instrumento, email ou CPF..."
+            placeholder="Buscar por nome, telefone, e-mail..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-zinc-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-colors"
           />
         </div>
-        {currentUserProfile?.role === "super_admin" && (
-          <div className="flex flex-wrap gap-3">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-medium text-zinc-500">Aprovação:</span>
-              <select
-                value={filterApproved}
-                onChange={(e: any) => setFilterApproved(e.target.value)}
-                className="text-xs bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 font-medium outline-none text-zinc-700"
-              >
-                <option value="all">Todos</option>
-                <option value="pending">Pendentes</option>
-                <option value="approved">Aprovados</option>
-              </select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-medium text-zinc-500">Termo:</span>
-              <select
-                value={filterTerm}
-                onChange={(e: any) => setFilterTerm(e.target.value)}
-                className="text-xs bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 font-medium outline-none text-zinc-700"
-              >
-                <option value="all">Todos</option>
-                <option value="signed">Assinado</option>
-                <option value="unsigned">Não assinado</option>
-              </select>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Prospects Table */}
@@ -248,12 +216,8 @@ export const Prospects: React.FC = () => {
                 <th className="px-6 py-4">Nome / Contato</th>
                 <th className="px-6 py-4">Instrumento</th>
                 <th className="px-6 py-4">Acompanhamento</th>
-                {currentUserProfile?.role === "super_admin" && (
-                  <>
-                    <th className="px-6 py-4 text-center">Termo Assinado?</th>
-                    <th className="px-6 py-4 text-center">Aprovado?</th>
-                  </>
-                )}
+                <th className="px-6 py-4 text-center">Termo Assinado?</th>
+                <th className="px-6 py-4 text-center">Aprovado?</th>
                 <th className="px-6 py-4">Observações</th>
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
@@ -261,7 +225,7 @@ export const Prospects: React.FC = () => {
             <tbody className="divide-y divide-zinc-100 text-sm">
               {filteredProspects.length === 0 ? (
                 <tr>
-                  <td colSpan={currentUserProfile?.role === "super_admin" ? 7 : 5} className="px-6 py-12 text-center text-zinc-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">
                     Nenhum pré-cadastro encontrado.
                   </td>
                 </tr>
@@ -296,7 +260,13 @@ export const Prospects: React.FC = () => {
                         <select
                           value={prospect.lead_status || ""}
                           onChange={async (e) => {
-                            await updateProspect(prospect.id, { lead_status: e.target.value as any });
+                            const newStatus = e.target.value as any;
+                            const updates: any = { lead_status: newStatus };
+                            if (newStatus === "matriculado") {
+                              updates.approved = true;
+                              updates.term_signed = true;
+                            }
+                            await updateProspect(prospect.id, updates);
                           }}
                           className={`text-xs font-semibold rounded-xl border border-zinc-200/85 px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white ${
                             prospect.lead_status === "contato_iniciado"
@@ -305,6 +275,8 @@ export const Prospects: React.FC = () => {
                               ? "bg-amber-50 text-amber-700 border-amber-200"
                               : prospect.lead_status === "nao_deu_retorno"
                               ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : prospect.lead_status === "matriculado"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : "bg-zinc-50 text-zinc-600 border-zinc-200"
                           }`}
                         >
@@ -312,6 +284,7 @@ export const Prospects: React.FC = () => {
                           <option value="contato_iniciado">Contato Iniciado</option>
                           <option value="aguardando_retorno">Aguardando Retorno</option>
                           <option value="nao_deu_retorno">Não deu retorno</option>
+                          <option value="matriculado">Matriculado</option>
                         </select>
                         
                         <button
@@ -331,49 +304,45 @@ export const Prospects: React.FC = () => {
                         </button>
                       </div>
                     </td>
-                    {currentUserProfile?.role === "super_admin" && (
-                      <>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => handleQuickTermSigned(prospect)}
-                            className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
-                              prospect.term_signed
-                                ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                                : "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                            }`}
-                            title={prospect.term_signed ? "Marcar como Não Assinado" : "Marcar como Assinado"}
-                          >
-                            <FileCheck className="w-5 h-5 mr-1" />
-                            <span className="text-xs font-semibold mr-1">
-                              {prospect.term_signed ? "Sim" : "Não"}
-                            </span>
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => handleQuickApprove(prospect)}
-                            className={`inline-flex items-center justify-center px-3 py-1.5 rounded-xl transition-colors ${
-                              prospect.approved
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                            }`}
-                            title={prospect.approved ? "Desfazer aprovação" : "Aprovar (Envia para alunos)"}
-                          >
-                            {prospect.approved ? (
-                              <>
-                                <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-600" />
-                                <span className="text-xs font-semibold">Aprovado</span>
-                              </>
-                            ) : (
-                              <>
-                                <AlertCircle className="w-4 h-4 mr-1 text-zinc-400" />
-                                <span className="text-xs font-semibold">Pendente</span>
-                              </>
-                            )}
-                          </button>
-                        </td>
-                      </>
-                    )}
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => handleQuickTermSigned(prospect)}
+                        className={`inline-flex items-center justify-center p-1.5 px-3 rounded-xl transition-colors ${
+                          prospect.term_signed
+                            ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                            : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                        }`}
+                        title={prospect.term_signed ? "Marcar como Não Assinado" : "Marcar como Assinado"}
+                      >
+                        <FileCheck className="w-4 h-4 mr-1.5 text-emerald-600" />
+                        <span className="text-xs font-semibold">
+                          {prospect.term_signed ? "Sim" : "Não"}
+                        </span>
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => handleQuickApprove(prospect)}
+                        className={`inline-flex items-center justify-center px-3 py-1.5 rounded-xl transition-colors ${
+                          prospect.approved
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                        }`}
+                        title={prospect.approved ? "Desfazer aprovação" : "Aprovar Lead pelo Comercial"}
+                      >
+                        {prospect.approved ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-600" />
+                            <span className="text-xs font-semibold">Aprovado</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-4 h-4 mr-1 text-zinc-400" />
+                            <span className="text-xs font-semibold">Pendente</span>
+                          </>
+                        )}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-zinc-600 max-w-xs truncate" title={prospect.notes}>
                       {prospect.notes || "-"}
                     </td>
@@ -493,10 +462,11 @@ export const Prospects: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-zinc-700 mb-1">
-                      Telefone
+                      Telefone <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
+                      required
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
@@ -534,64 +504,62 @@ export const Prospects: React.FC = () => {
                 </div>
 
                 {/* Markings Checkboxes */}
-                {currentUserProfile?.role === "super_admin" && (
-                  <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-150 space-y-3">
-                    <label className="flex items-center space-x-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.term_signed}
-                        onChange={(e) => setFormData({ ...formData, term_signed: e.target.checked })}
-                        className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <div>
-                        <span className="text-sm font-semibold text-zinc-800">Termo Assinado?</span>
-                        <p className="text-xs text-zinc-500">O interessado assinou o contrato/termo de matrícula?</p>
-                      </div>
-                    </label>
+                <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-150 space-y-3">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.term_signed}
+                      onChange={(e) => setFormData({ ...formData, term_signed: e.target.checked })}
+                      className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="text-sm font-semibold text-zinc-800">Termo Assinado</span>
+                      <p className="text-xs text-zinc-500">Aluno assinou o termo de adesão/matrícula</p>
+                    </div>
+                  </label>
 
-                    <label className="flex items-center space-x-3 cursor-pointer border-t border-zinc-200/60 pt-3">
-                      <input
-                        type="checkbox"
-                        checked={formData.approved}
-                        onChange={(e) => setFormData({ ...formData, approved: e.target.checked })}
-                        className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <div>
-                        <span className="text-sm font-semibold text-zinc-800">Aprovado?</span>
-                        <p className="text-xs text-zinc-500">Aprovado para virar aluno automaticamente?</p>
-                      </div>
-                    </label>
+                  <label className="flex items-center space-x-3 cursor-pointer pt-2 border-t border-zinc-150">
+                    <input
+                      type="checkbox"
+                      checked={formData.approved}
+                      onChange={(e) => setFormData({ ...formData, approved: e.target.checked })}
+                      className="w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-sm font-semibold text-zinc-800">Pré-cadastro Aprovado</span>
+                      <p className="text-xs text-zinc-500">Aprovação comercial do lead</p>
+                    </div>
+                  </label>
 
-                    <label className="flex items-center space-x-3 cursor-pointer border-t border-zinc-200/60 pt-3">
-                      <input
-                        type="checkbox"
-                        checked={formData.not_eligible}
-                        onChange={(e) => setFormData({ ...formData, not_eligible: e.target.checked, ineligibility_reason: e.target.checked ? formData.ineligibility_reason : "" })}
-                        className="w-4 h-4 rounded border-zinc-300 text-rose-600 focus:ring-rose-500"
-                      />
-                      <div>
-                        <span className="text-sm font-semibold text-rose-700">Cliente não elegível</span>
-                        <p className="text-xs text-zinc-500">Marcar este pré-cadastro como não elegível</p>
-                      </div>
-                    </label>
+                  <label className="flex items-center space-x-3 cursor-pointer pt-2 border-t border-zinc-150">
+                    <input
+                      type="checkbox"
+                      checked={formData.not_eligible}
+                      onChange={(e) => setFormData({ ...formData, not_eligible: e.target.checked, ineligibility_reason: e.target.checked ? formData.ineligibility_reason : "" })}
+                      className="w-4 h-4 rounded border-zinc-300 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="text-sm font-semibold text-rose-700">Cliente não elegível</span>
+                      <p className="text-xs text-zinc-500">Marcar este pré-cadastro como não elegível</p>
+                    </div>
+                  </label>
 
-                    {formData.not_eligible && (
-                      <div className="space-y-1 pt-2 border-t border-zinc-150">
-                        <label className="block text-sm font-medium text-zinc-700">
-                          Justificativa de Não Elegibilidade <span className="text-rose-500">*</span>
-                        </label>
-                        <textarea
-                          required={formData.not_eligible}
-                          rows={3}
-                          placeholder="Insira o motivo / justificativa..."
-                          value={formData.ineligibility_reason}
-                          onChange={(e) => setFormData({ ...formData, ineligibility_reason: e.target.value })}
-                          className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm bg-white"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+                  {formData.not_eligible && (
+                    <div className="space-y-1 pt-2 border-t border-zinc-150">
+                      <label className="block text-sm font-medium text-zinc-700">
+                        Justificativa de Não Elegibilidade <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        required={formData.not_eligible}
+                        rows={3}
+                        placeholder="Insira o motivo / justificativa..."
+                        value={formData.ineligibility_reason}
+                        onChange={(e) => setFormData({ ...formData, ineligibility_reason: e.target.value })}
+                        className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">
@@ -599,13 +567,21 @@ export const Prospects: React.FC = () => {
                   </label>
                   <select
                     value={formData.lead_status}
-                    onChange={(e) => setFormData({ ...formData, lead_status: e.target.value as any })}
+                    onChange={(e) => {
+                      const newStatus = e.target.value as any;
+                      setFormData((prev) => ({
+                        ...prev,
+                        lead_status: newStatus,
+                        ...(newStatus === "matriculado" ? { term_signed: true, approved: true } : {}),
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white text-sm font-medium"
                   >
                     <option value="">Sem status (Novo)</option>
                     <option value="contato_iniciado">Contato Iniciado</option>
                     <option value="aguardando_retorno">Aguardando Retorno</option>
                     <option value="nao_deu_retorno">Não deu retorno</option>
+                    <option value="matriculado">Matriculado</option>
                   </select>
                 </div>
 
@@ -677,22 +653,41 @@ export const Prospects: React.FC = () => {
               </div>
 
               {/* WhatsApp Quick Action */}
-              <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100/60 flex items-center justify-between flex-shrink-0">
-                <span className="text-xs font-semibold text-indigo-700 flex items-center">
-                  <Phone className="w-3.5 h-3.5 mr-1.5" />
-                  Telefone: {activeProspect.phone || "Não cadastrado"}
-                </span>
-                {activeProspect.phone && (
-                  <a
-                    href={`https://api.whatsapp.com/send?phone=${activeProspect.phone.replace(/\D/g, "")}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-xl transition-colors shadow-sm shadow-emerald-100"
-                  >
-                    Abrir no WhatsApp
-                  </a>
-                )}
-              </div>
+              {activeProspect.phone && (() => {
+                const details = getWhatsAppPhoneDetails(activeProspect.phone);
+                return (
+                  <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100/60 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                    <span className="text-xs font-semibold text-indigo-700 flex items-center">
+                      <Phone className="w-3.5 h-3.5 mr-1.5" />
+                      Telefone: {details?.primaryFormatted || activeProspect.phone}
+                    </span>
+                    {details && (
+                      <div className="flex items-center space-x-2">
+                        <a
+                          href={details.primaryUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-xl transition-colors shadow-sm inline-flex items-center"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 mr-1" />
+                          Abrir no WhatsApp
+                        </a>
+                        {details.alternateUrl && (
+                          <a
+                            href={details.alternateUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-1.5 rounded-xl transition-colors inline-flex items-center"
+                            title="Tentar sem/com o 9º dígito se o WhatsApp informar número não cadastrado"
+                          >
+                            Tentar sem 9º dígito ({details.alternateFormatted})
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* History List */}
               <div className="p-6 overflow-y-auto space-y-4 flex-1 bg-zinc-50/50">
@@ -716,6 +711,8 @@ export const Prospects: React.FC = () => {
                                 ? "bg-amber-50 text-amber-700"
                                 : log.status === "nao_deu_retorno"
                                 ? "bg-rose-50 text-rose-700"
+                                : log.status === "matriculado"
+                                ? "bg-emerald-50 text-emerald-700"
                                 : "bg-zinc-100 text-zinc-600"
                             }`}>
                               {log.status === "contato_iniciado"
@@ -724,6 +721,8 @@ export const Prospects: React.FC = () => {
                                 ? "Aguardando Retorno"
                                 : log.status === "nao_deu_retorno"
                                 ? "Não deu retorno"
+                                : log.status === "matriculado"
+                                ? "Matriculado"
                                 : "Sem status"}
                             </span>
                             <span className="text-xs text-zinc-400 font-mono flex items-center">
@@ -764,11 +763,14 @@ export const Prospects: React.FC = () => {
                             ? "Aguardando Retorno"
                             : activeProspect.lead_status === "nao_deu_retorno"
                             ? "Não deu retorno"
+                            : activeProspect.lead_status === "matriculado"
+                            ? "Matriculado"
                             : "Nenhum"
                         })</option>
                         <option value="contato_iniciado">Contato Iniciado</option>
                         <option value="aguardando_retorno">Aguardando Retorno</option>
                         <option value="nao_deu_retorno">Não deu retorno</option>
+                        <option value="matriculado">Matriculado</option>
                       </select>
                     </div>
 

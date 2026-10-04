@@ -115,7 +115,14 @@ export const NotEligible: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    try {
+      window.focus();
+      setTimeout(() => {
+        window.print();
+      }, 100);
+    } catch (e) {
+      window.print();
+    }
   };
 
   return (

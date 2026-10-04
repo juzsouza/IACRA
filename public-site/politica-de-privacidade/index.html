@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Política de Privacidade — EAVRA (Instituto de Arte e Vocal Raphael Augusto)</title>
+  <meta name="description" content="Política de Privacidade oficial do sistema EAVRA e do Instituto de Arte e Vocal Raphael Augusto. Em conformidade com a LGPD e Google API Services User Data Policy.">
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #fafafa;
+      color: #18181b;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    header {
+      background-color: #ffffff;
+      border-bottom: 1px solid #e4e4e7;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      background-color: #4f46e5;
+      color: #ffffff;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.15rem;
+      box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+    }
+    .brand-text h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #18181b;
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.75rem;
+      color: #71717a;
+      letter-spacing: 0.02em;
+    }
+    .header-nav a {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #4f46e5;
+      text-decoration: none;
+      padding: 0.5rem 0.85rem;
+      border-radius: 8px;
+      transition: background-color 0.15s ease;
+    }
+    .header-nav a:hover {
+      background-color: #eef2ff;
+    }
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+    .doc-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      background-color: #eef2ff;
+      border: 1px solid #c7d2fe;
+      color: #4338ca;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 9999px;
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .title-section {
+      border-bottom: 1px solid #e4e4e7;
+      padding-bottom: 2rem;
+      margin-bottom: 2.5rem;
+    }
+    .title-section h2 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: #09090b;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+    }
+    .updated-date {
+      font-size: 0.875rem;
+      color: #71717a;
+      margin-top: 0.5rem;
+    }
+    .updated-date strong {
+      color: #3f3f46;
+    }
+    .intro-text {
+      font-size: 1rem;
+      color: #3f3f46;
+      margin-top: 1rem;
+      line-height: 1.65;
+    }
+    .section-block {
+      margin-bottom: 2.25rem;
+    }
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #18181b;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .section-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background-color: #f4f4f5;
+      color: #3f3f46;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    p {
+      margin-bottom: 0.75rem;
+      color: #3f3f46;
+      font-size: 0.95rem;
+    }
+    .info-card {
+      background-color: #f4f4f5;
+      border: 1px solid #e4e4e7;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+    .info-card p {
+      margin-bottom: 0.35rem;
+      color: #27272a;
+    }
+    .info-card p:last-child {
+      margin-bottom: 0;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .sub-card {
+      background-color: #ffffff;
+      border: 1px solid #e4e4e7;
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+    .sub-card h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #18181b;
+      margin-bottom: 0.5rem;
+    }
+    ul {
+      list-style-position: inside;
+      margin-left: 0.25rem;
+      margin-bottom: 0.75rem;
+    }
+    li {
+      font-size: 0.875rem;
+      color: #52525b;
+      margin-bottom: 0.35rem;
+      line-height: 1.5;
+    }
+    .google-highlight-box {
+      background-color: #f8fafc;
+      border: 2px solid #c7d2fe;
+      border-radius: 16px;
+      padding: 1.75rem;
+      margin: 1.5rem 0;
+    }
+    .google-badge {
+      display: inline-block;
+      padding: 0.25rem 0.65rem;
+      background-color: #4f46e5;
+      color: #ffffff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 9999px;
+      margin-bottom: 0.75rem;
+    }
+    .google-highlight-box h2 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 0.75rem;
+    }
+    .scope-box {
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .scope-url {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #4338ca;
+      font-size: 0.825rem;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .scope-desc {
+      font-size: 0.85rem;
+      color: #475569;
+      margin-top: 0.25rem;
+      margin-bottom: 0;
+    }
+    .limited-use-card {
+      background-color: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-top: 0.75rem;
+    }
+    .limited-use-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+      font-size: 0.875rem;
+      color: #1e293b;
+    }
+    .limited-use-item:last-child {
+      margin-bottom: 0;
+    }
+    .check-icon {
+      color: #059669;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .rights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .rights-item {
+      background-color: #ffffff;
+      border: 1px solid #e4e4e7;
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      color: #3f3f46;
+    }
+    footer {
+      border-top: 1px solid #e4e4e7;
+      background-color: #ffffff;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      margin-top: 2rem;
+    }
+    .footer-content {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .footer-links {
+      margin-bottom: 1rem;
+    }
+    .footer-links a {
+      color: #4f46e5;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin: 0 0.75rem;
+    }
+    .footer-links a:hover {
+      text-decoration: underline;
+    }
+    .footer-copy {
+      font-size: 0.8rem;
+      color: #71717a;
+      line-height: 1.5;
+    }
+    a {
+      color: #4f46e5;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85em;
+      background-color: #f4f4f5;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      color: #18181b;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-icon">E</div>
+        <div class="brand-text">
+          <h1>EAVRA</h1>
+          <p>INSTITUTO DE ARTE E VOCAL RAPHAEL AUGUSTO</p>
+        </div>
+      </div>
+      <nav class="header-nav">
+        <a href="/">Acessar Plataforma (Login)</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Documento -->
+  <main>
+
+    <div class="title-section">
+      <div class="doc-badge">Documento Público Oficial</div>
+      <h2>Política de Privacidade</h2>
+      <p class="updated-date">Última atualização: <strong>22 de setembro de 2026</strong></p>
+      <p class="intro-text">
+        Esta Política de Privacidade descreve de forma transparente como a plataforma <strong>EAVRA</strong>, vinculada ao domínio <strong>institutoiacra.com.br</strong>, coleta, utiliza, armazena, protege e descarta os dados pessoais de seus usuários, professores e alunos, em total conformidade com a <strong>Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018)</strong> e com a <strong>Google API Services User Data Policy</strong> (Política de Dados de Usuários dos Serviços de API do Google).
+      </p>
+    </div>
+
+    <!-- 1 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">1</span> Identificação do Aplicativo</h3>
+      <p>
+        O <strong>EAVRA</strong> é um sistema especializado para gestão acadêmica, pedagógica e administrativa de escolas de música. Entre suas funcionalidades estão o controle de horários de aulas individuais e em grupo, acompanhamento de presenças, relatórios didáticos, organização financeira interna de turmas e integração com calendários eletrônicos.
+      </p>
+      <p>
+        O domínio oficial do aplicativo é <strong>institutoiacra.com.br</strong>.
+      </p>
+    </div>
+
+    <!-- 2 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">2</span> Responsável pelo Tratamento dos Dados</h3>
+      <p>O tratamento dos dados pessoais no âmbito da plataforma é realizado sob a responsabilidade do:</p>
+      <div class="info-card">
+        <p><strong>Controlador:</strong> RAPHAEL AUGUSTO PINTO (INSTITUTO DE ARTE E VOCAL RAPHAEL AUGUSTO)</p>
+        <p><strong>CNPJ:</strong> 18.476.370/0001-65</p>
+        <p><strong>Endereço:</strong> Joaquim Nabuco, 1040 - Presidente Prudente</p>
+        <p><strong>Canal de Privacidade e DPO/Encarregado:</strong> institutodeartera@gmail.com</p>
+        <p><strong>Nome do Responsável/Encarregado:</strong> Raphael Augusto</p>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">3</span> Quais Dados Pessoais São Tratados</h3>
+      <p>A plataforma trata estritamente as categorias de dados necessárias para a prestação dos serviços educacionais e de gestão escolar:</p>
+      
+      <div class="grid-2">
+        <div class="sub-card">
+          <h3>Dados de Usuários e Professores</h3>
+          <ul>
+            <li>Nome completo e identificador interno único (ID);</li>
+            <li>E-mail institucional/pessoal para login e autenticação;</li>
+            <li>Número de telefone para contato profissional;</li>
+            <li>CPF (quando cadastrado para controle administrativo);</li>
+            <li>Especialidades musicais e horários de trabalho pedagógico;</li>
+            <li>Nível de permissão (super_admin, admin, teacher) e status de acesso.</li>
+          </ul>
+        </div>
+
+        <div class="sub-card">
+          <h3>Dados de Alunos e Interessados</h3>
+          <ul>
+            <li>Nome completo e identificador do aluno;</li>
+            <li>E-mail e número de telefone (WhatsApp);</li>
+            <li>CPF e data de nascimento (quando fornecidos);</li>
+            <li>Instrumento musical e turma/grupo de matrícula;</li>
+            <li>Status de matrícula (ativo/inativo) e histórico de planos contratados.</li>
+          </ul>
+        </div>
+
+        <div class="sub-card">
+          <h3>Dados Relacionados às Aulas</h3>
+          <ul>
+            <li>Data, horário de início e fim da sessão;</li>
+            <li>Vínculo entre o professor ministrante e o(s) aluno(s);</li>
+            <li>Status da aula (agendada, concluída, cancelada);</li>
+            <li>Registro de presença (presente/ausente/falta justificada);</li>
+            <li>Relatório didático-pedagógico e orientações de rotina vocal/instrumental.</li>
+          </ul>
+        </div>
+
+        <div class="sub-card">
+          <h3>Comunicações via WhatsApp</h3>
+          <ul>
+            <li>Número de telefone para disparo de lembretes e confirmações;</li>
+            <li>O envio ocorre por ação do usuário ao abrir o aplicativo oficial WhatsApp;</li>
+            <li>A plataforma não monitora nem acessa conversas privadas do WhatsApp.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção Destaque Google Calendar -->
+    <div class="google-highlight-box">
+      <div class="google-badge">Seção Específica: Uso dos Dados do Google</div>
+      <h2>Integração com Google Calendar e Escopos Utilizados</h2>
+      <p>
+        A plataforma EAVRA oferece aos professores a funcionalidade <strong>estritamente opcional</strong> de conectar sua conta do Google Agenda para organizar seus compromissos de aula.
+      </p>
+
+      <div style="margin-top: 1.25rem;">
+        <h4 style="font-size: 1rem; font-weight: 700; color: #1e1b4b; margin-bottom: 0.5rem;">
+          1. Sentido Unidirecional da Integração (Plataforma → Google Agenda)
+        </h4>
+        <p style="color: #334155;">
+          O fluxo de sincronização opera <strong>exclusivamente no sentido Plataforma → Google Agenda</strong>. A plataforma envia para a agenda do professor apenas os eventos correspondentes às suas aulas agendadas no EAVRA. <strong>O sistema NÃO lê, NÃO importa, NÃO armazena e NÃO monitora nenhum evento pessoal, agenda de terceiros ou compromissos pré-existentes do professor na sua conta Google.</strong>
+        </p>
+      </div>
+
+      <div style="margin-top: 1.25rem;">
+        <h4 style="font-size: 1rem; font-weight: 700; color: #1e1b4b; margin-bottom: 0.5rem;">
+          2. Escopos de Acesso Solicitados e Justificativa
+        </h4>
+        <div class="scope-box">
+          <div class="scope-url">https://www.googleapis.com/auth/calendar.events.owned</div>
+          <p class="scope-desc"><strong>Finalidade:</strong> Permite à plataforma criar, atualizar o horário ou remover da agenda do professor os eventos de aulas gerenciadas pelo sistema EAVRA.</p>
+        </div>
+        <div class="scope-box">
+          <div class="scope-url">https://www.googleapis.com/auth/userinfo.email</div>
+          <p class="scope-desc"><strong>Finalidade:</strong> Permite identificar qual endereço de e-mail Google foi vinculado pelo professor para exibir o status de conexão no painel do professor (ex: "Conectado como professor@gmail.com").</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.25rem;">
+        <h4 style="font-size: 1rem; font-weight: 700; color: #1e1b4b; margin-bottom: 0.5rem;">
+          3. Quais Dados do Google São Armazenados
+        </h4>
+        <ul style="color: #334155;">
+          <li><strong>E-mail da conta Google conectada:</strong> armazenado no registro do professor para confirmação visual de conexão;</li>
+          <li><strong>Tokens OAuth 2.0 (refresh_token e access_token temporário):</strong> armazenados exclusivamente no servidor seguro (tabela <code>teacher_google_accounts</code>), utilizados unicamente para assinar as requisições de criação de eventos de aulas;</li>
+          <li><strong>Identificadores de eventos (google_event_id):</strong> armazenados para permitir que a plataforma atualize ou cancele o evento correspondente quando a aula for remarcada ou cancelada na escola.</li>
+        </ul>
+      </div>
+
+      <div style="margin-top: 1.25rem;">
+        <h4 style="font-size: 1rem; font-weight: 700; color: #1e1b4b; margin-bottom: 0.5rem;">
+          4. Conformidade com a Google API Services User Data Policy (Uso Limitado)
+        </h4>
+        <p style="color: #334155;">
+          O uso e a transferência de informações recebidas de APIs do Google pelo aplicativo EAVRA para qualquer outro aplicativo seguirão estritamente a <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, incluindo os requisitos de <strong>Uso Limitado (Limited Use Requirements)</strong>:
+        </p>
+
+        <div class="limited-use-card">
+          <div class="limited-use-item">
+            <span class="check-icon">✓</span>
+            <div><strong>Sem Publicidade:</strong> O EAVRA <strong>não utiliza</strong> dados do Google para veiculação de anúncios de qualquer natureza.</div>
+          </div>
+          <div class="limited-use-item">
+            <span class="check-icon">✓</span>
+            <div><strong>Sem Venda de Dados:</strong> O EAVRA <strong>não vende, não transfere e não licencia</strong> dados de usuários do Google para terceiros, corretores de dados ou plataformas de marketing.</div>
+          </div>
+          <div class="limited-use-item">
+            <span class="check-icon">✓</span>
+            <div><strong>Sem Uso de IA não Consentido:</strong> O EAVRA <strong>não utiliza</strong> os dados obtidos da Google Calendar API para treinar modelos de inteligência artificial de uso geral ou modelos de linguagem.</div>
+          </div>
+          <div class="limited-use-item">
+            <span class="check-icon">✓</span>
+            <div><strong>Sem Acesso Humano:</strong> Nenhum funcionário ou colaborador da escola visualiza os dados ou tokens da API do Google, exceto em caso de suporte técnico expressamente solicitado pelo professor ou quando exigido por lei.</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.25rem;">
+        <h4 style="font-size: 1rem; font-weight: 700; color: #1e1b4b; margin-bottom: 0.5rem;">
+          5. Desconexão da Conta Google e Exclusão Imediata de Tokens
+        </h4>
+        <p style="color: #334155;">
+          O professor pode desconectar sua conta Google a qualquer momento diretamente no card da tela de Aulas, clicando no botão <strong>"Desconectar"</strong>. Ao desconectar:
+        </p>
+        <ul style="color: #334155;">
+          <li>O <code>refresh_token</code> e o <code>access_token</code> são <strong>imediatamente apagados</strong> do banco de dados e de qualquer armazenamento do servidor;</li>
+          <li>O status de conexão é revertido para desconectado;</li>
+          <li>Nenhuma sincronização futura será efetuada até que uma nova autorização voluntária seja concedida pelo professor.</li>
+        </ul>
+        <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+          Adicionalmente, o professor pode revogar as permissões concedidas ao aplicativo a qualquer momento pela página de segurança da sua própria Conta Google em <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">myaccount.google.com/permissions</a>.
+        </p>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">4</span> Compartilhamento de Dados com Terceiros</h3>
+      <p>
+        O EAVRA não comercializa dados pessoais. O compartilhamento ocorre apenas com os provedores de infraestrutura essenciais para a operação tecnológica do sistema:
+      </p>
+      <ul>
+        <li><strong>Supabase Inc.:</strong> Provedor de banco de dados em nuvem, controle de permissões e autenticação criptografada de usuários;</li>
+        <li><strong>Google LLC (Google Calendar API):</strong> Apenas quando o professor conecta voluntariamente sua agenda para envio das aulas;</li>
+        <li><strong>WhatsApp / Meta:</strong> Apenas na abertura de link de conversa pelo dispositivo do usuário para envio manual de confirmações.</li>
+      </ul>
+    </div>
+
+    <!-- 5 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">5</span> Armazenamento e Segurança da Informação</h3>
+      <p>
+        Adotamos medidas técnicas e organizacionais rígidas para resguardar a integridade, disponibilidade e confidencialidade dos dados pessoais:
+      </p>
+      <ul>
+        <li>Tráfego integral de dados sob protocolo criptográfico TLS/HTTPS com certificados válidos;</li>
+        <li>Controle de acesso por funções (RBAC - Role-Based Access Control) garantindo que professores acessem apenas suas próprias turmas e alunos;</li>
+        <li>Tokens e segredos de clientes gerenciados exclusivamente no servidor (Server-Side), sem exposição no código do cliente ou no navegador;</li>
+        <li>Sessões autenticadas com expiração por inatividade e monitoramento em tempo real de acessos bloqueados.</li>
+      </ul>
+    </div>
+
+    <!-- 6 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">6</span> Retenção e Exclusão de Dados</h3>
+      <p>
+        Os dados pessoais são mantidos pelo período estritamente necessário para cumprir as finalidades educacionais e contratuais, ou para o cumprimento de obrigações legais e regulatórias (como guarda de registros acadêmicos e fiscais).
+      </p>
+      <p>
+        Mediante solicitação formal do titular ou após o encerramento do vínculo contratual, os dados poderão ser eliminados ou anonimizados, ressalvadas as hipóteses legais de conservação previstas no Artigo 16 da LGPD.
+      </p>
+    </div>
+
+    <!-- 7 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">7</span> Direitos dos Titulares de Dados (LGPD)</h3>
+      <p>
+        Em conformidade com o Artigo 18 da Lei Geral de Proteção de Dados, os titulares de dados pessoais tratados pelo EAVRA têm o direito de solicitar a qualquer momento:
+      </p>
+      <div class="rights-grid">
+        <div class="rights-item">✓ Confirmação da existência de tratamento;</div>
+        <div class="rights-item">✓ Acesso aos dados pessoais tratados;</div>
+        <div class="rights-item">✓ Correção de dados incompletos ou inexatos;</div>
+        <div class="rights-item">✓ Eliminação de dados desnecessários ou excessivos;</div>
+        <div class="rights-item">✓ Portabilidade de dados a outro fornecedor;</div>
+        <div class="rights-item">✓ Revogação do consentimento concedido.</div>
+      </div>
+    </div>
+
+    <!-- 8 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">8</span> Cookies e Tecnologias Semelhantes</h3>
+      <p>
+        O aplicativo EAVRA utiliza unicamente o armazenamento local seguro do navegador (como <code>localStorage</code>) para finalidades estritamente técnicas, necessárias para o funcionamento da aplicação, como a manutenção da sessão ativa de autenticação e a persistência de preferências de tela durante o uso. <strong>A plataforma não utiliza cookies de rastreamento de terceiros nem pixels de publicidade.</strong>
+      </p>
+    </div>
+
+    <!-- 9 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">9</span> Alterações desta Política de Privacidade</h3>
+      <p>
+        Esta Política de Privacidade poderá ser atualizada periodicamente para refletir aprimoramentos técnicos, novas funcionalidades ou atualizações normativas. A data da versão mais recente estará sempre indicada no topo desta página.
+      </p>
+    </div>
+
+    <!-- 10 -->
+    <div class="section-block">
+      <h3 class="section-title"><span class="section-number">10</span> Canal de Contato e Dúvidas</h3>
+      <p>
+        Para esclarecer dúvidas sobre esta Política de Privacidade ou para exercer qualquer um dos seus direitos como titular de dados pessoais perante a LGPD, entre em contato através do canal oficial:
+      </p>
+      <div class="info-card">
+        <p><strong>Canal de Atendimento de Privacidade:</strong> institutodeartera@gmail.com</p>
+        <p><strong>Domínio Oficial:</strong> institutoiacra.com.br</p>
+        <p><strong>Encarregado pelo Tratamento de Dados (DPO):</strong> Raphael Augusto</p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Rodapé -->
+  <footer>
+    <div class="footer-content">
+      <div class="footer-links">
+        <a href="/">Acessar Plataforma (Login)</a>
+        <a href="/politica-de-privacidade">Política de Privacidade</a>
+      </div>
+      <p class="footer-copy">
+        © 2026 EAVRA — INSTITUTO DE ARTE E VOCAL RAPHAEL AUGUSTO.<br>
+        Todos os direitos reservados. Domínio oficial: <strong>institutoiacra.com.br</strong>
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

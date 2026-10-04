@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.teachers (
   specialties text[],
   birth_date date,
   schedule jsonb,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -53,12 +54,18 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   role text NOT NULL CHECK (role IN ('super_admin', 'admin', 'teacher')),
   teacher_id text,
   temp_password text,
+  access_status text NOT NULL DEFAULT 'active' CHECK (access_status IN ('active', 'blocked')),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+ALTER TABLE IF EXISTS public.profiles ADD COLUMN IF NOT EXISTS created_at timestamp with time zone DEFAULT timezone('utc'::text, now());
+ALTER TABLE IF EXISTS public.profiles ALTER COLUMN created_at SET DEFAULT timezone('utc'::text, now());
+ALTER TABLE IF EXISTS public.profiles ADD COLUMN IF NOT EXISTS access_status text NOT NULL DEFAULT 'active' CHECK (access_status IN ('active', 'blocked'));
 
 -- Classes
 CREATE TABLE IF NOT EXISTS public.classes (
   id text PRIMARY KEY,
+  group_id text,
   title text NOT NULL,
   teacher_id text,
   date date NOT NULL,
@@ -78,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
   teacher_id text,
   schedule text,
   max_students integer,
+  status text DEFAULT 'active',
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -181,6 +189,31 @@ CREATE TABLE IF NOT EXISTS public.teacher_choir_payments (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Choir Collaborators
+CREATE TABLE IF NOT EXISTS public.choir_collaborators (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  role text DEFAULT 'Colaborador',
+  teacher_id text,
+  remuneration_type text DEFAULT 'per_rehearsal',
+  remuneration_value numeric DEFAULT 0,
+  phone text,
+  email text,
+  notes text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Choir Rehearsals
+CREATE TABLE IF NOT EXISTS public.choir_rehearsals (
+  id text PRIMARY KEY,
+  date text NOT NULL,
+  time text DEFAULT '19:30',
+  title text DEFAULT 'Ensaio Quinzenal do Coral',
+  notes text,
+  attendance text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Academic Calendar (no dependencies)
 CREATE TABLE IF NOT EXISTS public.academic_calendar (
   id text PRIMARY KEY,
@@ -280,10 +313,10 @@ ON CONFLICT (id) DO NOTHING;
 
 
 -- ==========================================
--- 4. ROW LEVEL SECURITY (RLS) & POLICIES
+-- 4. ROW LEVEL SECURITY (RLS) & PERMISSIVE POLICIES
 -- ==========================================
 
--- Enable RLS on all tables if they exist
+-- Enable RLS on all public tables
 ALTER TABLE IF EXISTS public.students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.teachers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.classes ENABLE ROW LEVEL SECURITY;
@@ -296,55 +329,47 @@ ALTER TABLE IF EXISTS public.financial_discount_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.choir_voice_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.choir_registrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.teacher_choir_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.choir_collaborators ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.choir_rehearsals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.academic_calendar ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.prospects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Create policies (allow all for authenticated users)
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.students;
-CREATE POLICY "Allow all for authenticated" ON public.students FOR ALL USING (auth.role() = 'authenticated');
+-- Helper to safely drop and recreate universal policies on all tables
+DO $$
+DECLARE
+  tbl_name text;
+  pol_name text;
+  tables text[] := ARRAY[
+    'students', 'teachers', 'classes', 'enrollments', 'class_students',
+    'transactions', 'groups', 'financial_plans', 'financial_discount_rules',
+    'choir_voice_types', 'choir_registrations', 'teacher_choir_payments',
+    'choir_collaborators', 'choir_rehearsals', 'academic_calendar',
+    'prospects', 'profiles'
+  ];
+BEGIN
+  FOREACH tbl_name IN ARRAY tables LOOP
+    -- Drop all existing policies on this table to prevent conflicting/restrictive rules
+    FOR pol_name IN (
+      SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = tbl_name
+    ) LOOP
+      EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol_name, tbl_name);
+    END LOOP;
 
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.teachers;
-CREATE POLICY "Allow all for authenticated" ON public.teachers FOR ALL USING (auth.role() = 'authenticated');
+    -- Create universal permissive CRUD policy for all authenticated and anon users
+    EXECUTE format('CREATE POLICY "Allow all" ON public.%I FOR ALL USING (true) WITH CHECK (true)', tbl_name);
+  END LOOP;
+END $$;
 
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.classes;
-CREATE POLICY "Allow all for authenticated" ON public.classes FOR ALL USING (auth.role() = 'authenticated');
+-- Explicitly grant full permissions to both authenticated (teachers/admins) and anon roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.enrollments;
-CREATE POLICY "Allow all for authenticated" ON public.enrollments FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.class_students;
-CREATE POLICY "Allow all for authenticated" ON public.class_students FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.transactions;
-CREATE POLICY "Allow all for authenticated" ON public.transactions FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.groups;
-CREATE POLICY "Allow all for authenticated" ON public.groups FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.financial_plans;
-CREATE POLICY "Allow all for authenticated" ON public.financial_plans FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.financial_discount_rules;
-CREATE POLICY "Allow all for authenticated" ON public.financial_discount_rules FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.choir_voice_types;
-CREATE POLICY "Allow all for authenticated" ON public.choir_voice_types FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.choir_registrations;
-CREATE POLICY "Allow all for authenticated" ON public.choir_registrations FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.teacher_choir_payments;
-CREATE POLICY "Allow all for authenticated" ON public.teacher_choir_payments FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated" ON public.academic_calendar;
-CREATE POLICY "Allow all for authenticated" ON public.academic_calendar FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated on prospects" ON public.prospects;
-CREATE POLICY "Allow all for authenticated on prospects" ON public.prospects FOR ALL USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Allow all for authenticated on profiles" ON public.profiles;
-CREATE POLICY "Allow all for authenticated on profiles" ON public.profiles FOR ALL USING (auth.role() = 'authenticated');
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
 
 
 -- ==========================================
@@ -389,10 +414,16 @@ EXCEPTION
     NULL;
 END $$;
 
--- Migration to add CPF columns to existing tables
+-- Migration to add columns to existing tables
 ALTER TABLE IF EXISTS public.students ADD COLUMN IF NOT EXISTS cpf text;
 ALTER TABLE IF EXISTS public.teachers ADD COLUMN IF NOT EXISTS cpf text;
 ALTER TABLE IF EXISTS public.teachers ADD COLUMN IF NOT EXISTS schedule jsonb;
+ALTER TABLE IF EXISTS public.teachers ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive'));
+CREATE INDEX IF NOT EXISTS idx_teachers_status ON public.teachers(status);
+ALTER TABLE IF EXISTS public.classes ADD COLUMN IF NOT EXISTS group_id text;
+ALTER TABLE IF EXISTS public.classes ADD COLUMN IF NOT EXISTS report text;
+ALTER TABLE IF EXISTS public.classes ADD COLUMN IF NOT EXISTS vocal_routine text;
+ALTER TABLE IF EXISTS public.classes ADD COLUMN IF NOT EXISTS attendance jsonb;
 
 -- Migration to add columns to enrollments table for existing databases
 ALTER TABLE IF EXISTS public.enrollments ADD COLUMN IF NOT EXISTS teacher_id text;
@@ -420,6 +451,54 @@ END $$;
 
 -- Migration to add temp_password to profiles
 ALTER TABLE IF EXISTS public.profiles ADD COLUMN IF NOT EXISTS temp_password text;
+
+-- ==========================================
+-- 6. CORAL, REGISTRO DE AULAS & FINANCIAL INTEGRITY CLEANUP
+-- ==========================================
+
+DO $$
+BEGIN
+  -- 1. Remove any ghost system backup records from choir_voice_types
+  DELETE FROM public.choir_voice_types 
+  WHERE id IN ('sys_rehearsals_backup', 'sys_collaborators_backup')
+     OR id LIKE 'sys_%';
+
+  -- 2. Inactivate enrollments of inactive or non-eligible students
+  UPDATE public.enrollments e
+  SET status = 'inactive'
+  FROM public.students s
+  WHERE e.student_id = s.id
+    AND (s.status = 'inactive' OR s.instrument LIKE '%// INELIGIBLE:%')
+    AND e.status = 'active';
+
+  -- 3. Delete orphaned class_students where class or student no longer exists
+  DELETE FROM public.class_students
+  WHERE class_id NOT IN (SELECT id FROM public.classes)
+     OR student_id NOT IN (SELECT id FROM public.students);
+
+  -- 4. Delete orphaned choir registrations where student no longer exists
+  DELETE FROM public.choir_registrations
+  WHERE student_id NOT IN (SELECT id FROM public.students);
+
+  -- 5. Deduplicate choir_rehearsals by date keeping the latest created/most complete
+  DELETE FROM public.choir_rehearsals a
+  USING public.choir_rehearsals b
+  WHERE a.date = b.date
+    AND a.created_at < b.created_at;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Indexes for high performance and fast query execution
+CREATE INDEX IF NOT EXISTS idx_classes_date ON public.classes(date);
+CREATE INDEX IF NOT EXISTS idx_classes_teacher_id ON public.classes(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_class_students_class_id ON public.class_students(class_id);
+CREATE INDEX IF NOT EXISTS idx_class_students_student_id ON public.class_students(student_id);
+CREATE INDEX IF NOT EXISTS idx_choir_rehearsals_date ON public.choir_rehearsals(date);
+CREATE INDEX IF NOT EXISTS idx_choir_registrations_student ON public.choir_registrations(student_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_student_status ON public.enrollments(student_id, status);
 
 -- RPC function to allow Super Admins to securely reset user passwords directly
 CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
@@ -466,3 +545,765 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('success', false, 'message', SQLERRM);
 END;
 $$;
+
+-- RPC: Bloquear ou Liberar acesso de usuário (SOMENTE SUPER ADMIN)
+CREATE OR REPLACE FUNCTION public.admin_toggle_user_access(
+  target_user_id text,
+  target_access_status text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  caller_role text;
+  uuid_target uuid;
+BEGIN
+  -- 1. Validar se o solicitante é super_admin
+  SELECT role INTO caller_role 
+  FROM public.profiles 
+  WHERE id = auth.uid()::text;
+
+  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
+    RETURN jsonb_build_object(
+      'success', false, 
+      'message', 'Permissão negada. Apenas Super Administradores podem bloquear ou liberar o acesso de usuários.'
+    );
+  END IF;
+
+  -- 2. Validar o parâmetro de status
+  IF target_access_status NOT IN ('active', 'blocked') THEN
+    RETURN jsonb_build_object(
+      'success', false, 
+      'message', 'Valor inválido. Utilize "active" ou "blocked".'
+    );
+  END IF;
+
+  -- 3. Atualizar o registro em public.profiles
+  UPDATE public.profiles
+  SET access_status = target_access_status
+  WHERE id = target_user_id;
+
+  -- 4. Suspender ou reativar em auth.users para revogação nativa de token no Supabase Auth
+  BEGIN
+    uuid_target := target_user_id::uuid;
+    IF target_access_status = 'blocked' THEN
+      UPDATE auth.users 
+      SET banned_until = '3000-01-01 00:00:00+00' 
+      WHERE id = uuid_target;
+    ELSE
+      UPDATE auth.users 
+      SET banned_until = NULL 
+      WHERE id = uuid_target;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  RETURN jsonb_build_object(
+    'success', true, 
+    'message', 'Status de acesso atualizado com sucesso.'
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_toggle_user_access(text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_toggle_user_access(text, text) TO service_role;
+
+-- RPC: Inativar ou Reativar status operacional de professor (SOMENTE SUPER ADMIN)
+CREATE OR REPLACE FUNCTION public.admin_toggle_teacher_status(
+  target_teacher_id text,
+  target_status text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+DECLARE
+  caller_role text;
+BEGIN
+  -- 1. Validar se o solicitante é super_admin
+  SELECT role INTO caller_role 
+  FROM public.profiles 
+  WHERE id = auth.uid()::text;
+
+  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
+    RETURN jsonb_build_object(
+      'success', false, 
+      'message', 'Permissão negada. Apenas Super Administradores podem inativar ou reativar professores.'
+    );
+  END IF;
+
+  -- 2. Validar status
+  IF target_status NOT IN ('active', 'inactive') THEN
+    RETURN jsonb_build_object(
+      'success', false, 
+      'message', 'Status inválido. Utilize "active" ou "inactive".'
+    );
+  END IF;
+
+  -- 3. Atualizar status na tabela teachers
+  UPDATE public.teachers
+  SET status = target_status
+  WHERE id = target_teacher_id;
+
+  RETURN jsonb_build_object(
+    'success', true, 
+    'message', 'Status operacional do professor atualizado com sucesso.'
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_toggle_teacher_status(text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_toggle_teacher_status(text, text) TO service_role;
+
+-- ==========================================
+-- 7. CHOIR MONTHLY CLOSINGS & AUDITABLE SNAPSHOTS (FASE 2)
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS public.choir_monthly_closings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  competence VARCHAR(7) NOT NULL CHECK (competence ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  version INT NOT NULL DEFAULT 1 CHECK (version >= 1),
+  is_current BOOLEAN NOT NULL DEFAULT true,
+  status VARCHAR(20) NOT NULL DEFAULT 'closed' CHECK (status IN ('closed', 'reopened')),
+  total_rehearsals_count INT NOT NULL DEFAULT 0 CHECK (total_rehearsals_count >= 0),
+  total_payouts NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (total_payouts >= 0),
+  rehearsals_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  closed_by UUID,
+  closed_by_name TEXT NOT NULL,
+  reopened_at TIMESTAMPTZ,
+  reopened_by UUID,
+  reopened_by_name TEXT,
+  reopen_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_choir_closings_competence_version UNIQUE (competence, version)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_choir_closings_current_competence 
+  ON public.choir_monthly_closings (competence) 
+  WHERE (is_current = true);
+
+CREATE TABLE IF NOT EXISTS public.choir_monthly_closing_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  closing_id UUID NOT NULL REFERENCES public.choir_monthly_closings(id) ON DELETE RESTRICT,
+  collaborator_id UUID NOT NULL,
+  collaborator_name_snapshot TEXT NOT NULL,
+  collaborator_role_snapshot TEXT NOT NULL,
+  remuneration_type_snapshot VARCHAR(30) NOT NULL,
+  remuneration_value_snapshot NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  present_count INT NOT NULL DEFAULT 0 CHECK (present_count >= 0),
+  absent_count INT NOT NULL DEFAULT 0 CHECK (absent_count >= 0),
+  amount_due NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (amount_due >= 0),
+  calculation_rule_snapshot TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_choir_closing_collaborator UNIQUE (closing_id, collaborator_id)
+);
+
+ALTER TABLE public.choir_monthly_closings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.choir_monthly_closing_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "choir_monthly_closings_select" ON public.choir_monthly_closings;
+CREATE POLICY "choir_monthly_closings_select"
+  ON public.choir_monthly_closings
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin', 'teacher')
+    )
+  );
+
+DROP POLICY IF EXISTS "choir_monthly_closings_insert" ON public.choir_monthly_closings;
+CREATE POLICY "choir_monthly_closings_insert"
+  ON public.choir_monthly_closings
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+DROP POLICY IF EXISTS "choir_monthly_closings_update" ON public.choir_monthly_closings;
+CREATE POLICY "choir_monthly_closings_update"
+  ON public.choir_monthly_closings
+  FOR UPDATE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+DROP POLICY IF EXISTS "choir_monthly_closings_delete" ON public.choir_monthly_closings;
+CREATE POLICY "choir_monthly_closings_delete"
+  ON public.choir_monthly_closings
+  FOR DELETE
+  TO authenticated
+  USING (false);
+
+DROP POLICY IF EXISTS "choir_monthly_closing_items_select" ON public.choir_monthly_closing_items;
+CREATE POLICY "choir_monthly_closing_items_select"
+  ON public.choir_monthly_closing_items
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin', 'teacher')
+    )
+  );
+
+DROP POLICY IF EXISTS "choir_monthly_closing_items_insert" ON public.choir_monthly_closing_items;
+CREATE POLICY "choir_monthly_closing_items_insert"
+  ON public.choir_monthly_closing_items
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()::text
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+DROP POLICY IF EXISTS "choir_monthly_closing_items_update" ON public.choir_monthly_closing_items;
+CREATE POLICY "choir_monthly_closing_items_update"
+  ON public.choir_monthly_closing_items
+  FOR UPDATE
+  TO authenticated
+  USING (false);
+
+DROP POLICY IF EXISTS "choir_monthly_closing_items_delete" ON public.choir_monthly_closing_items;
+CREATE POLICY "choir_monthly_closing_items_delete"
+  ON public.choir_monthly_closing_items
+  FOR DELETE
+  TO authenticated
+  USING (false);
+
+-- RPC: close_choir_monthly_competence
+CREATE OR REPLACE FUNCTION public.close_choir_monthly_competence(
+  p_competence VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_role TEXT;
+  v_user_name TEXT;
+  v_current_closing RECORD;
+  v_new_version INT := 1;
+  v_new_closing_id UUID;
+  v_start_date TEXT;
+  v_next_month_date TEXT;
+  v_rehearsals_snapshot JSONB := '[]'::jsonb;
+  v_total_rehearsals INT := 0;
+  v_total_payouts NUMERIC(10,2) := 0.00;
+  v_collab RECORD;
+  v_present_count INT;
+  v_absent_count INT;
+  v_amount_due NUMERIC(10,2);
+  v_calc_rule TEXT;
+BEGIN
+  -- 1. Validação de Formato da Competência
+  IF p_competence !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' THEN
+    RAISE EXCEPTION 'Formato de competência inválido: %. Esperado YYYY-MM.', p_competence;
+  END IF;
+
+  -- 2. Validação de Autorização
+  SELECT role, COALESCE(email, 'Administrador')
+  INTO v_user_role, v_user_name
+  FROM public.profiles
+  WHERE id = auth.uid()::text;
+
+  IF v_user_role IS NULL OR v_user_role NOT IN ('super_admin', 'admin') THEN
+    RAISE EXCEPTION 'Acesso negado: apenas administradores podem realizar o fechamento mensal.';
+  END IF;
+
+  -- 3. Lock Transacional por Competência
+  PERFORM pg_advisory_xact_lock(hashtext('CHOIR_COMPETENCE_' || p_competence));
+
+  -- 4. Validação de Estado Atual da Competência e Versionamento
+  SELECT id, version, status
+  INTO v_current_closing
+  FROM public.choir_monthly_closings
+  WHERE competence = p_competence AND is_current = true;
+
+  IF FOUND THEN
+    IF v_current_closing.status = 'closed' THEN
+      RAISE EXCEPTION 'A competência % já possui fechamento ativo (versão %). É necessário reabrir antes de gerar um novo fechamento.', p_competence, v_current_closing.version;
+    ELSIF v_current_closing.status = 'reopened' THEN
+      UPDATE public.choir_monthly_closings
+      SET is_current = false
+      WHERE id = v_current_closing.id;
+
+      v_new_version := v_current_closing.version + 1;
+    END IF;
+  ELSE
+    SELECT COALESCE(MAX(version), 0) + 1
+    INTO v_new_version
+    FROM public.choir_monthly_closings
+    WHERE competence = p_competence;
+  END IF;
+
+  -- 5. Limites do Mês
+  v_start_date := p_competence || '-01';
+  v_next_month_date := to_char((to_date(v_start_date, 'YYYY-MM-DD') + interval '1 month'), 'YYYY-MM-DD');
+
+  -- 6. Snapshot dos Ensaios do Mês
+  SELECT 
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', r.id,
+          'date', r.date,
+          'time', r.time,
+          'title', r.title,
+          'notes', r.notes
+        ) ORDER BY r.date ASC
+      ),
+      '[]'::jsonb
+    ),
+    COUNT(*)
+  INTO v_rehearsals_snapshot, v_total_rehearsals
+  FROM public.choir_rehearsals r
+  WHERE r.date >= v_start_date AND r.date < v_next_month_date;
+
+  -- 7. Criar Cabeçalho do Fechamento
+  INSERT INTO public.choir_monthly_closings (
+    competence,
+    version,
+    is_current,
+    status,
+    total_rehearsals_count,
+    total_payouts,
+    rehearsals_snapshot,
+    closed_at,
+    closed_by,
+    closed_by_name
+  ) VALUES (
+    p_competence,
+    v_new_version,
+    true,
+    'closed',
+    v_total_rehearsals,
+    0.00,
+    v_rehearsals_snapshot,
+    now(),
+    auth.uid(),
+    v_user_name
+  )
+  RETURNING id INTO v_new_closing_id;
+
+  -- 8. Iterar sobre Colaboradores Canônicos Ativos
+  FOR v_collab IN
+    SELECT DISTINCT ON (COALESCE(NULLIF(LOWER(TRIM(email)), ''), id::text))
+      id,
+      name,
+      role,
+      remuneration_type,
+      remuneration_value
+    FROM public.choir_collaborators
+    WHERE COALESCE(remuneration_value, 0) > 0
+    ORDER BY COALESCE(NULLIF(LOWER(TRIM(email)), ''), id::text), created_at DESC
+  LOOP
+    -- Presenças e Faltas (COUNT DISTINCT r.id)
+    SELECT 
+      COUNT(DISTINCT r.id) FILTER (
+        WHERE att.elem->>'type' = 'collaborator' 
+          AND att.elem->>'status' = 'present'
+      ),
+      COUNT(DISTINCT r.id) FILTER (
+        WHERE att.elem->>'type' = 'collaborator' 
+          AND att.elem->>'status' = 'absent'
+      )
+    INTO v_present_count, v_absent_count
+    FROM public.choir_rehearsals r
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE 
+        WHEN r.attendance IS NOT NULL AND trim(r.attendance) != '' AND jsonb_typeof(r.attendance::jsonb) = 'array' 
+        THEN r.attendance::jsonb
+        ELSE '[]'::jsonb
+      END
+    ) AS att(elem)
+    WHERE r.date >= v_start_date 
+      AND r.date < v_next_month_date
+      AND att.elem->>'person_id' = v_collab.id::text;
+
+    v_present_count := COALESCE(v_present_count, 0);
+    v_absent_count := COALESCE(v_absent_count, 0);
+
+    -- Valor Devido
+    v_amount_due := ROUND(v_present_count * COALESCE(v_collab.remuneration_value, 0.00), 2);
+    v_calc_rule := v_present_count || ' presença(s) x R$ ' || to_char(COALESCE(v_collab.remuneration_value, 0.00), 'FM999G990D00') || ' por ensaio';
+
+    -- Inserir Snapshot do Item
+    INSERT INTO public.choir_monthly_closing_items (
+      closing_id,
+      collaborator_id,
+      collaborator_name_snapshot,
+      collaborator_role_snapshot,
+      remuneration_type_snapshot,
+      remuneration_value_snapshot,
+      present_count,
+      absent_count,
+      amount_due,
+      calculation_rule_snapshot
+    ) VALUES (
+      v_new_closing_id,
+      v_collab.id,
+      trim(v_collab.name),
+      COALESCE(v_collab.role, 'Assistente de Naipe'),
+      COALESCE(v_collab.remuneration_type, 'per_rehearsal'),
+      COALESCE(v_collab.remuneration_value, 0.00),
+      v_present_count,
+      v_absent_count,
+      v_amount_due,
+      v_calc_rule
+    );
+
+    v_total_payouts := v_total_payouts + v_amount_due;
+  END LOOP;
+
+  -- 9. Atualizar Total Consolidado
+  UPDATE public.choir_monthly_closings
+  SET total_payouts = v_total_payouts
+  WHERE id = v_new_closing_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'closing_id', v_new_closing_id,
+    'competence', p_competence,
+    'version', v_new_version,
+    'total_rehearsals', v_total_rehearsals,
+    'total_payouts', v_total_payouts
+  );
+END;
+$$;
+
+-- RPC: reopen_choir_monthly_competence
+CREATE OR REPLACE FUNCTION public.reopen_choir_monthly_competence(
+  p_closing_id UUID,
+  p_reason TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_role TEXT;
+  v_user_name TEXT;
+  v_closing RECORD;
+BEGIN
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN
+    RAISE EXCEPTION 'A justificativa de reabertura é obrigatória.';
+  END IF;
+
+  SELECT role, COALESCE(email, 'Administrador')
+  INTO v_user_role, v_user_name
+  FROM public.profiles
+  WHERE id = auth.uid()::text;
+
+  IF v_user_role IS NULL OR v_user_role NOT IN ('super_admin', 'admin') THEN
+    RAISE EXCEPTION 'Acesso negado: apenas administradores podem reabrir competências.';
+  END IF;
+
+  SELECT id, competence, version, status, is_current
+  INTO v_closing
+  FROM public.choir_monthly_closings
+  WHERE id = p_closing_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Fechamento não encontrado (ID: %).', p_closing_id;
+  END IF;
+
+  IF NOT v_closing.is_current THEN
+    RAISE EXCEPTION 'Apenas a versão ativa da competência % pode ser reaberta.', v_closing.competence;
+  END IF;
+
+  IF v_closing.status = 'reopened' THEN
+    RAISE EXCEPTION 'A competência % (versão %) já se encontra reaberta.', v_closing.competence, v_closing.version;
+  END IF;
+
+  UPDATE public.choir_monthly_closings
+  SET 
+    status = 'reopened',
+    reopened_at = now(),
+    reopened_by = auth.uid(),
+    reopened_by_name = v_user_name,
+    reopen_reason = trim(p_reason)
+  WHERE id = p_closing_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'closing_id', p_closing_id,
+    'competence', v_closing.competence,
+    'version', v_closing.version,
+    'status', 'reopened'
+  );
+END;
+$$;
+
+-- ==========================================
+-- 8. MÓDULO DE AFILIADOS E INDICAÇÕES
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS public.affiliates (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  email text,
+  phone text,
+  cpf_cnpj text,
+  pix_key text,
+  pix_key_type text CHECK (pix_key_type IN ('cpf', 'cnpj', 'email', 'phone', 'random', 'outro')),
+  referral_code text UNIQUE,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE IF EXISTS public.enrollments 
+ADD COLUMN IF NOT EXISTS affiliate_id text REFERENCES public.affiliates(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS public.affiliate_referrals (
+  id text PRIMARY KEY,
+  affiliate_id text NOT NULL REFERENCES public.affiliates(id) ON DELETE RESTRICT,
+  prospect_id text REFERENCES public.prospects(id) ON DELETE SET NULL,
+  student_id text REFERENCES public.students(id) ON DELETE SET NULL,
+  enrollment_id text REFERENCES public.enrollments(id) ON DELETE SET NULL,
+  referred_name text NOT NULL,
+  referred_phone text,
+  referred_email text,
+  referral_date date NOT NULL DEFAULT CURRENT_DATE,
+  status text NOT NULL DEFAULT 'registered' CHECK (status IN ('registered', 'enrolled_pending_payment', 'converted', 'cancelled')),
+  conversion_date date,
+  conversion_competence varchar(7),
+  first_transaction_id text REFERENCES public.transactions(id) ON DELETE SET NULL,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_affiliate_referrals_unique_converted_student 
+ON public.affiliate_referrals(student_id) 
+WHERE status = 'converted' AND student_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_affiliate_comp 
+ON public.affiliate_referrals(affiliate_id, conversion_competence, status);
+
+CREATE TABLE IF NOT EXISTS public.affiliate_commission_rules (
+  id text PRIMARY KEY,
+  tier_quantity int NOT NULL UNIQUE,
+  total_commission_amount numeric(10,2),
+  is_defined boolean NOT NULL DEFAULT true,
+  description text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.affiliate_monthly_closings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  competence varchar(7) NOT NULL,
+  version int NOT NULL DEFAULT 1,
+  is_current boolean NOT NULL DEFAULT true,
+  status varchar(20) NOT NULL DEFAULT 'closed' CHECK (status IN ('closed', 'reopened')),
+  total_valid_referrals int NOT NULL DEFAULT 0,
+  total_payout_amount numeric(10,2) NOT NULL DEFAULT 0.00,
+  closed_at timestamptz NOT NULL DEFAULT now(),
+  closed_by uuid,
+  closed_by_name text,
+  reopened_at timestamptz,
+  reopen_reason text,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.affiliate_closing_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  closing_id uuid NOT NULL REFERENCES public.affiliate_monthly_closings(id) ON DELETE CASCADE,
+  affiliate_id text NOT NULL REFERENCES public.affiliates(id),
+  affiliate_name_snapshot text NOT NULL,
+  affiliate_pix_snapshot text,
+  valid_referrals_count int NOT NULL DEFAULT 0,
+  tier_applied text NOT NULL,
+  amount_due numeric(10,2),
+  rule_status text NOT NULL DEFAULT 'defined' CHECK (rule_status IN ('defined', 'pending_definition')),
+  payment_status varchar(20) NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
+  paid_at timestamptz,
+  payout_transaction_id text REFERENCES public.transactions(id) ON DELETE SET NULL,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ==========================================
+-- 21. COMPETENCE BILLINGS (FINANCIAL SNAPSHOT)
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS public.competence_billings (
+  id text PRIMARY KEY,
+  competence varchar(7) NOT NULL,
+  category text NOT NULL,
+  enrollment_id text,
+  choir_registration_id text,
+  group_id text,
+  student_id uuid,
+  teacher_id uuid,
+  is_paying boolean NOT NULL DEFAULT true,
+  base_price numeric(10,2) NOT NULL DEFAULT 0,
+  discount numeric(10,2) NOT NULL DEFAULT 0,
+  final_price numeric(10,2) NOT NULL DEFAULT 0,
+  teacher_fee_type text,
+  teacher_fee_value numeric(10,2),
+  teacher_share numeric(10,2) NOT NULL DEFAULT 0,
+  school_share numeric(10,2) NOT NULL DEFAULT 0,
+  status text NOT NULL,
+  transaction_id text,
+  is_frozen boolean NOT NULL DEFAULT false,
+  frozen_at timestamptz,
+  frozen_by text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_competence_billings_competence 
+    CHECK (competence ~ '^[0-9]{4}-[0-9]{2}$'),
+  CONSTRAINT chk_competence_billings_category 
+    CHECK (category IN ('individual', 'group', 'choir')),
+  CONSTRAINT chk_competence_billings_status 
+    CHECK (status IN ('pending', 'paid', 'waived', 'closed')),
+  CONSTRAINT chk_competence_billings_origin CHECK (
+    (category = 'individual' AND enrollment_id IS NOT NULL AND group_id IS NULL AND choir_registration_id IS NULL) OR
+    (category = 'group' AND group_id IS NOT NULL AND enrollment_id IS NULL AND choir_registration_id IS NULL) OR
+    (category = 'choir' AND choir_registration_id IS NOT NULL AND enrollment_id IS NULL AND group_id IS NULL)
+  ),
+
+  CONSTRAINT fk_competence_billings_enrollment 
+    FOREIGN KEY (enrollment_id) REFERENCES public.enrollments(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_competence_billings_choir_registration 
+    FOREIGN KEY (choir_registration_id) REFERENCES public.choir_registrations(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_competence_billings_group 
+    FOREIGN KEY (group_id) REFERENCES public.groups(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_competence_billings_student 
+    FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_competence_billings_teacher 
+    FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_competence_billings_transaction 
+    FOREIGN KEY (transaction_id) REFERENCES public.transactions(id) ON DELETE SET NULL,
+  CONSTRAINT fk_competence_billings_frozen_by 
+    FOREIGN KEY (frozen_by) REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+-- ==============================================================================
+-- Google Calendar Integration (Unidirectional: Platform -> Google Calendar)
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.teacher_google_accounts (
+  teacher_id text PRIMARY KEY REFERENCES public.teachers(id) ON DELETE CASCADE,
+  google_email text NOT NULL,
+  google_calendar_id text NOT NULL DEFAULT 'primary',
+  refresh_token text NOT NULL,
+  access_token text,
+  token_expires_at timestamptz,
+  connection_status text NOT NULL DEFAULT 'connected' CHECK (connection_status IN ('connected', 'disconnected', 'error')),
+  connected_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.class_google_events (
+  platform_class_id text PRIMARY KEY REFERENCES public.classes(id) ON DELETE CASCADE,
+  teacher_id text REFERENCES public.teachers(id) ON DELETE SET NULL,
+  google_calendar_id text NOT NULL DEFAULT 'primary',
+  google_event_id text,
+  last_synced_at timestamptz NOT NULL DEFAULT now(),
+  sync_status text NOT NULL DEFAULT 'synced' CHECK (sync_status IN ('synced', 'pending', 'failed')),
+  last_error text
+);
+
+-- ==============================================================================
+-- Credits by Cancellation (public.credits)
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.credits (
+  id text PRIMARY KEY,
+  teacher_id uuid NOT NULL REFERENCES public.teachers(id) ON DELETE RESTRICT,
+  student_id uuid REFERENCES public.students(id) ON DELETE SET NULL,
+  enrollment_id text REFERENCES public.enrollments(id) ON DELETE SET NULL,
+  group_id text REFERENCES public.groups(id) ON DELETE SET NULL,
+  source_class_id text REFERENCES public.classes(id) ON DELETE SET NULL,
+  amount numeric(10,2) NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'used', 'cancelled')),
+  competency_month varchar(7) NOT NULL,
+  used_date date,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_credits_competency_month CHECK (competency_month ~ '^[0-9]{4}-[0-9]{2}$')
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_credits_unique_source_class 
+ON public.credits(source_class_id) 
+WHERE source_class_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_credits_teacher_id ON public.credits(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_credits_status ON public.credits(status);
+CREATE INDEX IF NOT EXISTS idx_credits_competency_month ON public.credits(competency_month);
+CREATE INDEX IF NOT EXISTS idx_credits_student_id ON public.credits(student_id) WHERE student_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_credits_group_id ON public.credits(group_id) WHERE group_id IS NOT NULL;
+
+ALTER TABLE public.credits ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admins full access to credits" ON public.credits;
+CREATE POLICY "Admins full access to credits" ON public.credits
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE (id = auth.uid()::text OR email = auth.jwt()->>'email') 
+        AND role IN ('super_admin', 'admin')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE (id = auth.uid()::text OR email = auth.jwt()->>'email') 
+        AND role IN ('super_admin', 'admin')
+    )
+  );
+
+DROP POLICY IF EXISTS "Teachers can read their credits" ON public.credits;
+CREATE POLICY "Teachers can read their credits" ON public.credits
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE (id = auth.uid()::text OR email = auth.jwt()->>'email') 
+        AND role = 'teacher'
+        AND teacher_id = credits.teacher_id::text
+    )
+  );
+
+

@@ -1,1 +1,64 @@
 @import "tailwindcss";
+
+@media print {
+  /* Reset layout constraints for print */
+  html, body, #root, main, div {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Utility class overrides for printing */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  .print\:flex {
+    display: flex !important;
+  }
+
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+
+  .print\:m-0 {
+    margin: 0 !important;
+  }
+
+  .print\:w-full {
+    width: 100% !important;
+  }
+
+  .print\:max-w-none {
+    max-width: none !important;
+  }
+
+  .print\:overflow-visible {
+    overflow: visible !important;
+  }
+
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+
+  .print\:border-none {
+    border: none !important;
+  }
+
+  /* Hide fixed elements like headers, sidebars, toolbars during print */
+  aside, header, nav, button {
+    /* If button doesn't have print:block, default to hide */
+  }
+}
