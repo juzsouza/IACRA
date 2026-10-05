@@ -63,8 +63,10 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "profiles", label: "Usuários", icon: Shield, roles: ["super_admin"] },
   ] as const;
 
-  const userRole = currentUserProfile?.role || "teacher";
-  const navItems = allNavItems.filter((item) => item.roles.includes(userRole));
+  const userRole = currentUserProfile?.role;
+  const navItems = userRole
+    ? allNavItems.filter((item) => item.roles.includes(userRole))
+    : [];
 
   return (
     <div className="min-h-screen bg-zinc-50 flex text-zinc-900 font-sans">
@@ -101,29 +103,36 @@ export const Layout: React.FC<LayoutProps> = ({
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentView === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onViewChange(item.id);
-                  setSidebarOpen(false);
-                }}
-                className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
-                  isActive
-                    ? "bg-indigo-50 text-indigo-700"
-                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-                }`}
-              >
-                <Icon
-                  className={`w-5 h-5 mr-3 ${isActive ? "text-indigo-600" : "text-zinc-400"}`}
-                />
-                {item.label}
-              </button>
-            );
-          })}
+          {!userRole ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+              <p className="font-semibold mb-1">Acesso Pendente</p>
+              <p>Perfil de usuário não localizado ou sem nível de acesso configurado. Entre em contato com a coordenação.</p>
+            </div>
+          ) : (
+            navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    onViewChange(item.id);
+                    setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
+                    isActive
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  }`}
+                >
+                  <Icon
+                    className={`w-5 h-5 mr-3 ${isActive ? "text-indigo-600" : "text-zinc-400"}`}
+                  />
+                  {item.label}
+                </button>
+              );
+            })
+          )}
         </nav>
 
         <div className="p-4 border-t border-zinc-100">
@@ -138,7 +147,9 @@ export const Layout: React.FC<LayoutProps> = ({
                     ? "Super Admin"
                     : currentUserProfile?.role === "admin"
                     ? "Admin"
-                    : "Professor"}
+                    : currentUserProfile?.role === "teacher"
+                    ? "Professor"
+                    : "Perfil Pendente"}
                 </p>
                 <p className="text-xs text-zinc-500 truncate">{currentUserProfile?.email}</p>
               </div>

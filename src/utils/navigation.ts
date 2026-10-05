@@ -71,16 +71,21 @@ export const isValidView = (viewCandidate: unknown): viewCandidate is View => {
 };
 
 export const isViewPermittedForRole = (view: View, role?: string | null): boolean => {
-  const effectiveRole = role || "teacher";
+  if (!role) {
+    return false;
+  }
   const allowedRoles = VIEW_ROLE_PERMISSIONS[view];
-  return Boolean(allowedRoles && allowedRoles.includes(effectiveRole));
+  return Boolean(allowedRoles && allowedRoles.includes(role));
 };
 
 export const getDefaultViewForRole = (role?: string | null): View => {
   if (role === "teacher") {
     return "students";
   }
-  return "dashboard";
+  if (role === "admin" || role === "super_admin") {
+    return "dashboard";
+  }
+  return "students";
 };
 
 export const getSavedView = (profileId: string, role?: string | null): View | null => {

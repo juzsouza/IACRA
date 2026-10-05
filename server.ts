@@ -38,9 +38,40 @@ if (!oauthValidation.valid) {
   console.log('[Google OAuth] Configuração de credenciais validada com sucesso no startup.');
 }
 
-async function startServer() {
+// Script de migração para desativar qualquer Service Worker legado do EAVRA
+export const LEGACY_SW_SCRIPT = `/* Legacy Service Worker Migration - EAVRA */
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      if (self.clients && self.clients.claim) {
+        await self.clients.claim();
+      }
+      if ('caches' in self) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+      }
+      if (self.registration && typeof self.registration.unregister === 'function') {
+        await self.registration.unregister();
+      }
+    })()
+  );
+});
+`;
+
+export const handleLegacyServiceWorker = (_req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.status(200).send(LEGACY_SW_SCRIPT);
+};
+
+export async function createApp() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
 
   // Parser JSON para payloads de API
   app.use(express.json());
@@ -56,8 +87,13 @@ async function startServer() {
   // Rotas Administrativas Seguras (Validação Super Admin)
   app.use('/api/admin', adminRouter);
 
+  // Rotas explícitas para Service Worker legado (sempre antes de static e do fallback SPA)
+  // NUNCA responder index.html ou text/html para essas rotas!
+  app.get('/sw.js', handleLegacyServiceWorker);
+  app.get('/service-worker.js', handleLegacyServiceWorker);
+
   // Vite middleware em desenvolvimento / arquivos estáticos em produção
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test-prod') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -66,15 +102,54 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+
+    // 1. Assets Vite com hash: cache imutável de longo prazo (1 ano)
+    app.use('/assets', express.static(path.join(distPath, 'assets'), {
+      immutable: true,
+      maxAge: '1y',
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }));
+
+    // 2. Demais arquivos estáticos da pasta dist
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      }
+    }));
+
+    // 3. Fallback SPA: index.html SEMPRE revalidado sem cache
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  return app;
+}
+
+export async function startServer() {
+  const app = await createApp();
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor rodando em http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+const isMainModule = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.cjs'))
+);
+
+// Iniciar servidor somente quando executado diretamente como arquivo principal
+if (isMainModule && process.env.NODE_ENV !== 'test') {
+  startServer();
+}

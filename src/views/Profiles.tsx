@@ -119,9 +119,11 @@ export const Profiles: React.FC = () => {
     setError(null);
 
     try {
+      const cleanEmail = formData.email.trim().toLowerCase();
+      const existingProfile = state.profiles.find(p => (p.email || "").trim().toLowerCase() === cleanEmail);
       const payload: UserProfile = {
-        id: editingProfile ? editingProfile.id : crypto.randomUUID(),
-        email: formData.email.trim().toLowerCase(),
+        id: editingProfile ? editingProfile.id : (existingProfile ? existingProfile.id : crypto.randomUUID()),
+        email: cleanEmail,
         role: formData.role,
         teacher_id: formData.role === "teacher" && formData.teacher_id ? formData.teacher_id : undefined,
       };

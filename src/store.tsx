@@ -1677,18 +1677,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     });
 
     try {
-      let user: { id: string } | null = sessionUser || null;
+      let user: { id: string; email?: string } | null = (sessionUser as any) || null;
       if (!user) {
         const userResult = await Promise.race([
           supabase.auth.getUser(),
           timeoutPromise,
         ]);
-        user = userResult?.data?.user || null;
+        user = (userResult?.data?.user as any) || null;
       }
 
       if (user && user.id) {
         let userProfile: UserProfile | null = null;
+        const cleanEmail = (user.email || '').trim().toLowerCase();
 
+        // 1. Buscar perfil prioritariamente pelo ID de autenticação
         try {
           const { data, error } = await supabase
             .from('profiles')
@@ -1696,25 +1698,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             .eq('id', user.id)
             .maybeSingle();
 
-          if (!error) {
-            if (data) {
-              userProfile = data;
-            }
-          } else {
-            console.warn('[AUTH] Could not fetch user profile from Supabase:', error.message);
+          if (!error && data) {
+            userProfile = data;
+          } else if (error) {
+            console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', error.message);
           }
         } catch (e) {
-          console.warn('[AUTH] Could not fetch user profile from Supabase:', e);
+          console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', e);
         }
 
-        if (!userProfile) {
-          const localProfile = state.profiles.find(p => p.id === user!.id);
-          if (localProfile) {
-            userProfile = localProfile;
+        // 2. Se não encontrar e houver email: buscar por email normalizado (resiliência contra divergência de ID)
+        if (!userProfile && cleanEmail) {
+          try {
+            const { data: profileByEmail, error: emailErr } = await supabase
+              .from('profiles')
+              .select('*')
+              .ilike('email', cleanEmail)
+              .maybeSingle();
+
+            if (!emailErr && profileByEmail) {
+              console.warn(
+                `[AUTH DIAGNÓSTICO] Inconsistência de identificador detectada para ${cleanEmail}: ` +
+                `auth user.id (${user.id}) diverge do profiles.id (${profileByEmail.id}). ` +
+                `Perfil carregado com sucesso por e-mail com role "${profileByEmail.role}".`
+              );
+              userProfile = profileByEmail;
+            } else if (emailErr) {
+              console.warn('[AUTH] Erro ao buscar perfil por email:', emailErr.message);
+            }
+          } catch (e) {
+            console.warn('[AUTH] Erro ao buscar perfil por email:', e);
           }
         }
 
-        // Validação Crítica: Se perfil estiver com acesso bloqueado, revogar sessão
+        // 3. Fallback no cache local em memória (state.profiles)
+        if (!userProfile) {
+          const localById = state.profiles.find(p => p.id === user!.id);
+          if (localById) {
+            userProfile = localById;
+          } else if (cleanEmail) {
+            const localByEmail = state.profiles.find(p => (p.email || '').trim().toLowerCase() === cleanEmail);
+            if (localByEmail) {
+              console.warn(`[AUTH DIAGNÓSTICO] Perfil recuperado de state.profiles por e-mail para ${cleanEmail}.`);
+              userProfile = localByEmail;
+            }
+          }
+        }
+
+        // 4. Validação Crítica: Se perfil estiver com acesso bloqueado, revogar sessão imediatamente
         if (userProfile && userProfile.access_status === 'blocked') {
           console.warn('[AUTH] Acesso bloqueado pela administração da escola para usuário.');
           await supabase.auth.signOut();
@@ -1724,11 +1755,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        // O role e permissões vêm exclusivamente de public.profiles (auth.uid === public.profiles.id)
+        // 5. Se o perfil for resolvido, atualiza currentUserProfile; se NÃO for encontrado, define null SEM assumir teacher
         if (userProfile) {
           currentUserProfileRef.current = userProfile;
           setCurrentUserProfile(userProfile);
-        } else if (!currentUserProfileRef.current) {
+        } else {
+          console.warn('[AUTH SEGURANÇA] Perfil de usuário não localizado nem por ID nem por e-mail. currentUserProfile definido como null sem atribuição de roles.');
+          currentUserProfileRef.current = null;
           setCurrentUserProfile(null);
         }
       } else {
@@ -6348,7 +6381,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     finalProfile.email = cleanEmail;
     finalProfile.access_status = profile.access_status || 'active';
 
-    // 1. Check if profile with this email already exists in local state
+    // 1. Tentar primeiro criação e sincronização via backend Admin API oficial
+    // para garantir que public.profiles.id === auth.users.id
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        const response = await fetch('/api/admin/create-or-resolve-user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password: password,
+            role: finalProfile.role,
+            teacher_id: finalProfile.teacher_id,
+          })
+        });
+
+        if (response.ok) {
+          const resJson = await response.json();
+          if (resJson.success && resJson.authUserId) {
+            finalProfile.id = resJson.authUserId;
+            if (resJson.profile) {
+              finalProfile = { ...resJson.profile, ...finalProfile, id: resJson.authUserId };
+            }
+            setState((s) => ({
+              ...s,
+              profiles: [...s.profiles.filter((p) => p.id !== finalProfile.id && (p.email || "").trim().toLowerCase() !== cleanEmail), finalProfile],
+            }));
+            return;
+          }
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[ADMIN API] Nota: endpoint server-side não respondeu, prosseguindo com fluxo direto:', apiErr);
+    }
+
+    // 2. Check if profile with this email already exists in local state
     const existingInState = state.profiles.find(p => (p.email || "").trim().toLowerCase() === cleanEmail);
     if (existingInState) {
       finalProfile = {
