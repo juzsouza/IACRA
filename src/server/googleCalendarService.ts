@@ -274,6 +274,9 @@ export async function deleteClassGoogleEventRecord(classId: string): Promise<voi
 // Configuração e OAuth Google
 // ============================================================================
 
+export const PROD_GOOGLE_REDIRECT_URI =
+  'https://institutoiacra.com.br/api/google/oauth/callback';
+
 export const DEFAULT_GOOGLE_REDIRECT_URI =
   'https://ais-pre-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app/api/google/oauth/callback';
 

@@ -17,7 +17,8 @@
     "test:access": "tsx src/tests/auth_admin_access_toggle.test.ts",
     "test:retention": "tsx src/tests/navigation_view_retention.test.ts",
     "test:reminders": "tsx src/tests/google_calendar_reminders.test.ts",
-    "test:cache-sw": "tsx src/tests/cache_and_service_worker_migration.test.ts"
+    "test:cache-sw": "tsx src/tests/cache_and_service_worker_migration.test.ts",
+    "test:oauth-prod": "tsx src/tests/google_calendar_oauth_production.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

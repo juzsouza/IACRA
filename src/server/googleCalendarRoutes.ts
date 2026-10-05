@@ -21,6 +21,7 @@ import {
   getUnsyncedClassesList,
   updateExistingFutureClassesReminders,
   DEFAULT_GOOGLE_REDIRECT_URI,
+  PROD_GOOGLE_REDIRECT_URI,
   supabaseAdmin,
 } from './googleCalendarService.js';
 
@@ -352,47 +353,91 @@ googleCalendarRouter.get('/config', (req, res) => {
   }
 });
 
+export const PROD_REDIRECT_URI =
+  PROD_GOOGLE_REDIRECT_URI || 'https://institutoiacra.com.br/api/google/oauth/callback';
 export const DEV_REDIRECT_URI =
   'https://ais-dev-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app/api/google/oauth/callback';
 export const PRE_REDIRECT_URI =
   'https://ais-pre-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app/api/google/oauth/callback';
 
 export const ALLOWED_OAUTH_HOSTS: Record<string, string> = {
+  'institutoiacra.com.br': PROD_REDIRECT_URI,
+  'www.institutoiacra.com.br': PROD_REDIRECT_URI,
   'ais-dev-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app': DEV_REDIRECT_URI,
   'ais-pre-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app': PRE_REDIRECT_URI,
 };
 
-export const ALLOWED_REDIRECT_URIS = new Set([DEV_REDIRECT_URI, PRE_REDIRECT_URI]);
+export const ALLOWED_REDIRECT_URIS = new Set([
+  PROD_REDIRECT_URI,
+  DEV_REDIRECT_URI,
+  PRE_REDIRECT_URI,
+]);
+
+/**
+ * Extrai e normaliza o host requisitante a partir de headers de proxy ou host direto
+ */
+export function extractRequestHost(req: any): string {
+  const rawHostHeader = req?.headers?.['x-forwarded-host'] || req?.headers?.host || '';
+  const firstHost = typeof rawHostHeader === 'string' ? rawHostHeader.split(',')[0].trim() : '';
+  return firstHost.replace(/:\d+$/, '').toLowerCase();
+}
+
+/**
+ * Extrai e normaliza o host a partir do header Origin ou Referer, se existente
+ */
+export function extractOriginHost(req: any): string {
+  const rawOrigin = req?.headers?.origin || req?.headers?.referer || '';
+  if (typeof rawOrigin === 'string' && rawOrigin.trim()) {
+    try {
+      const url = new URL(rawOrigin.trim());
+      return url.hostname.toLowerCase();
+    } catch {
+      // Ignora URL malformada
+    }
+  }
+  return '';
+}
 
 /**
  * Resolve o redirect_uri consistente entre autorização e callback
  * baseado EXCLUSIVAMENTE nos hosts oficiais conhecidos (allowlist restrita).
  * 
- * 1. Lê x-forwarded-host ou host da requisição, normaliza e remove eventual porta.
- * 2. Se o host for DEV oficial -> retorna estritamente DEV_REDIRECT_URI.
- * 3. Se o host for PRE oficial -> retorna estritamente PRE_REDIRECT_URI.
- * 4. Somente se NENHUM host oficial for identificado:
- *    - Usa GOOGLE_REDIRECT_URI APENAS se o valor estiver na allowlist oficial dos dois redirects.
- *    - Caso contrário, usa DEFAULT_GOOGLE_REDIRECT_URI.
- * 5. Não permite que GOOGLE_REDIRECT_URI de DEV force callback de DEV quando a requisição veio de PRE.
+ * 1. Produção: institutoiacra.com.br / www.institutoiacra.com.br -> PROD_REDIRECT_URI
+ * 2. Preview oficial: ais-pre-... -> PRE_REDIRECT_URI
+ * 3. Dev oficial: ais-dev-... -> DEV_REDIRECT_URI
+ * 4. Rejeição explícita: Se host ou origin informados pertencerem a domínio arbitrário fora da allowlist -> retorna null
+ * 5. Fallback seguro para ambiente local / testes unitários (localhost / 127.0.0.1 ou sem host explícito)
  */
-export function resolveOAuthRedirectUri(req: any): string {
-  const rawHostHeader = req?.headers?.['x-forwarded-host'] || req?.headers?.host || '';
-  const firstHost = typeof rawHostHeader === 'string' ? rawHostHeader.split(',')[0].trim() : '';
-  const normalizedHost = firstHost.replace(/:\d+$/, '').toLowerCase();
+export function resolveOAuthRedirectUri(req: any): string | null {
+  const host = extractRequestHost(req);
+  const originHost = extractOriginHost(req);
 
-  // Prioridade 1: Host oficial reconhecido na allowlist
-  if (normalizedHost && ALLOWED_OAUTH_HOSTS[normalizedHost]) {
-    return ALLOWED_OAUTH_HOSTS[normalizedHost];
+  // Validação de Origin se presente: Se origin fornecido for arbitrário fora da allowlist, rejeita
+  if (originHost) {
+    if (ALLOWED_OAUTH_HOSTS[originHost]) {
+      return ALLOWED_OAUTH_HOSTS[originHost];
+    }
+    if (originHost !== 'localhost' && originHost !== '127.0.0.1') {
+      return null;
+    }
   }
 
-  // Prioridade 2: Fallback controlado por GOOGLE_REDIRECT_URI somente se pertencer à allowlist
+  // Validação de Host
+  if (host) {
+    if (ALLOWED_OAUTH_HOSTS[host]) {
+      return ALLOWED_OAUTH_HOSTS[host];
+    }
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return null;
+    }
+  }
+
+  // Fallback controlado para localhost / ambiente de testes
   const configured = process.env.GOOGLE_REDIRECT_URI?.trim();
   if (configured && ALLOWED_REDIRECT_URIS.has(configured)) {
     return configured;
   }
 
-  // Prioridade 3: Default seguro
   return DEFAULT_GOOGLE_REDIRECT_URI;
 }
 
@@ -423,7 +468,14 @@ googleCalendarRouter.get('/auth-url', async (req, res) => {
       });
     }
 
+    // Determina o redirect URI de forma estrita via allowlist (nunca aceita redirect_uri livre do cliente)
     const redirectUri = resolveOAuthRedirectUri(req);
+    if (!redirectUri) {
+      return res.status(403).json({
+        error: 'Host ou Origin não autorizado para autorização OAuth do Google Calendar.',
+      });
+    }
+
     const result = generateGoogleAuthUrl(teacherId, redirectUri);
     if (result.error) {
       return res.status(400).json({ error: result.error });
@@ -491,7 +543,15 @@ googleCalendarRouter.get('/oauth/callback', async (req, res) => {
       return res.status(400).send('Parâmetro state corrompido ou malformado.');
     }
 
+    // Validação estrita da allowlist para redirectUri vindo do state
+    if (stateRedirectUri && !ALLOWED_REDIRECT_URIS.has(stateRedirectUri)) {
+      return res.status(400).send('Redirect URI no parâmetro state não pertence à allowlist autorizada.');
+    }
+
     const redirectUri = stateRedirectUri || resolveOAuthRedirectUri(req);
+    if (!redirectUri) {
+      return res.status(403).send('Host ou Origin não autorizado para callback OAuth.');
+    }
 
     // Preservar configuração existente em caso de reautorização sem desconectar
     const existingAccount = await getTeacherGoogleAccount(teacherId);
