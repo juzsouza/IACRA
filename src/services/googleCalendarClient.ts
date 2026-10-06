@@ -552,3 +552,62 @@ export async function updateFutureClassesReminders(teacherId?: string): Promise<
     };
   }
 }
+
+export interface InboundPullResponse {
+  imported: number;
+  updated: number;
+  ignored: number;
+  cancelled: number;
+  pendingStudentLink: number;
+  errors: string[];
+  error?: string;
+}
+
+/**
+ * Dispara a sincronização manual inbound (Google Calendar -> EAVRA).
+ * Importa aulas criadas pelo professor com tags [EAVRA], atualiza horários e trata cancelamentos.
+ */
+export async function pullGoogleEvents(options?: {
+  teacherId?: string;
+  forceFullSync?: boolean;
+}): Promise<InboundPullResponse> {
+  try {
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch('/api/google/pull-events', {
+      method: 'POST',
+      headers: {
+        ...authHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        teacherId: options?.teacherId || null,
+        forceFullSync: options?.forceFullSync || false,
+      }),
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+    const errData = await res.json().catch(() => null);
+    return {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+      cancelled: 0,
+      pendingStudentLink: 0,
+      errors: [errData?.error || `Erro HTTP ${res.status}`],
+      error: errData?.error || `Erro HTTP ${res.status}`,
+    };
+  } catch (e: any) {
+    return {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+      cancelled: 0,
+      pendingStudentLink: 0,
+      errors: [e?.message || 'Falha de rede ao sincronizar do Google Calendar'],
+      error: e?.message || 'Falha de rede ao sincronizar do Google Calendar',
+    };
+  }
+}
+

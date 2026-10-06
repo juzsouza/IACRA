@@ -20,6 +20,7 @@ import {
   reconcileUnsyncedClasses,
   getUnsyncedClassesList,
   updateExistingFutureClassesReminders,
+  pullGoogleEvents,
   DEFAULT_GOOGLE_REDIRECT_URI,
   PROD_GOOGLE_REDIRECT_URI,
   supabaseAdmin,
@@ -919,6 +920,44 @@ googleCalendarRouter.post('/update-future-reminders', async (req, res) => {
     res.status(500).json({ error: err?.message || 'Erro ao atualizar lembretes das aulas no Google Calendar.' });
   }
 });
+
+// 12. Sincronização Inbound Manual: Puxar eventos criados pelo professor no Google Calendar para o EAVRA
+googleCalendarRouter.post('/pull-events', async (req, res) => {
+  try {
+    const authRes = await resolveAuthenticatedUser(req);
+    if (!authRes.authenticated || !authRes.user) {
+      return res.status(authRes.statusCode).json({ error: authRes.error || 'Autenticação necessária.' });
+    }
+
+    const { teacherId, forceFullSync } = req.body || {};
+
+    // Autorização:
+    // - super_admin e admin: podem sincronizar qualquer professor ou todos
+    // - teacher: pode sincronizar APENAS seu próprio teacherId
+    if (authRes.user.role === 'teacher') {
+      if (!authRes.user.teacherId) {
+        return res.status(403).json({ error: 'Professor sem vínculo oficial configurado no perfil.' });
+      }
+      if (teacherId && teacherId !== authRes.user.teacherId) {
+        return res.status(403).json({
+          error: 'Permissão negada: professor só pode sincronizar suas próprias aulas da agenda Google.',
+        });
+      }
+    }
+
+    const targetTeacherId = authRes.user.role === 'teacher' ? authRes.user.teacherId : (teacherId || null);
+
+    const result = await pullGoogleEvents({
+      teacherId: targetTeacherId,
+      forceFullSync: Boolean(forceFullSync),
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Erro ao sincronizar eventos do Google Calendar para o sistema.' });
+  }
+});
+
 
 
 

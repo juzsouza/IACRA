@@ -11,6 +11,8 @@ import {
   resyncClassWithGoogle,
   reconcileGoogleClasses,
   fetchUnsyncedClassesStatus,
+  pullGoogleEvents,
+  InboundPullResponse,
   SyncResult,
 } from "./services/googleCalendarClient";
 import {
@@ -54,6 +56,42 @@ export type Teacher = {
   status: 'active' | 'inactive';
 };
 
+export const normalizeTeacher = (t: any): Teacher => {
+  if (!t || typeof t !== 'object') {
+    return {
+      id: '',
+      name: '',
+      email: '',
+      phone: '',
+      cpf: '',
+      specialties: [],
+      schedule: [],
+      status: 'active',
+    };
+  }
+  return {
+    ...t,
+    name: t.name || '',
+    email: t.email || '',
+    phone: t.phone || '',
+    cpf: t.cpf || '',
+    specialties: Array.isArray(t.specialties) ? t.specialties : [],
+    schedule: Array.isArray(t.schedule)
+      ? t.schedule
+      : (typeof t.schedule === 'string'
+        ? (() => {
+            try {
+              const parsed = JSON.parse(t.schedule);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          })()
+        : []),
+    status: (t.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
+  };
+};
+
 export type ClassSession = {
   id: string;
   group_id?: string;
@@ -71,6 +109,7 @@ export type ClassSession = {
   report?: string;
   vocal_routine?: string;
   attendance?: Record<string, "present" | "absent">;
+  needs_student_link?: boolean;
 };
 
 export type PendingClassSync = {
@@ -797,6 +836,7 @@ type AppContextType = {
     details?: any[];
     error?: string;
   }>;
+  pullGoogleCalendar: (teacherId?: string, forceFullSync?: boolean) => Promise<InboundPullResponse>;
   refreshGoogleSyncStatus: () => Promise<void>;
   pendingClassSyncs: Record<string, PendingClassSync>;
   pendingSyncCount: number;
@@ -1612,10 +1652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           ...defaultState,
           ...parsed,
           students: parsed.students || [],
-          teachers: (parsed.teachers || []).map((t: any) => ({
-            ...t,
-            status: (t.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
-          })),
+          teachers: (parsed.teachers || []).map(normalizeTeacher),
           classes: parsed.classes || [],
           transactions: parsed.transactions || [],
           financialPlans: parsed.financialPlans || [],
@@ -1955,6 +1992,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         failed: 0,
         remaining: 0,
         error: e?.message || 'Falha na reconciliação',
+      };
+    }
+  };
+
+  const pullGoogleCalendar = async (teacherId?: string, forceFullSync?: boolean): Promise<InboundPullResponse> => {
+    try {
+      const result = await pullGoogleEvents({ teacherId, forceFullSync });
+      try {
+        const { data: refreshedClasses } = await supabase.from('classes').select('*, class_students(student_id)');
+        if (refreshedClasses && Array.isArray(refreshedClasses)) {
+          setState((prev) => ({
+            ...prev,
+            classes: refreshedClasses.map((rc: any) => ({
+              id: rc.id,
+              title: rc.title,
+              teacher_id: rc.teacher_id,
+              date: rc.date,
+              start_time: rc.start_time,
+              end_time: rc.end_time,
+              status: rc.status,
+              group_id: rc.group_id,
+              allow_makeup: rc.allow_makeup,
+              makeup_scheduled: rc.makeup_scheduled,
+              report: rc.report,
+              student_ids: (rc.class_students || []).map((cs: any) => cs.student_id).filter(Boolean),
+              needs_student_link: rc.needs_student_link,
+            })),
+          }));
+        }
+      } catch (refErr) {
+        console.warn('[GoogleSync] Aviso ao recarregar classes após pull:', refErr);
+      }
+      void refreshGoogleSyncStatus();
+      return result;
+    } catch (e: any) {
+      console.warn('[GoogleSync] Falha na importação do Google Calendar:', e);
+      return {
+        imported: 0,
+        updated: 0,
+        ignored: 0,
+        cancelled: 0,
+        pendingStudentLink: 0,
+        errors: [e?.message || 'Falha na sincronização do Google Calendar'],
+        error: e?.message || 'Falha na sincronização do Google Calendar',
       };
     }
   };
@@ -3951,14 +4032,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             syncCollaboratorsToSupabase(deduplicatedCollabs);
           }
 
-          const parsedTeachers = teachers && teachers.length > 0 ? teachers.map((t: any) => ({
-            ...t,
-            status: (t.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
-            schedule: Array.isArray(t.schedule) ? t.schedule : (typeof t.schedule === 'string' ? JSON.parse(t.schedule) : (t.schedule || []))
-          })) : s.teachers.map((t: any) => ({
-            ...t,
-            status: (t.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
-          }));
+          const parsedTeachers = teachers && teachers.length > 0
+            ? teachers.map(normalizeTeacher)
+            : s.teachers.map(normalizeTeacher);
 
           // Ensure RAPHAEL AUGUSTO PINTO teacher record exists and has correct email
           let raphaelTeacher = (parsedTeachers || []).find((t: any) =>
@@ -3966,7 +4042,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             (t.name && t.name.toUpperCase().includes('RAPHAEL AUGUSTO'))
           );
           if (!raphaelTeacher) {
-            raphaelTeacher = {
+            raphaelTeacher = normalizeTeacher({
               id: 'dada085e-c187-43d2-9ab0-a9e0539df450',
               name: 'RAPHAEL AUGUSTO PINTO',
               email: 'raphael.augustop@gmail.com',
@@ -3975,7 +4051,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
               specialties: ['Música'],
               schedule: [],
               status: 'active'
-            };
+            });
             parsedTeachers.push(raphaelTeacher);
           } else {
             if (!raphaelTeacher.status) {
@@ -4635,17 +4711,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     }
 
-    const newTeacher: Teacher = {
+    const newTeacher: Teacher = normalizeTeacher({
       ...teacher,
       id: generateId(),
       status: teacher.status || 'active',
-      specialties: teacher.specialties || [],
-      schedule: teacher.schedule || [],
       birth_date: teacher.birth_date && teacher.birth_date.trim() !== "" ? teacher.birth_date : undefined,
       email: teacher.email ? teacher.email.trim() : "",
       phone: teacher.phone ? teacher.phone.trim() : "",
       cpf: teacher.cpf ? teacher.cpf.trim() : "",
-    };
+    });
 
     setState((s) => ({
       ...s,
@@ -4683,11 +4757,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       previousTeacher = s.teachers.find(t => t.id === id);
       const updatedList = s.teachers.map((t) => {
         if (t.id === id) {
-          const m = { ...t, ...updates };
+          const m = normalizeTeacher({ ...t, ...updates });
           mergedTeacher = m;
           return m;
         }
-        return t;
+        return normalizeTeacher(t);
       });
       return {
         ...s,
@@ -4773,7 +4847,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       // 3. Somente depois de confirmar a gravação, atualizar o estado local
       setState(s => ({
         ...s,
-        teachers: s.teachers.map(t => t.id === teacherId ? { ...t, status } : t)
+        teachers: s.teachers.map(t => t.id === teacherId ? normalizeTeacher({ ...t, status }) : normalizeTeacher(t))
       }));
 
       return { success: true };
@@ -7830,6 +7904,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         googleSyncMap,
         resyncClassGoogle,
         reconcileGoogleCalendar,
+        pullGoogleCalendar,
         refreshGoogleSyncStatus,
         addCredit,
         updateCredit,

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { Component, useState, useEffect, useRef, useCallback, ReactNode, ErrorInfo } from "react";
 import { AppProvider, useAppStore } from "./store";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./views/Dashboard";
@@ -34,8 +34,108 @@ import {
   isViewPermittedForRole,
 } from "./utils/navigation";
 
-import { X, Lock, ShieldAlert } from "lucide-react";
+import { X, Lock, ShieldAlert, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  fallbackTitle?: string;
+  onReset?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+const ComponentBase = (React.Component || class {}) as unknown as {
+  new (props: ErrorBoundaryProps): {
+    props: ErrorBoundaryProps;
+    state: ErrorBoundaryState;
+    setState(state: Partial<ErrorBoundaryState> | ((prev: ErrorBoundaryState) => Partial<ErrorBoundaryState>)): void;
+    componentDidCatch?(error: Error, errorInfo: any): void;
+    render(): React.ReactNode;
+  };
+};
+
+export class ErrorBoundary extends ComponentBase {
+  props: ErrorBoundaryProps;
+  state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.props = props;
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error('[ErrorBoundary caught error]:', error, errorInfo);
+  }
+
+  handleReload = () => {
+    window.location.reload();
+  };
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    if (this.props.onReset) {
+      this.props.onReset();
+    }
+  };
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
+          <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl shadow-xl p-8 text-center space-y-6">
+            <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl mx-auto flex items-center justify-center border border-amber-100">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-zinc-900">
+                {this.props.fallbackTitle || "Algo não saiu como esperado"}
+              </h2>
+              <p className="text-sm text-zinc-600 leading-relaxed">
+                Ocorreu uma falha temporária ao carregar a interface. Seus dados estão seguros e você pode tentar recarregar ou retornar ao início.
+              </p>
+              {this.state.error?.message && (
+                <div className="mt-3 p-3 bg-zinc-50 rounded-xl border border-zinc-200 text-left overflow-auto max-h-24">
+                  <p className="text-xs font-mono text-zinc-500 break-words">
+                    {this.state.error.message}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="flex-1 py-2.5 px-4 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-sm font-semibold rounded-xl transition-colors shadow-xs"
+              >
+                Tentar Novamente
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReload}
+                className="flex-1 py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-xl transition-colors shadow-xs inline-flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Recarregar Página
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppContent() {
   const { state, deleteFinancialPlan, setGlobalError, currentUserProfile, isProfileLoading } = useAppStore();
@@ -446,8 +546,10 @@ export default function App() {
   }
 
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

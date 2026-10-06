@@ -31,6 +31,7 @@ import {
   Check,
   Users,
   ShieldCheck,
+  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -287,11 +288,13 @@ export const Classes: React.FC = () => {
     googleSyncMap,
     resyncClassGoogle,
     reconcileGoogleCalendar,
+    pullGoogleCalendar,
     refreshGoogleSyncStatus,
   } = useAppStore();
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [isReconcilingGoogle, setIsReconcilingGoogle] = useState(false);
+  const [isPullingGoogle, setIsPullingGoogle] = useState(false);
   const [resyncingClassId, setResyncingClassId] = useState<string | null>(null);
 
   React.useEffect(() => {
@@ -318,6 +321,29 @@ export const Classes: React.FC = () => {
     } finally {
       setIsReconcilingGoogle(false);
       setTimeout(() => setSyncFeedback(null), 6000);
+    }
+  };
+
+  const handlePullGoogle = async () => {
+    if (isPullingGoogle) return;
+    setIsPullingGoogle(true);
+    setSyncFeedback(null);
+    try {
+      const res = await pullGoogleCalendar();
+      if (res.error) {
+        setSyncFeedback(`Aviso na importação do Google: ${res.error}`);
+      } else {
+        setSyncFeedback(
+          `Importação do Google concluída! ${res.imported} nova(s) aula(s), ${res.updated} atualizada(s), ${res.cancelled} cancelada(s)${
+            res.pendingStudentLink > 0 ? `, ${res.pendingStudentLink} com vínculo de aluno pendente` : ''
+          }.`
+        );
+      }
+    } catch (e: any) {
+      setSyncFeedback(`Erro ao importar do Google Calendar: ${e?.message}`);
+    } finally {
+      setIsPullingGoogle(false);
+      setTimeout(() => setSyncFeedback(null), 8000);
     }
   };
   const [searchTerm, setSearchTerm] = useState("");
@@ -1511,6 +1537,17 @@ Te esperamos!`;
               >
                 <CalendarIcon className={`w-3.5 h-3.5 mr-1.5 text-teal-600 ${isReconcilingGoogle ? 'animate-spin' : ''}`} />
                 {isReconcilingGoogle ? 'Reconciliando...' : 'Reconciliar Google'}
+              </button>
+
+              <button
+                id="classes-pull-google-btn"
+                onClick={handlePullGoogle}
+                disabled={isPullingGoogle}
+                className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-sky-800 bg-sky-50 border border-sky-200 rounded-xl hover:bg-sky-100 transition-colors shadow-xs disabled:opacity-50"
+                title="Importar aulas criadas diretamente no Google Calendar com [EAVRA] para a plataforma"
+              >
+                <Download className={`w-3.5 h-3.5 mr-1.5 text-sky-600 ${isPullingGoogle ? 'animate-spin' : ''}`} />
+                {isPullingGoogle ? 'Importando...' : 'Importar do Google'}
               </button>
             </>
           )}

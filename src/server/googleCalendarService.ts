@@ -21,6 +21,8 @@ export interface TeacherGoogleAccount {
   connection_status: 'connected' | 'disconnected' | 'error';
   connected_at: string;
   updated_at: string;
+  next_sync_token?: string | null;
+  last_inbound_sync_at?: string | null;
 }
 
 export interface ClassGoogleEvent {
@@ -31,6 +33,19 @@ export interface ClassGoogleEvent {
   last_synced_at: string;
   sync_status: 'synced' | 'pending' | 'failed';
   last_error?: string | null;
+  origin?: 'eavra' | 'google';
+  sync_direction?: 'eavra_to_google' | 'google_to_eavra';
+  etag?: string | null;
+  recurring_event_id?: string | null;
+}
+
+export interface InboundPullResult {
+  imported: number;
+  updated: number;
+  ignored: number;
+  cancelled: number;
+  pendingStudentLink: number;
+  errors: string[];
 }
 
 export interface GoogleSyncContext {
@@ -131,6 +146,34 @@ function logSupabaseDiagnostic(operation: string, table: string, err: any) {
 // Métodos de Acesso a Dados (Supabase Remoto Exclusivo)
 // ============================================================================
 
+// Fallback/cache em memória para preservar campos da Fase 1 mesmo caso a migration
+// de banco de dados ainda esteja pendente de execução pelo administrador
+const classGoogleEventMetaFallback = new Map<
+  string,
+  {
+    origin?: 'eavra' | 'google';
+    sync_direction?: 'eavra_to_google' | 'google_to_eavra';
+    etag?: string | null;
+    recurring_event_id?: string | null;
+  }
+>();
+
+const teacherSyncTokenFallback = new Map<string, string>();
+
+export async function setTeacherSyncToken(teacherId: string, token: string | null): Promise<void> {
+  if (token) {
+    teacherSyncTokenFallback.set(teacherId, token);
+  } else {
+    teacherSyncTokenFallback.delete(teacherId);
+  }
+  try {
+    await supabaseAdmin
+      .from('teacher_google_accounts')
+      .update({ next_sync_token: token, updated_at: new Date().toISOString() })
+      .eq('teacher_id', teacherId);
+  } catch {}
+}
+
 export async function getTeacherGoogleAccount(teacherId: string): Promise<TeacherGoogleAccount | null> {
   if (!teacherId) return null;
   try {
@@ -149,6 +192,10 @@ export async function getTeacherGoogleAccount(teacherId: string): Promise<Teache
       if (data.connection_status === 'disconnected') {
         return null;
       }
+      const fallbackToken = teacherSyncTokenFallback.get(teacherId);
+      if (fallbackToken && !data.next_sync_token) {
+        data.next_sync_token = fallbackToken;
+      }
       return data as TeacherGoogleAccount;
     }
     return null;
@@ -160,6 +207,9 @@ export async function getTeacherGoogleAccount(teacherId: string): Promise<Teache
 
 export async function saveTeacherGoogleAccount(account: TeacherGoogleAccount): Promise<void> {
   try {
+    if (account.next_sync_token) {
+      teacherSyncTokenFallback.set(account.teacher_id, account.next_sync_token);
+    }
     const { error } = await supabaseAdmin.from('teacher_google_accounts').upsert({
       teacher_id: account.teacher_id,
       google_email: account.google_email,
@@ -183,6 +233,7 @@ export async function saveTeacherGoogleAccount(account: TeacherGoogleAccount): P
 }
 
 export async function deleteTeacherGoogleAccount(teacherId: string): Promise<void> {
+  teacherSyncTokenFallback.delete(teacherId);
   try {
     const { error: delError } = await supabaseAdmin
       .from('teacher_google_accounts')
@@ -229,7 +280,14 @@ export async function getClassGoogleEvent(classId: string): Promise<ClassGoogleE
     }
 
     if (data) {
-      return data as ClassGoogleEvent;
+      const fb = classGoogleEventMetaFallback.get(classId);
+      return {
+        ...data,
+        origin: data.origin || fb?.origin || 'eavra',
+        sync_direction: data.sync_direction || fb?.sync_direction || 'eavra_to_google',
+        etag: data.etag !== undefined ? data.etag : (fb?.etag ?? null),
+        recurring_event_id: data.recurring_event_id !== undefined ? data.recurring_event_id : (fb?.recurring_event_id ?? null),
+      } as ClassGoogleEvent;
     }
     return null;
   } catch (err) {
@@ -240,7 +298,27 @@ export async function getClassGoogleEvent(classId: string): Promise<ClassGoogleE
 
 export async function saveClassGoogleEvent(event: ClassGoogleEvent): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from('class_google_events').upsert({
+    if (event.platform_class_id) {
+      classGoogleEventMetaFallback.set(event.platform_class_id, {
+        origin: event.origin,
+        sync_direction: event.sync_direction,
+        etag: event.etag,
+        recurring_event_id: event.recurring_event_id,
+      });
+    }
+    if (event.google_event_id) {
+      classGoogleEventMetaFallback.set(
+        `${event.google_calendar_id || 'primary'}:${event.google_event_id}`,
+        {
+          origin: event.origin,
+          sync_direction: event.sync_direction,
+          etag: event.etag,
+          recurring_event_id: event.recurring_event_id,
+        }
+      );
+    }
+
+    const payload: any = {
       platform_class_id: event.platform_class_id,
       teacher_id: event.teacher_id || null,
       google_calendar_id: event.google_calendar_id || 'primary',
@@ -248,13 +326,76 @@ export async function saveClassGoogleEvent(event: ClassGoogleEvent): Promise<voi
       last_synced_at: event.last_synced_at || new Date().toISOString(),
       sync_status: event.sync_status,
       last_error: event.last_error || null,
-    });
+    };
+    if (event.origin) payload.origin = event.origin;
+    if (event.sync_direction) payload.sync_direction = event.sync_direction;
+    if (event.etag !== undefined) payload.etag = event.etag;
+    if (event.recurring_event_id !== undefined) payload.recurring_event_id = event.recurring_event_id;
+
+    let { error } = await supabaseAdmin.from('class_google_events').upsert(payload);
+
+    if (
+      error &&
+      (error.code === 'PGRST204' ||
+        error.message?.includes('schema cache') ||
+        error.message?.includes('column'))
+    ) {
+      // Fallback defensivo para as colunas base se as novas colunas da migration ainda não foram aplicadas
+      const basePayload = {
+        platform_class_id: event.platform_class_id,
+        teacher_id: event.teacher_id || null,
+        google_calendar_id: event.google_calendar_id || 'primary',
+        google_event_id: event.google_event_id || null,
+        last_synced_at: event.last_synced_at || new Date().toISOString(),
+        sync_status: event.sync_status,
+        last_error: event.last_error || null,
+      };
+      const retry = await supabaseAdmin.from('class_google_events').upsert(basePayload);
+      error = retry.error;
+    }
 
     if (error) {
       logSupabaseDiagnostic('UPSERT', 'class_google_events', error);
     }
   } catch (err) {
     logSupabaseDiagnostic('UPSERT', 'class_google_events', err);
+  }
+}
+
+export async function findClassGoogleEventByGoogleId(
+  googleEventId: string,
+  calendarId: string = 'primary'
+): Promise<ClassGoogleEvent | null> {
+  if (!googleEventId) return null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('class_google_events')
+      .select('*')
+      .eq('google_event_id', googleEventId)
+      .eq('google_calendar_id', calendarId)
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseDiagnostic('SELECT', 'class_google_events', error);
+      return null;
+    }
+    if (data) {
+      const fb =
+        classGoogleEventMetaFallback.get(`${calendarId}:${googleEventId}`) ||
+        (data.platform_class_id ? classGoogleEventMetaFallback.get(data.platform_class_id) : undefined);
+      return {
+        ...data,
+        origin: (data as any).origin || fb?.origin || 'eavra',
+        sync_direction: (data as any).sync_direction || fb?.sync_direction || 'eavra_to_google',
+        etag: (data as any).etag !== undefined ? (data as any).etag : (fb?.etag ?? null),
+        recurring_event_id:
+          (data as any).recurring_event_id !== undefined ? (data as any).recurring_event_id : (fb?.recurring_event_id ?? null),
+      } as ClassGoogleEvent;
+    }
+    return null;
+  } catch (err) {
+    logSupabaseDiagnostic('SELECT', 'class_google_events', err);
+    return null;
   }
 }
 
@@ -504,11 +645,145 @@ export function getTodaySaoPaulo(): string {
   return formatter.format(new Date());
 }
 
+export function getPlusDaysSaoPaulo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(d);
+}
+
+export function parseGoogleDateTimeToSaoPaulo(
+  dateTimeStr?: string | null,
+  dateOnlyStr?: string | null
+): { date: string; time: string } {
+  if (dateTimeStr) {
+    const d = new Date(dateTimeStr);
+    const dateFormatted = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+    const timeFormatted = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(d);
+    return { date: dateFormatted, time: timeFormatted };
+  }
+  if (dateOnlyStr) {
+    return { date: dateOnlyStr, time: '00:00:00' };
+  }
+  const today = getTodaySaoPaulo();
+  return { date: today, time: '00:00:00' };
+}
+
 export function formatDateTimeSaoPaulo(dateStr: string, timeStr: string): string {
   // Limpar formato de hora (ex: "14:00" ou "14:00:00")
   const cleanTime = timeStr.length === 5 ? `${timeStr}:00` : timeStr.slice(0, 8);
   // Fuso horário de Brasília (UTC-3)
   return `${dateStr}T${cleanTime}-03:00`;
+}
+
+// Regex rigorosa para identificação de eventos institucionais EAVRA:
+// Aceita exclusivamente:
+// [EAVRA] {nome}
+// EAVRA: {nome}
+// EAVRA - {nome}
+export const EAVRA_TITLE_REGEX = /^(?:\[EAVRA\]|EAVRA\s*[-:])\s*(.+)$/i;
+
+export function parseInstitutionalEventTitle(summary?: string | null): {
+  isInstitutional: boolean;
+  studentQuery?: string;
+} {
+  if (!summary || !summary.trim()) {
+    return { isInstitutional: false };
+  }
+  const trimmed = summary.trim();
+  const match = trimmed.match(EAVRA_TITLE_REGEX);
+  if (!match) {
+    return { isInstitutional: false };
+  }
+  return {
+    isInstitutional: true,
+    studentQuery: match[1].trim(),
+  };
+}
+
+export function extractClassIdFromDescription(description?: string | null): string | null {
+  if (!description) return null;
+  const match = description.match(/ID da Aula:\s*([a-zA-Z0-9_-]+)/i);
+  return match ? match[1].trim() : null;
+}
+
+export function normalizeStudentSearchString(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+export function matchStudentInActiveEnrollments(
+  searchQuery: string,
+  activeStudents: Array<{ id: string; name: string }>
+): {
+  matchCount: number;
+  matchedStudent: { id: string; name: string } | null;
+} {
+  if (!searchQuery || !activeStudents || activeStudents.length === 0) {
+    return { matchCount: 0, matchedStudent: null };
+  }
+
+  // Limpar prefixos comuns como "Aula de Canto - " ou "Aula - " se o professor digitou
+  let cleanedQuery = searchQuery.replace(/^(?:aula\s+de\s+[^-\s]+|aula)\s*[-:]?\s*/i, '').trim();
+  if (!cleanedQuery) {
+    cleanedQuery = searchQuery.trim();
+  }
+
+  const normalizedQuery = normalizeStudentSearchString(cleanedQuery);
+
+  // 1. Tentar correspondência exata de nome completo
+  const exactMatches = activeStudents.filter((s) => {
+    const sNorm = normalizeStudentSearchString(s.name);
+    return sNorm === normalizedQuery;
+  });
+
+  if (exactMatches.length === 1) {
+    return { matchCount: 1, matchedStudent: exactMatches[0] };
+  }
+  if (exactMatches.length > 1) {
+    return { matchCount: exactMatches.length, matchedStudent: null };
+  }
+
+  // 2. Tentar correspondência por primeiro nome ou partes do nome
+  const partialMatches = activeStudents.filter((s) => {
+    const sNorm = normalizeStudentSearchString(s.name);
+    const sTokens = sNorm.split(/\s+/);
+    const qTokens = normalizedQuery.split(/\s+/);
+
+    if (qTokens.length === 1) {
+      return sTokens[0] === qTokens[0] || sTokens.includes(qTokens[0]);
+    }
+
+    return sNorm.includes(normalizedQuery);
+  });
+
+  if (partialMatches.length === 1) {
+    return { matchCount: 1, matchedStudent: partialMatches[0] };
+  }
+  if (partialMatches.length > 1) {
+    return { matchCount: partialMatches.length, matchedStudent: null };
+  }
+
+  return { matchCount: 0, matchedStudent: null };
 }
 
 export interface GoogleCalendarReminders {
@@ -2058,6 +2333,411 @@ export async function updateExistingFutureClassesReminders(options?: {
     failed,
     details,
   };
+}
+
+// ============================================================================
+// Sincronização Inbound (Google Calendar -> EAVRA)
+// ============================================================================
+
+export async function pullGoogleEventsForSingleTeacher(
+  teacherId: string,
+  options?: { forceFullSync?: boolean; syncToken?: string }
+): Promise<InboundPullResult> {
+  const result: InboundPullResult = {
+    imported: 0,
+    updated: 0,
+    ignored: 0,
+    cancelled: 0,
+    pendingStudentLink: 0,
+    errors: [],
+  };
+
+  try {
+    const account = await getTeacherGoogleAccount(teacherId);
+    if (!account || account.connection_status !== 'connected') {
+      result.errors.push('Professor não possui conta do Google Calendar conectada.');
+      return result;
+    }
+
+    const accessToken = await getValidAccessToken(account);
+    if (!accessToken) {
+      result.errors.push('Não foi possível obter um token de acesso válido do Google.');
+      return result;
+    }
+
+    const calendarId = account.google_calendar_id || 'primary';
+
+    // 1. Carregar alunos com matrícula ativa vinculados ao professor
+    let activeStudents: Array<{ id: string; name: string }> = [];
+    try {
+      const { data: enrollments } = await supabaseAdmin
+        .from('enrollments')
+        .select('student_id')
+        .eq('teacher_id', teacherId)
+        .eq('status', 'active');
+
+      const studentIds = (enrollments || []).map((e: any) => e.student_id).filter(Boolean);
+      if (studentIds.length > 0) {
+        const { data: studentsData } = await supabaseAdmin
+          .from('students')
+          .select('id, name, status')
+          .in('id', studentIds)
+          .eq('status', 'active');
+
+        if (studentsData) {
+          activeStudents = studentsData.map((s: any) => ({ id: s.id, name: s.name }));
+        }
+      }
+    } catch (e: any) {
+      console.warn('[GoogleCalendar Inbound] Erro ao carregar alunos ativos:', e);
+    }
+
+    // 2. Determinar se é sincronização incremental (syncToken) ou sincronização completa (janela 45 dias)
+    const effectiveSyncToken = options?.syncToken !== undefined ? options.syncToken : account.next_sync_token;
+    const isDeltaSync = Boolean(effectiveSyncToken && !options?.forceFullSync);
+    const syncToken = isDeltaSync ? effectiveSyncToken : null;
+
+    const todayStr = getTodaySaoPaulo();
+    const plus45Str = getPlusDaysSaoPaulo(45);
+    const timeMin = `${todayStr}T00:00:00-03:00`;
+    const timeMax = `${plus45Str}T23:59:59-03:00`;
+
+    let pageToken: string | null = null;
+    let nextSyncToken: string | null = null;
+    let retryFullSync = false;
+
+    do {
+      let url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+        calendarId
+      )}/events?singleEvents=true&showDeleted=true`;
+
+      // Regra crítica da Google Calendar API: NÃO passar timeMin/timeMax junto com syncToken!
+      if (isDeltaSync && syncToken) {
+        url += `&syncToken=${encodeURIComponent(syncToken)}`;
+      } else {
+        url += `&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
+      }
+
+      if (pageToken) {
+        url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      }
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      // Se o Google retornar HTTP 410 Gone, o syncToken expirou.
+      // Descartar syncToken e executar nova sincronização completa.
+      if (res.status === 410) {
+        console.warn(
+          `[GoogleCalendar Inbound] syncToken expirado (HTTP 410) para professor ${teacherId}. Reiniciando full sync.`
+        );
+        await supabaseAdmin
+          .from('teacher_google_accounts')
+          .update({ next_sync_token: null, updated_at: new Date().toISOString() })
+          .eq('teacher_id', teacherId);
+
+        retryFullSync = true;
+        break;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        result.errors.push(`Erro na Google Calendar API (${res.status}): ${errText}`);
+        break;
+      }
+
+      const data = await res.json();
+      const items = data.items || [];
+
+      for (const item of items) {
+        try {
+          // A. Tratar cancelamento / exclusão (showDeleted=true)
+          if (item.status === 'cancelled') {
+            const existingMapping = await findClassGoogleEventByGoogleId(item.id, calendarId);
+            if (existingMapping) {
+              await supabaseAdmin
+                .from('classes')
+                .update({ status: 'cancelled' })
+                .eq('id', existingMapping.platform_class_id);
+
+              await saveClassGoogleEvent({
+                ...existingMapping,
+                sync_status: 'synced',
+                last_synced_at: new Date().toISOString(),
+                etag: item.etag || existingMapping.etag || null,
+              });
+              result.cancelled++;
+            } else {
+              result.ignored++;
+            }
+            continue;
+          }
+
+          // B. Prevenção de duplicidade: verificar se este google_event_id já foi mapeado
+          const existingMapping = await findClassGoogleEventByGoogleId(item.id, calendarId);
+          if (existingMapping) {
+            const { date: startDate, time: startTime } = parseGoogleDateTimeToSaoPaulo(
+              item.start?.dateTime,
+              item.start?.date
+            );
+            const { time: endTime } = parseGoogleDateTimeToSaoPaulo(item.end?.dateTime, item.end?.date);
+
+            await supabaseAdmin
+              .from('classes')
+              .update({
+                date: startDate,
+                start_time: startTime,
+                end_time: endTime,
+              })
+              .eq('id', existingMapping.platform_class_id);
+
+            await saveClassGoogleEvent({
+              ...existingMapping,
+              last_synced_at: new Date().toISOString(),
+              etag: item.etag || existingMapping.etag || null,
+              sync_status: 'synced',
+            });
+            result.updated++;
+            continue; // NUNCA criar nova aula se já existe!
+          }
+
+          // C. Verificar se o evento já possui "ID da Aula" na descrição (originado no EAVRA)
+          const classIdInDesc = extractClassIdFromDescription(item.description);
+          if (classIdInDesc) {
+            const { data: existingClass } = await supabaseAdmin
+              .from('classes')
+              .select('id, date, start_time, end_time')
+              .eq('id', classIdInDesc)
+              .maybeSingle();
+
+            if (existingClass) {
+              const { date: startDate, time: startTime } = parseGoogleDateTimeToSaoPaulo(
+                item.start?.dateTime,
+                item.start?.date
+              );
+              const { time: endTime } = parseGoogleDateTimeToSaoPaulo(item.end?.dateTime, item.end?.date);
+
+              await supabaseAdmin
+                .from('classes')
+                .update({
+                  date: startDate,
+                  start_time: startTime,
+                  end_time: endTime,
+                })
+                .eq('id', classIdInDesc);
+
+              await saveClassGoogleEvent({
+                platform_class_id: classIdInDesc,
+                teacher_id: teacherId,
+                google_calendar_id: calendarId,
+                google_event_id: item.id,
+                last_synced_at: new Date().toISOString(),
+                sync_status: 'synced',
+                origin: 'eavra',
+                sync_direction: 'eavra_to_google',
+                etag: item.etag || null,
+                recurring_event_id: item.recurringEventId || null,
+              });
+              result.updated++;
+              continue; // NUNCA criar nova aula!
+            }
+          }
+
+          // D. Validação institucional do título: aceitar SOMENTE [EAVRA] {nome}, EAVRA: {nome}, EAVRA - {nome}
+          const parseResult = parseInstitutionalEventTitle(item.summary);
+          if (!parseResult.isInstitutional) {
+            // Compromissos pessoais, médicos, etc. são 100% ignorados e NUNCA gravados no banco
+            result.ignored++;
+            continue;
+          }
+
+          // E. Identificação do aluno nas matrículas ativas do professor
+          const studentQuery = parseResult.studentQuery || '';
+          const matchResult = matchStudentInActiveEnrollments(studentQuery, activeStudents);
+
+          let matchedStudentId: string | null = null;
+          let needsStudentLink = false;
+
+          if (matchResult.matchCount === 1 && matchResult.matchedStudent) {
+            matchedStudentId = matchResult.matchedStudent.id;
+            needsStudentLink = false;
+          } else {
+            // 0 correspondências ou múltiplas (homônimo/ambíguo)
+            matchedStudentId = null;
+            needsStudentLink = true;
+            result.pendingStudentLink++;
+          }
+
+          // F. Criar a nova aula no EAVRA
+          const { date: startDate, time: startTime } = parseGoogleDateTimeToSaoPaulo(
+            item.start?.dateTime,
+            item.start?.date
+          );
+          const { time: endTime } = parseGoogleDateTimeToSaoPaulo(item.end?.dateTime, item.end?.date);
+
+          const newClassId = crypto.randomUUID();
+          const classTitle = (studentQuery || item.summary || 'Aula').trim();
+
+          let { error: insClassErr } = await supabaseAdmin.from('classes').insert({
+            id: newClassId,
+            title: classTitle,
+            teacher_id: teacherId,
+            date: startDate,
+            start_time: startTime,
+            end_time: endTime,
+            status: 'scheduled',
+            needs_student_link: needsStudentLink,
+            created_at: new Date().toISOString(),
+          });
+
+          if (
+            insClassErr &&
+            (insClassErr.code === 'PGRST204' ||
+              insClassErr.message?.includes('schema cache') ||
+              insClassErr.message?.includes('needs_student_link'))
+          ) {
+            // Fallback se a migration da coluna needs_student_link ainda não tiver sido executada no Supabase
+            const retry = await supabaseAdmin.from('classes').insert({
+              id: newClassId,
+              title: classTitle,
+              teacher_id: teacherId,
+              date: startDate,
+              start_time: startTime,
+              end_time: endTime,
+              status: 'scheduled',
+              created_at: new Date().toISOString(),
+            });
+            insClassErr = retry.error;
+          }
+
+          if (insClassErr) {
+            logSupabaseDiagnostic('INSERT', 'classes', insClassErr);
+            result.errors.push(`Erro ao criar aula "${classTitle}": ${insClassErr.message}`);
+            continue;
+          }
+
+          // Se aluno único identificado, vincular em class_students
+          if (matchedStudentId) {
+            const { error: csErr } = await supabaseAdmin.from('class_students').insert({
+              class_id: newClassId,
+              student_id: matchedStudentId,
+            });
+            if (csErr) {
+              logSupabaseDiagnostic('INSERT', 'class_students', csErr);
+            }
+          }
+
+          // Criar mapeamento em class_google_events marcando origin: 'google', sync_direction: 'google_to_eavra'
+          // Isso garante que NUNCA seja redisparado um events.insert para o Google
+          await saveClassGoogleEvent({
+            platform_class_id: newClassId,
+            teacher_id: teacherId,
+            google_calendar_id: calendarId,
+            google_event_id: item.id,
+            last_synced_at: new Date().toISOString(),
+            sync_status: 'synced',
+            origin: 'google',
+            sync_direction: 'google_to_eavra',
+            etag: item.etag || null,
+            recurring_event_id: item.recurringEventId || null,
+          });
+
+          result.imported++;
+        } catch (itemErr: any) {
+          result.errors.push(`Erro ao processar evento ${item.id}: ${itemErr?.message || itemErr}`);
+        }
+      }
+
+      pageToken = data.nextPageToken || null;
+      if (data.nextSyncToken) {
+        nextSyncToken = data.nextSyncToken;
+      }
+    } while (pageToken);
+
+    if (retryFullSync) {
+      return pullGoogleEventsForSingleTeacher(teacherId, { forceFullSync: true });
+    }
+
+    // Atualizar next_sync_token e last_inbound_sync_at na conta do professor
+    if (nextSyncToken) {
+      const { error: updTokenErr } = await supabaseAdmin
+        .from('teacher_google_accounts')
+        .update({
+          next_sync_token: nextSyncToken,
+          last_inbound_sync_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('teacher_id', teacherId);
+
+      if (
+        updTokenErr &&
+        (updTokenErr.code === 'PGRST204' || updTokenErr.message?.includes('next_sync_token'))
+      ) {
+        // Fallback defensivo se as colunas ainda não foram migradas no banco remoto
+        await supabaseAdmin
+          .from('teacher_google_accounts')
+          .update({
+            updated_at: new Date().toISOString(),
+          })
+          .eq('teacher_id', teacherId);
+      }
+    }
+  } catch (err: any) {
+    result.errors.push(err?.message || 'Erro inesperado na sincronização inbound.');
+  }
+
+  return result;
+}
+
+export async function pullGoogleEvents(options?: {
+  teacherId?: string | null;
+  forceFullSync?: boolean;
+}): Promise<InboundPullResult> {
+  if (options?.teacherId) {
+    return pullGoogleEventsForSingleTeacher(options.teacherId, options);
+  }
+
+  // Se nenhum professor especificado, buscar todos os professores conectados
+  const { data: accounts, error } = await supabaseAdmin
+    .from('teacher_google_accounts')
+    .select('teacher_id, connection_status')
+    .eq('connection_status', 'connected');
+
+  if (error || !accounts || accounts.length === 0) {
+    return {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+      cancelled: 0,
+      pendingStudentLink: 0,
+      errors: error ? [error.message] : [],
+    };
+  }
+
+  const aggregated: InboundPullResult = {
+    imported: 0,
+    updated: 0,
+    ignored: 0,
+    cancelled: 0,
+    pendingStudentLink: 0,
+    errors: [],
+  };
+
+  for (const acc of accounts) {
+    if (!acc.teacher_id) continue;
+    const res = await pullGoogleEventsForSingleTeacher(acc.teacher_id, options);
+    aggregated.imported += res.imported;
+    aggregated.updated += res.updated;
+    aggregated.ignored += res.ignored;
+    aggregated.cancelled += res.cancelled;
+    aggregated.pendingStudentLink += res.pendingStudentLink;
+    if (res.errors.length > 0) {
+      aggregated.errors.push(...res.errors);
+    }
+  }
+
+  return aggregated;
 }
 
 

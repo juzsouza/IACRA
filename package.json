@@ -18,7 +18,9 @@
     "test:retention": "tsx src/tests/navigation_view_retention.test.ts",
     "test:reminders": "tsx src/tests/google_calendar_reminders.test.ts",
     "test:cache-sw": "tsx src/tests/cache_and_service_worker_migration.test.ts",
-    "test:oauth-prod": "tsx src/tests/google_calendar_oauth_production.test.ts"
+    "test:oauth-prod": "tsx src/tests/google_calendar_oauth_production.test.ts",
+    "test:inbound": "tsx src/tests/google_calendar_inbound.test.ts",
+    "test:teachers": "tsx src/tests/teachers_resilience_and_specialties_null.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

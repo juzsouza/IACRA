@@ -184,7 +184,7 @@ export const Teachers: React.FC = () => {
         email: teacher.email,
         phone: teacher.phone,
         cpf: teacher.cpf || "",
-        specialties: teacher.specialties.join(", "),
+        specialties: (teacher.specialties || []).join(", "),
         birth_date: teacher.birth_date || "",
       });
     } else {
@@ -382,7 +382,7 @@ export const Teachers: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 border-b border-zinc-100">
                       <div className="flex flex-wrap gap-2">
-                        {teacher.specialties.map((spec, i) => (
+                        {(teacher.specialties || []).map((spec, i) => (
                           <span
                             key={i}
                             className="px-2.5 py-1 inline-flex text-xs leading-5 font-medium rounded-full bg-zinc-100 text-zinc-800"
@@ -721,7 +721,7 @@ export const Teachers: React.FC = () => {
                     Grade de Horários
                   </h3>
                   <p className="text-xs text-zinc-500 font-medium">
-                    {activeTeacher.name} • Especialidades: {activeTeacher.specialties.join(", ")}
+                    {activeTeacher.name} • Especialidades: {(activeTeacher.specialties || []).join(", ")}
                   </p>
                 </div>
                 <button

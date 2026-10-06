@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, CheckCircle2, AlertCircle, RefreshCw, Unlink, X } from 'lucide-react';
+import { Calendar, CheckCircle2, AlertCircle, RefreshCw, Unlink, X, Download } from 'lucide-react';
 import {
   getGoogleConfig,
   getGoogleAuthUrl,
   getTeacherGoogleStatus,
   disconnectTeacherGoogle,
   syncTeacherFutureClasses,
+  pullGoogleEvents,
   GoogleAccountStatus,
 } from '../services/googleCalendarClient';
 import { useAppStore } from '../store';
@@ -216,6 +217,29 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
     }
   };
 
+  const handleInboundPull = async () => {
+    if (isActionLoading) return;
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    setSyncFeedback(null);
+    try {
+      const res = await pullGoogleEvents({ teacherId });
+      if (res.error) {
+        setErrorMessage(`Falha na importação: ${res.error}`);
+      } else {
+        setSyncFeedback(
+          `Importação concluída! ${res.imported} nova(s) aula(s), ${res.updated} atualizada(s), ${res.cancelled} cancelada(s)${
+            res.pendingStudentLink > 0 ? `, ${res.pendingStudentLink} com aluno pendente` : ''
+          }.`
+        );
+      }
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'Falha ao importar aulas do Google Agenda.');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   if (compact) {
     if (isLoading) {
       return (
@@ -254,6 +278,16 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
                 Reautorizar Google Agenda
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleInboundPull}
+              disabled={isActionLoading}
+              className="text-xs font-semibold text-sky-700 hover:text-sky-900 px-2 py-0.5 rounded-lg hover:bg-white/80 border border-transparent hover:border-sky-200 transition-colors disabled:opacity-50 inline-flex items-center"
+              title="Importar aulas criadas no Google Agenda com a marcação [EAVRA]"
+            >
+              <Download className={`w-3 h-3 mr-1 ${isActionLoading ? 'animate-spin' : ''}`} />
+              Importar
+            </button>
             <button
               type="button"
               onClick={handleDisconnect}
@@ -469,20 +503,32 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
       {/* Detalhes de status quando conectado */}
       {status.connected && (
         <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 text-xs space-y-1.5 text-emerald-900">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="font-medium text-emerald-800">
               Conta vinculada: <strong>{status.googleEmail}</strong>
             </span>
-            <button
-              type="button"
-              onClick={handleManualSyncFuture}
-              disabled={isActionLoading}
-              className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-emerald-700 font-semibold text-[11px] hover:bg-emerald-100/50 transition-colors"
-              title="Reenviar aulas futuras para o Google Agenda"
-            >
-              <RefreshCw className={`w-3 h-3 mr-1 ${isActionLoading ? 'animate-spin' : ''}`} />
-              Sincronizar Aulas Futuras
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleInboundPull}
+                disabled={isActionLoading}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white border border-sky-200 text-sky-700 font-semibold text-[11px] hover:bg-sky-50 transition-colors"
+                title="Importar aulas criadas diretamente no Google Agenda com prefixo [EAVRA]"
+              >
+                <Download className={`w-3 h-3 mr-1 ${isActionLoading ? 'animate-spin' : ''}`} />
+                Importar Aulas do Google
+              </button>
+              <button
+                type="button"
+                onClick={handleManualSyncFuture}
+                disabled={isActionLoading}
+                className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-emerald-700 font-semibold text-[11px] hover:bg-emerald-100/50 transition-colors"
+                title="Reenviar aulas futuras para o Google Agenda"
+              >
+                <RefreshCw className={`w-3 h-3 mr-1 ${isActionLoading ? 'animate-spin' : ''}`} />
+                Sincronizar Aulas Futuras
+              </button>
+            </div>
           </div>
           <p className="text-[11px] text-emerald-700">
             Agenda principal (primary) autorizada. Toda nova aula, alteração ou cancelamento feito nesta plataforma será atualizado em tempo real na sua agenda.
