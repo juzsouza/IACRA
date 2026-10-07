@@ -27,6 +27,66 @@ import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
 
+// ============================================================================
+// Helper de Elegibilidade de Matrículas para Cobrança Mensal
+// ============================================================================
+
+export function getEligibleEnrollmentsForStudent(
+  studentId: string,
+  enrollments: any[],
+  groups: any[],
+  selectedMonth: number,
+  selectedYear: number,
+  context: {
+    competenceBillings?: any[];
+    transactions?: any[];
+  }
+) {
+  // 1. Filtrar matrículas do aluno
+  const studentEnrollments = enrollments.filter(e => e.student_id === studentId);
+
+  // 2. Prioridade absoluta para matrículas ativas sobre inativas
+  const sortedEnrollments = [...studentEnrollments].sort((a, b) => {
+    if (a.status === 'active' && b.status !== 'active') return -1;
+    if (a.status !== 'active' && b.status === 'active') return 1;
+    return 0;
+  });
+
+  const seenEnrollmentIds = new Set<string>();
+  return sortedEnrollments.filter(e => {
+    if (seenEnrollmentIds.has(e.id)) return false;
+
+    // Pular cobrança individual se o grupo possui pagamento coletivo ('group')
+    if (e.group_id) {
+      const group = groups.find(g => g.id === e.group_id);
+      if (group && group.payment_type === 'group') {
+        return false; // Cobrança tratada a nível de grupo
+      }
+    }
+
+    // Matrícula ativa vigente no mês selecionado tem elegibilidade prioritária.
+    // NUNCA descartar por compartilhar plan_id com outra matrícula.
+    if (e.status === 'active') {
+      if (!isEnrollmentActiveForMonth(e, selectedMonth, selectedYear)) return false;
+      seenEnrollmentIds.add(e.id);
+      return true;
+    }
+
+    // Matrícula inativa só participa se for financeiramente relevante PARA O MÊS SELECIONADO
+    // (não usar histórico financeiro genérico de outros meses para incluir ou bloquear o mês atual)
+    const isRelevant = isEnrollmentFinanciallyRelevantForMonth(
+      e,
+      selectedMonth,
+      selectedYear,
+      context
+    );
+    if (!isRelevant) return false;
+
+    seenEnrollmentIds.add(e.id);
+    return true;
+  });
+}
+
 export const Payments: React.FC = () => {
   const {
     state,
@@ -158,37 +218,17 @@ export const Payments: React.FC = () => {
     const student = state.students.find(s => s.id === studentId);
     if (!student) return null;
 
-    const seenPlanIds = new Set<string>();
-    const eligibleEnrollments = state.enrollments.filter(e => {
-      if (e.student_id !== studentId) return false;
-      if (e.status === 'active') {
-        if (!isEnrollmentActiveForMonth(e, selectedMonth, selectedYear)) return false;
-      } else {
-        const isRelevant = isEnrollmentFinanciallyRelevantForMonth(
-          e,
-          selectedMonth,
-          selectedYear,
-          {
-            competenceBillings: state.competenceBillings,
-            transactions: state.transactions,
-          }
-        ) || hasAnyHistoricalFinancialData(e.id, 'individual', {
-          competenceBillings: state.competenceBillings,
-          transactions: state.transactions,
-        });
-        if (!isRelevant) return false;
+    const eligibleEnrollments = getEligibleEnrollmentsForStudent(
+      studentId,
+      state.enrollments,
+      state.groups,
+      selectedMonth,
+      selectedYear,
+      {
+        competenceBillings: state.competenceBillings,
+        transactions: state.transactions,
       }
-
-      if (seenPlanIds.has(e.plan_id)) return false;
-      if (e.group_id) {
-        const group = state.groups.find(g => g.id === e.group_id);
-        if (group && group.payment_type === 'group') {
-          return false; // Skip billing individually for group-level payment
-        }
-      }
-      seenPlanIds.add(e.plan_id);
-      return true;
-    });
+    );
 
     const rawChoir = state.choirRegistrations.find(r => r.student_id === studentId);
     let relevantChoir: typeof rawChoir = undefined;
