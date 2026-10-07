@@ -14,7 +14,6 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isSignUp, setIsSignUp] = useState(false);
 
   useEffect(() => {
     // Detect password recovery redirect from email
@@ -50,63 +49,33 @@ export const Login: React.FC = () => {
         console.warn('Pre-login profile check warning:', checkErr);
       }
 
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-        });
-        if (error) throw error;
-        setSuccess('Cadastro realizado com sucesso! Você já pode acessar o sistema.');
-        setIsSignUp(false);
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
-        
-        if (error) {
-          const errMsg = error.message?.toLowerCase() || '';
-          if (errMsg.includes('banned') || errMsg.includes('suspended') || errMsg.includes('blocked')) {
-            await supabase.auth.signOut();
-            setError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
-            return;
-          }
-
-          // If signInWithPassword fails, try signUp only in case the account was created in public.profiles but not yet initialized in Supabase Auth
-          const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-            email: cleanEmail,
-            password,
-          });
-
-          if (!signUpErr && signUpData.session) {
-            // Verificar pós-login se está bloqueado
-            const { data: postCheck } = await supabase
-              .from('profiles')
-              .select('access_status')
-              .ilike('email', cleanEmail)
-              .maybeSingle();
-            if (postCheck && postCheck.access_status === 'blocked') {
-              await supabase.auth.signOut();
-              setError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
-              return;
-            }
-            return;
-          }
-
-          throw error;
-        }
-
-        // Pós-login bem-sucedido: garantir que não está bloqueado
-        const { data: postCheck } = await supabase
-          .from('profiles')
-          .select('access_status')
-          .ilike('email', cleanEmail)
-          .maybeSingle();
-        if (postCheck && postCheck.access_status === 'blocked') {
+      // 2. Autenticação estrita com senha. Não permite cadastro público.
+      const { error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+      
+      if (error) {
+        const errMsg = error.message?.toLowerCase() || '';
+        if (errMsg.includes('banned') || errMsg.includes('suspended') || errMsg.includes('blocked')) {
           await supabase.auth.signOut();
           setError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
           return;
         }
+
+        throw error;
+      }
+
+      // 3. Pós-login bem-sucedido: garantir que não está bloqueado
+      const { data: postCheck } = await supabase
+        .from('profiles')
+        .select('access_status')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+      if (postCheck && postCheck.access_status === 'blocked') {
+        await supabase.auth.signOut();
+        setError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
+        return;
       }
     } catch (err: any) {
       const msg = err.message || '';
@@ -194,8 +163,6 @@ export const Login: React.FC = () => {
             ? 'Recuperar Senha' 
             : mode === 'update_password'
             ? 'Redefinir Senha'
-            : isSignUp 
-            ? 'Criar conta de Administrador' 
             : 'Acesso ao Sistema'}
         </h2>
         <p className="mt-2 text-center text-sm text-zinc-600">
@@ -217,7 +184,7 @@ export const Login: React.FC = () => {
             </div>
           )}
 
-          {/* MODE: LOGIN OR SIGNUP */}
+          {/* MODE: LOGIN */}
           {mode === 'login' && (
             <form className="space-y-6" onSubmit={handleAuth}>
               <div>
@@ -278,19 +245,11 @@ export const Login: React.FC = () => {
                   disabled={loading}
                   className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
                 >
-                  {loading ? 'Aguarde...' : (isSignUp ? 'Cadastrar' : 'Entrar')}
+                  {loading ? 'Aguarde...' : 'Entrar'}
                 </button>
               </div>
               
               <div className="text-center pt-2 border-t border-zinc-100 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsSignUp(!isSignUp)}
-                  className="text-sm text-indigo-600 hover:text-indigo-500 font-medium"
-                >
-                  {isSignUp ? 'Já tenho uma conta. Fazer login.' : 'Não tem conta? Cadastrar-se.'}
-                </button>
-
                 <div className="pt-2 text-xs text-zinc-400">
                   <a
                     href="/politica-de-privacidade"

@@ -21,7 +21,8 @@
     "test:oauth-prod": "tsx src/tests/google_calendar_oauth_production.test.ts",
     "test:inbound": "tsx src/tests/google_calendar_inbound.test.ts",
     "test:teachers": "tsx src/tests/teachers_resilience_and_specialties_null.test.ts",
-    "test:asheley": "tsx src/tests/asheley_and_active_enrollments_billing.test.ts"
+    "test:asheley": "tsx src/tests/asheley_and_active_enrollments_billing.test.ts",
+    "test:no-signup": "tsx src/tests/auth_no_public_signup.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
