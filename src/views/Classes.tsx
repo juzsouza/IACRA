@@ -275,6 +275,43 @@ export const getClassCardVisualTheme = (
   };
 };
 
+export function getGoogleSyncBadgeInfo(
+  status: 'synced' | 'failed' | 'pending' | 'unsynced',
+  error?: string
+): {
+  label: string;
+  colorClass: string;
+  title: string;
+} {
+  switch (status) {
+    case 'synced':
+      return {
+        label: 'Google OK',
+        colorClass: 'text-teal-800 bg-teal-50 border border-teal-200',
+        title: error || 'Sincronizada no Google Calendar',
+      };
+    case 'pending':
+      return {
+        label: 'Sincronizando Google...',
+        colorClass: 'text-amber-800 bg-amber-50 border border-amber-300 animate-pulse',
+        title: error || 'Sincronizando com o Google Calendar...',
+      };
+    case 'unsynced':
+      return {
+        label: 'Pendente Google',
+        colorClass: 'text-amber-800 bg-amber-50 border border-amber-300',
+        title: error || 'Pendente de sincronização com o Google Calendar',
+      };
+    case 'failed':
+    default:
+      return {
+        label: 'Google Falhou',
+        colorClass: 'text-rose-800 bg-rose-50 border border-rose-300',
+        title: error || 'Falha na sincronização com o Google Calendar',
+      };
+  }
+}
+
 export const Classes: React.FC = () => {
   const {
     state,
@@ -2005,25 +2042,18 @@ Te esperamos!`;
                                     Pendente Nuvem
                                   </span>
                                 )}
-                                {["super_admin", "admin"].includes(currentUserProfile?.role || "") && session.status !== "cancelled" && googleSyncMap[session.id] && (
-                                  <span
-                                    className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md w-fit ${
-                                      googleSyncMap[session.id].status === 'synced'
-                                        ? 'text-teal-800 bg-teal-50 border border-teal-200'
-                                        : googleSyncMap[session.id].status === 'pending'
-                                        ? 'text-amber-800 bg-amber-50 border border-amber-300 animate-pulse'
-                                        : 'text-rose-800 bg-rose-50 border border-rose-300'
-                                    }`}
-                                    title={googleSyncMap[session.id].error || (googleSyncMap[session.id].status === 'synced' ? 'Sincronizada no Google Calendar' : 'Pendente de sincronização')}
-                                  >
-                                    <CalendarIcon className="w-3 h-3 mr-1" />
-                                    {googleSyncMap[session.id].status === 'synced'
-                                      ? 'Google OK'
-                                      : googleSyncMap[session.id].status === 'pending'
-                                      ? 'Sincronizando Google...'
-                                      : 'Google Falhou'}
-                                  </span>
-                                )}
+                                {["super_admin", "admin"].includes(currentUserProfile?.role || "") && session.status !== "cancelled" && googleSyncMap[session.id] && (() => {
+                                  const badge = getGoogleSyncBadgeInfo(googleSyncMap[session.id].status, googleSyncMap[session.id].error);
+                                  return (
+                                    <span
+                                      className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-md w-fit ${badge.colorClass}`}
+                                      title={badge.title}
+                                    >
+                                      <CalendarIcon className="w-3 h-3 mr-1" />
+                                      {badge.label}
+                                    </span>
+                                  );
+                                })()}
                               </>
                             );
                           })()}

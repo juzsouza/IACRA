@@ -1616,6 +1616,81 @@ export const computeScopedPendingSyncs = (
   });
 };
 
+/**
+ * Reconcilia deterministicamente o mapa local de status de sincronização com o Google Calendar
+ * com base na lista de pendências retornada pelo servidor (/api/google/unsynced-classes).
+ * 
+ * Regras:
+ * 1. Aulas presentes em unsyncedClasses mantêm ou atualizam seu status (unsynced/failed/pending) e erros.
+ * 2. Aulas previamente presentes no mapa mas ausentes de unsyncedClasses foram sincronizadas com sucesso:
+ *    são promovidas para 'synced' e quaisquer erros stale anteriores são removidos.
+ * 3. Novas aulas em unsyncedClasses são adicionadas com seu status correspondente.
+ */
+export function reconcileGoogleSyncMap(
+  prev: Record<string, {
+    status: 'synced' | 'failed' | 'pending' | 'unsynced';
+    error?: string;
+    eventId?: string;
+    lastAttemptAt?: string;
+  }>,
+  unsyncedClasses: Array<{
+    id: string;
+    sync_status?: 'failed' | 'pending' | 'unsynced';
+    last_error?: string | null;
+    last_attempt_at?: string | null;
+  }>
+): Record<string, {
+  status: 'synced' | 'failed' | 'pending' | 'unsynced';
+  error?: string;
+  eventId?: string;
+  lastAttemptAt?: string;
+}> {
+  const unsyncedMap = new Map<string, (typeof unsyncedClasses)[number]>();
+  for (const item of unsyncedClasses) {
+    unsyncedMap.set(item.id, item);
+  }
+
+  const next: Record<string, {
+    status: 'synced' | 'failed' | 'pending' | 'unsynced';
+    error?: string;
+    eventId?: string;
+    lastAttemptAt?: string;
+  }> = {};
+
+  // 1. Reconciliar entradas pré-existentes no mapa:
+  for (const [classId, prevInfo] of Object.entries(prev)) {
+    const unsyncedItem = unsyncedMap.get(classId);
+    if (unsyncedItem) {
+      next[classId] = {
+        status: unsyncedItem.sync_status || 'unsynced',
+        error: unsyncedItem.last_error || undefined,
+        lastAttemptAt: unsyncedItem.last_attempt_at || prevInfo.lastAttemptAt,
+        eventId: prevInfo.eventId,
+      };
+    } else {
+      // Deixou de estar pendente -> promovida para synced, removendo erros obsoletos
+      next[classId] = {
+        status: 'synced',
+        eventId: prevInfo.eventId,
+        lastAttemptAt: prevInfo.lastAttemptAt || new Date().toISOString(),
+      };
+    }
+  }
+
+  // 2. Adicionar entradas da lista atual de pendências que ainda não constavam no mapa
+  for (const item of unsyncedClasses) {
+    if (!next[item.id]) {
+      next[item.id] = {
+        status: item.sync_status || 'unsynced',
+        error: item.last_error || undefined,
+        lastAttemptAt: item.last_attempt_at || undefined,
+      };
+    }
+  }
+
+  return next;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -1923,17 +1998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const res = await fetchUnsyncedClassesStatus();
       if (res.success && Array.isArray(res.classes)) {
-        setGoogleSyncMap(prev => {
-          const next = { ...prev };
-          for (const item of res.classes) {
-            next[item.id] = {
-              status: item.sync_status || 'unsynced',
-              error: item.last_error || undefined,
-              lastAttemptAt: item.last_attempt_at || undefined,
-            };
-          }
-          return next;
-        });
+        setGoogleSyncMap(prev => reconcileGoogleSyncMap(prev, res.classes));
       }
     } catch (e) {
       console.warn('[GoogleSync] Falha ao atualizar status de sincronização:', e);

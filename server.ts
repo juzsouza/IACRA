@@ -1,5 +1,7 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { googleCalendarRouter } from './src/server/googleCalendarRoutes.js';
 import { validateGoogleOAuthConfig } from './src/server/googleCalendarService.js';
@@ -70,6 +72,48 @@ export const handleLegacyServiceWorker = (_req: express.Request, res: express.Re
   res.status(200).send(LEGACY_SW_SCRIPT);
 };
 
+export const PRIVACY_POLICY_CANONICAL_URL = 'https://institutoiacra.com.br/politica-de-privacidade';
+
+export const getPrivacyPolicyHtmlPath = (): string => {
+  let baseDir = process.cwd();
+  try {
+    if (typeof __dirname !== 'undefined') {
+      baseDir = __dirname;
+    } else if (import.meta?.url) {
+      baseDir = path.dirname(fileURLToPath(import.meta.url));
+    }
+  } catch {
+    baseDir = process.cwd();
+  }
+
+  const candidatePaths = [
+    path.join(process.cwd(), 'public-site', 'politica-de-privacidade', 'index.html'),
+    path.join(process.cwd(), 'dist', 'politica-de-privacidade', 'index.html'),
+    path.join(process.cwd(), 'public', 'politica-de-privacidade', 'index.html'),
+    path.join(baseDir, 'politica-de-privacidade', 'index.html'),
+    path.join(baseDir, '..', 'public-site', 'politica-de-privacidade', 'index.html'),
+    path.join(baseDir, '..', 'dist', 'politica-de-privacidade', 'index.html'),
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return path.join(process.cwd(), 'public-site', 'politica-de-privacidade', 'index.html');
+};
+
+export const handlePrivacyPolicy = (_req: express.Request, res: express.Response) => {
+  const filePath = getPrivacyPolicyHtmlPath();
+  if (fs.existsSync(filePath)) {
+    const html = fs.readFileSync(filePath, 'utf-8');
+    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+    return res.status(200).send(html);
+  }
+  res.status(404).setHeader('Content-Type', 'text/plain; charset=UTF-8').send('Política de Privacidade não encontrada.');
+};
+
 export async function createApp() {
   const app = express();
 
@@ -91,6 +135,10 @@ export async function createApp() {
   // NUNCA responder index.html ou text/html para essas rotas!
   app.get('/sw.js', handleLegacyServiceWorker);
   app.get('/service-worker.js', handleLegacyServiceWorker);
+
+  // Rota estática direta para a Política de Privacidade (Google Search Console / SEO / LGPD)
+  // Serve diretamente o HTML estático completo sem passar pelo fallback SPA ou autenticação
+  app.get(['/politica-de-privacidade', '/politica-de-privacidade/'], handlePrivacyPolicy);
 
   // Vite middleware em desenvolvimento / arquivos estáticos em produção
   if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test-prod') {
