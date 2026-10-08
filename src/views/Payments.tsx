@@ -87,6 +87,75 @@ export function getEligibleEnrollmentsForStudent(
   });
 }
 
+// ============================================================================
+// Helper de Resolução de Registro de Coral do Aluno
+// Prioriza inscrição aprovada sobre rejeitada/antiga para evitar shadowing
+// ============================================================================
+
+export function resolveStudentChoirRegistration(
+  studentId: string,
+  choirRegistrations: any[]
+) {
+  const studentChoirRegs = choirRegistrations.filter(r => r.student_id === studentId);
+  const approved = studentChoirRegs
+    .filter(r => r.status === 'approved' || r.status === 'approved_exempt')
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  if (approved.length > 0) return approved[0];
+  return studentChoirRegs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+}
+
+// ============================================================================
+// Helper de Filtragem Operacional de Cobranças
+// Regra Obrigatória: Aluno somente aparece quando existir valor efetivamente a pagar (totalPending > 0).
+// Se o saldo pendente for R$ 0,00, NÃO aparece na listagem, inclusive no filtro "Todos".
+// Preserva a consulta na aba "Pagos" (paid).
+// ============================================================================
+
+export function filterBillingItemsForView<T extends {
+  id: string;
+  type: 'student' | 'group';
+  name: string;
+  totalAmount: number;
+  totalPaid: number;
+  totalPending: number;
+  paymentStatus: 'paid' | 'partial' | 'pending';
+  billing?: any;
+}>(
+  items: T[],
+  statusFilter: 'to_pay' | 'paid' | 'all',
+  searchTerm: string = ''
+): T[] {
+  return items.filter(item => {
+    // 0. Exclude 0.00 items
+    if (item.totalAmount <= 0) return false;
+
+    // 1. Filter by payment status
+    // REGRA DE NEGÓCIO: Na listagem de cobrança operacional ('to_pay' e 'all'), um aluno somente
+    // deve aparecer quando existir algum valor efetivamente a pagar (totalPending > 0).
+    // Se o total pendente for R$ 0,00, ele NÃO deve aparecer na listagem, inclusive no filtro "Todos".
+    if (statusFilter === 'to_pay' && (item.paymentStatus === 'paid' || item.totalPending <= 0)) return false;
+    if (statusFilter === 'all' && item.totalPending <= 0) return false;
+    if (statusFilter === 'paid' && item.paymentStatus !== 'paid') return false;
+
+    // 2. Filter by search term
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+    if (item.type === 'student') {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesPlans = item.billing?.enrollmentsBilling?.some((eb: any) =>
+        eb.plan?.name?.toLowerCase().includes(searchLower)
+      );
+      const matchesChoir = (item.billing?.choirBilling?.length ?? 0) > 0 && (
+        'coral'.includes(searchLower) ||
+        searchLower.includes('coral') ||
+        'coro'.includes(searchLower) ||
+        searchLower.includes('coro')
+      );
+      return matchesSearch || matchesPlans || matchesChoir;
+    }
+    return matchesSearch;
+  });
+}
+
 export const Payments: React.FC = () => {
   const {
     state,
@@ -230,10 +299,10 @@ export const Payments: React.FC = () => {
       }
     );
 
-    const rawChoir = state.choirRegistrations.find(r => r.student_id === studentId);
+    const rawChoir = resolveStudentChoirRegistration(studentId, state.choirRegistrations);
     let relevantChoir: typeof rawChoir = undefined;
     if (rawChoir) {
-      if (rawChoir.status === 'approved') {
+      if (rawChoir.status === 'approved' || rawChoir.status === 'approved_exempt') {
         relevantChoir = rawChoir;
       } else {
         const isRelevant = hasAnyHistoricalFinancialData(rawChoir.id, 'choir', {
@@ -663,22 +732,7 @@ export const Payments: React.FC = () => {
     ...studentsBillingList,
   ];
 
-  const filteredBillingItems = allBillingItems.filter(item => {
-    // 0. Exclude 0.00 items
-    if (item.totalAmount <= 0) return false;
-
-    // 1. Filter by payment status
-    if (statusFilter === 'to_pay' && (item.paymentStatus === 'paid' || item.totalPending <= 0)) return false;
-    if (statusFilter === 'paid' && item.paymentStatus !== 'paid') return false;
-
-    // 2. Filter by search term
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-    if (item.type === 'student') {
-      const matchesPlans = item.billing?.enrollmentsBilling.some(eb => eb.plan.name.toLowerCase().includes(searchTerm.toLowerCase()));
-      return matchesSearch || matchesPlans;
-    }
-    return matchesSearch;
-  });
+  const filteredBillingItems = filterBillingItemsForView(allBillingItems, statusFilter, searchTerm);
 
   const openPaymentModal = (id: string, type: 'student' | 'group') => {
     if (type === 'group') {
@@ -1177,7 +1231,7 @@ export const Payments: React.FC = () => {
             </div>
             <input
               type="text"
-              placeholder="Buscar por aluno, grupo ou plano..."
+              placeholder="Buscar por aluno, grupo, plano ou coral..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="block w-full pl-10 pr-3 py-2 border border-zinc-200 rounded-xl leading-5 bg-zinc-50 placeholder-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"

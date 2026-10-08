@@ -24,7 +24,8 @@
     "test:asheley": "tsx src/tests/asheley_and_active_enrollments_billing.test.ts",
     "test:no-signup": "tsx src/tests/auth_no_public_signup.test.ts",
     "test:sync-status": "tsx src/tests/google_calendar_sync_status_ui_and_reconcile.test.ts",
-    "test:privacy": "tsx src/tests/privacy_policy_indexing_and_static_route.test.ts"
+    "test:privacy": "tsx src/tests/privacy_policy_indexing_and_static_route.test.ts",
+    "test:choir-balance": "tsx src/tests/choir_and_operational_payments_balance.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
