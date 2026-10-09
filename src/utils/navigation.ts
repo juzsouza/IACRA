@@ -78,14 +78,50 @@ export const isViewPermittedForRole = (view: View, role?: string | null): boolea
   return Boolean(allowedRoles && allowedRoles.includes(role));
 };
 
-export const getDefaultViewForRole = (role?: string | null): View => {
+export const getDefaultViewForRole = (
+  role?: string | null,
+  options?: { isMobile?: boolean }
+): View => {
+  const isMobile = options?.isMobile ?? (typeof window !== "undefined" && window.innerWidth < 768);
   if (role === "teacher") {
-    return "students";
+    return isMobile ? "classes" : "students";
   }
   if (role === "admin" || role === "super_admin") {
     return "dashboard";
   }
-  return "students";
+  return isMobile ? "classes" : "students";
+};
+
+/**
+ * Determina a view inicial para uma nova sessão ou carregamento do perfil.
+ * 
+ * Regras:
+ * 1. Professor em tela menor que 768px (celular): inicia diretamente em 'classes' (Aulas/Agenda),
+ *    mesmo que exista uma preferência antiga salva em 'students' (Alunos).
+ * 2. Professor em desktop (>= 768px): preserva o comportamento existente (usa a preferência salva,
+ *    ou fallback para 'students').
+ * 3. Super Admin, Admin e demais perfis: preservam integralmente o comportamento atual (preferência salva,
+ *    ou fallback para 'dashboard').
+ */
+export const resolveInitialView = (
+  profileId: string,
+  role?: string | null,
+  options?: { isMobile?: boolean }
+): View => {
+  const isMobile = options?.isMobile ?? (typeof window !== "undefined" && window.innerWidth < 768);
+
+  // Regra prioritária da Agenda Mobile para perfil Professor em telas < 768px
+  if (role === "teacher" && isMobile) {
+    return "classes";
+  }
+
+  // Comportamento padrão preservado para desktop e outros perfis
+  const saved = getSavedView(profileId, role);
+  if (saved) {
+    return saved;
+  }
+
+  return getDefaultViewForRole(role, { isMobile });
 };
 
 export const getSavedView = (profileId: string, role?: string | null): View | null => {

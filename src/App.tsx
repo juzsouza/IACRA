@@ -32,6 +32,7 @@ import {
   getSavedView,
   persistView,
   isViewPermittedForRole,
+  resolveInitialView,
 } from "./utils/navigation";
 
 import { X, Lock, ShieldAlert, RefreshCw } from "lucide-react";
@@ -139,7 +140,13 @@ export class ErrorBoundary extends ComponentBase {
 
 function AppContent() {
   const { state, deleteFinancialPlan, setGlobalError, currentUserProfile, isProfileLoading } = useAppStore();
-  const [currentView, setCurrentView] = useState<View>("students");
+  const [currentView, setCurrentView] = useState<View>(() => {
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    if (currentUserProfile?.id) {
+      return resolveInitialView(currentUserProfile.id, currentUserProfile.role, { isMobile });
+    }
+    return isMobile ? "classes" : "students";
+  });
 
   // Track which profileId has already undergone the initial view restoration to prevent loops or unwanted resets
   const lastRestoredProfileIdRef = useRef<string | null>(null);
@@ -169,18 +176,14 @@ function AppContent() {
 
     lastRestoredProfileIdRef.current = currentUserProfile.id;
 
-    // Check if there is a valid persisted view for this user
-    const saved = getSavedView(currentUserProfile.id, currentUserProfile.role);
-    if (saved) {
-      setCurrentView(saved);
-      currentViewRef.current = saved;
-    } else {
-      // Fallback default: teacher -> students, others -> dashboard
-      const defaultView = getDefaultViewForRole(currentUserProfile.role);
-      setCurrentView(defaultView);
-      currentViewRef.current = defaultView;
-      persistView(currentUserProfile.id, defaultView);
-    }
+    // Resolução da tela inicial respeitando perfil e dispositivo:
+    // Professor em celular (< 768px) inicia na Agenda ('classes')
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    const initialView = resolveInitialView(currentUserProfile.id, currentUserProfile.role, { isMobile });
+
+    setCurrentView(initialView);
+    currentViewRef.current = initialView;
+    persistView(currentUserProfile.id, initialView);
   }, [currentUserProfile?.id, currentUserProfile?.role]);
 
   // Handler for view changes from Layout navigation - updates state & immediately persists per profile

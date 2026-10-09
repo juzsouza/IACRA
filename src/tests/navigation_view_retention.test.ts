@@ -5,6 +5,7 @@ import {
   getDefaultViewForRole,
   getSavedView,
   persistView,
+  resolveInitialView,
 } from '../utils/navigation';
 
 /**
@@ -124,7 +125,8 @@ function createMockAppContent(initialView: View = 'students'): MockAppContentSta
 
 function simulateAppContentProfileEffect(
   app: MockAppContentState,
-  profile: { id: string; role?: string } | null
+  profile: { id: string; role?: string } | null,
+  options?: { isMobile?: boolean }
 ) {
   if (!profile?.id) {
     return;
@@ -133,7 +135,7 @@ function simulateAppContentProfileEffect(
   if (app.lastRestoredProfileIdRef.current === profile.id) {
     // Revalidação com o mesmo usuário: somente altera se a role for explicitamente informada e a tela atual for incompatível
     if (profile.role && !isViewPermittedForRole(app.currentViewRef.current, profile.role)) {
-      const fallback = getDefaultViewForRole(profile.role);
+      const fallback = getDefaultViewForRole(profile.role, options);
       app.currentView = fallback;
       app.currentViewRef.current = fallback;
       persistView(profile.id, fallback);
@@ -142,15 +144,21 @@ function simulateAppContentProfileEffect(
   }
 
   app.lastRestoredProfileIdRef.current = profile.id;
-  const saved = getSavedView(profile.id, profile.role);
-  if (saved) {
-    app.currentView = saved;
-    app.currentViewRef.current = saved;
-  } else {
-    const defaultView = getDefaultViewForRole(profile.role);
-    app.currentView = defaultView;
-    app.currentViewRef.current = defaultView;
-    persistView(profile.id, defaultView);
+  const initialView = resolveInitialView(profile.id, profile.role, options);
+  app.currentView = initialView;
+  app.currentViewRef.current = initialView;
+  persistView(profile.id, initialView);
+}
+
+function simulateHandleViewChange(
+  app: MockAppContentState,
+  profileId: string | undefined,
+  newView: View
+) {
+  app.currentView = newView;
+  app.currentViewRef.current = newView;
+  if (profileId) {
+    persistView(profileId, newView);
   }
 }
 
@@ -329,8 +337,111 @@ async function runTests() {
     console.log('✔ Teste F aprovado: retorno para Alunos confirmado');
   }
 
+  // Teste H: Professor em celular (< 768px) inicia diretamente em Aulas/Agenda (classes)
+  {
+    console.log('[TESTE H] Professor em celular (< 768px) inicia diretamente em Aulas/Agenda (classes)');
+    const teacherProfile = { id: 'usr-teacher-mob', email: 'prof@eavra.com', role: 'teacher', access_status: 'active' };
+    const app = createMockAppContent('students');
+    simulateAppContentProfileEffect(app, teacherProfile, { isMobile: true });
+    assert.strictEqual(app.currentView, 'classes', 'Professor no celular deve iniciar diretamente em classes');
+    console.log('✔ Teste H aprovado: professor em celular inicia em Aulas/Agenda');
+  }
+
+  // Teste I: Professor em desktop (>= 768px) mantém comportamento anterior (students)
+  {
+    console.log('[TESTE I] Professor em desktop (>= 768px) mantém comportamento anterior (students)');
+    const teacherProfile = { id: 'usr-teacher-desk', email: 'prof-desk@eavra.com', role: 'teacher', access_status: 'active' };
+    const app = createMockAppContent('students');
+    simulateAppContentProfileEffect(app, teacherProfile, { isMobile: false });
+    assert.strictEqual(app.currentView, 'students', 'Professor no desktop sem preferência salva deve iniciar em students');
+    console.log('✔ Teste I aprovado: professor em desktop mantém abertura padrão em Alunos');
+  }
+
+  // Teste J: Super Admin e Admin mantêm o comportamento anterior em desktop e mobile
+  {
+    console.log('[TESTE J] Super Admin e Admin mantêm o comportamento anterior (desktop e celular)');
+    const adminProfile = { id: 'usr-adm-test', email: 'adm@eavra.com', role: 'admin', access_status: 'active' };
+    const appDesk = createMockAppContent('students');
+    simulateAppContentProfileEffect(appDesk, adminProfile, { isMobile: false });
+    assert.strictEqual(appDesk.currentView, 'dashboard', 'Admin em desktop deve iniciar em dashboard');
+
+    const appMob = createMockAppContent('students');
+    simulateAppContentProfileEffect(appMob, adminProfile, { isMobile: true });
+    assert.strictEqual(appMob.currentView, 'dashboard', 'Admin em celular deve continuar iniciando em dashboard');
+    console.log('✔ Teste J aprovado: perfis administrativos mantêm dashboard como padrão');
+  }
+
+  // Teste K: Preferência antiga salva em 'students' não impede o padrão inicial da Agenda no celular
+  {
+    console.log('[TESTE K] Preferência antiga salva em Alunos não impede o padrão inicial da Agenda no celular');
+    const teacherOld = { id: 'usr-teacher-old', email: 'prof-old@eavra.com', role: 'teacher', access_status: 'active' };
+    persistView(teacherOld.id, 'students');
+    assert.strictEqual(getSavedView(teacherOld.id, teacherOld.role), 'students', 'Pre-condição: students estava salvo no storage');
+
+    const app = createMockAppContent('students');
+    simulateAppContentProfileEffect(app, teacherOld, { isMobile: true });
+    assert.strictEqual(app.currentView, 'classes', 'Ao abrir no celular, Agenda deve ter prioridade sobre preferência antiga de Alunos');
+    console.log('✔ Teste K aprovado: preferência legada de Alunos é sobreposta pela Agenda no celular');
+  }
+
+  // Teste L: Navegação manual para 'students' dentro da sessão funciona normalmente
+  {
+    console.log('[TESTE L] Navegação manual para Alunos dentro da sessão funciona sem ser resetada');
+    const teacherNav = { id: 'usr-teacher-nav', email: 'prof-nav@eavra.com', role: 'teacher', access_status: 'active' };
+    const app = createMockAppContent('classes');
+    simulateAppContentProfileEffect(app, teacherNav, { isMobile: true });
+    assert.strictEqual(app.currentView, 'classes', 'Entrada inicial em celular inicia em classes');
+
+    // Professor clica em Alunos no menu de navegação
+    simulateHandleViewChange(app, teacherNav.id, 'students');
+    assert.strictEqual(app.currentView, 'students', 'Navegação manual para students deve atualizar a view ativa');
+
+    // Simula re-renderização ou atualização de estado: NÃO pode forçar retorno para Agenda
+    simulateAppContentProfileEffect(app, teacherNav, { isMobile: true });
+    assert.strictEqual(app.currentView, 'students', 'Re-renderização durante a sessão deve preservar Alunos');
+    console.log('✔ Teste L aprovado: navegação manual para Alunos preservada durante a sessão');
+  }
+
+  // Teste M: Mudança de tamanho da tela (redimensionamento / rotação) não provoca redirecionamentos inesperados
+  {
+    console.log('[TESTE M] Mudança de tamanho da tela durante a sessão não altera a view ativa');
+    const teacherResize = { id: 'usr-teacher-res', email: 'prof-res@eavra.com', role: 'teacher', access_status: 'active' };
+    const app = createMockAppContent('classes');
+    simulateAppContentProfileEffect(app, teacherResize, { isMobile: true });
+    simulateHandleViewChange(app, teacherResize.id, 'students');
+    assert.strictEqual(app.currentView, 'students');
+
+    // Rotação do aparelho ou redimensionamento da janela durante a sessão
+    simulateAppContentProfileEffect(app, teacherResize, { isMobile: false });
+    assert.strictEqual(app.currentView, 'students', 'Redimensionamento não altera a view ativa da sessão');
+    console.log('✔ Teste M aprovado: estabilidade garantida em rotação de tela e redimensionamento');
+  }
+
+  // Teste N: Estado da tela continua preservado ao perder e recuperar o foco durante uma sessão
+  {
+    console.log('[TESTE N] Estado da tela preservado ao perder e recuperar foco da aba');
+    const teacherFocus = { id: 'usr-teacher-foc', email: 'prof-foc@eavra.com', role: 'teacher', access_status: 'active' };
+    const store = createMockStore(teacherFocus);
+    const app = createMockAppContent('classes');
+    simulateAppContentProfileEffect(app, teacherFocus, { isMobile: true });
+    simulateHandleViewChange(app, teacherFocus.id, 'students');
+    assert.strictEqual(app.currentView, 'students');
+
+    // Simula aba perdendo foco e recuperando (disparo silencioso de reload)
+    await simulateReloadCurrentUserProfile(
+      store,
+      undefined,
+      { silent: true },
+      async () => ({ id: teacherFocus.id }),
+      async () => teacherFocus
+    );
+    simulateAppContentProfileEffect(app, store.currentUserProfile, { isMobile: true });
+    assert.strictEqual(app.currentView, 'students', 'Recuperação de foco mantém tela de Alunos');
+    console.log('✔ Teste N aprovado: foco de aba mantém tela ativa intacta');
+  }
+
   console.log('----------------------------------------------------');
-  console.log('TODOS OS TESTES (A, B, C, D, E, F, G) PASSARAM COM SUCESSO!');
+  console.log('TODOS OS TESTES (A até N) PASSARAM COM SUCESSO! 🚀');
 }
 
 runTests().catch((err) => {
