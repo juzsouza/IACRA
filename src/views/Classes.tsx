@@ -5,6 +5,7 @@ import { getWhatsAppPhoneDetails, WhatsAppPhoneDetails } from "../utils/phone";
 import { VocalRoutineModal } from "../components/VocalRoutineModal";
 import { ClassAuditModal } from "../components/ClassAuditModal";
 import { TeacherGoogleCalendarCard } from "../components/TeacherGoogleCalendarCard";
+import { MobileAgendaView } from "../components/MobileAgendaView";
 import {
   Plus,
   Search,
@@ -312,6 +313,41 @@ export function getGoogleSyncBadgeInfo(
   }
 }
 
+/**
+ * Utilitário de breakpoint responsivo: telas >= 768px são consideradas desktop.
+ */
+export const isDesktopBreakpoint = (width: number): boolean => width >= 768;
+
+/**
+ * Hook responsivo que detecta mudança de largura da tela via matchMedia
+ */
+export const useIsDesktop = () => {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return isDesktopBreakpoint(window.innerWidth);
+    }
+    return true;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const updateMatches = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsDesktop(e.matches);
+    };
+    setIsDesktop(mediaQuery.matches);
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateMatches);
+      return () => mediaQuery.removeEventListener('change', updateMatches);
+    } else {
+      (mediaQuery as any).addListener(updateMatches);
+      return () => (mediaQuery as any).removeListener(updateMatches);
+    }
+  }, []);
+
+  return isDesktop;
+};
+
 export const Classes: React.FC = () => {
   const {
     state,
@@ -329,6 +365,7 @@ export const Classes: React.FC = () => {
     refreshGoogleSyncStatus,
   } = useAppStore();
   const [isSyncing, setIsSyncing] = useState(false);
+  const isDesktop = useIsDesktop();
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [isReconcilingGoogle, setIsReconcilingGoogle] = useState(false);
   const [isPullingGoogle, setIsPullingGoogle] = useState(false);
@@ -1449,8 +1486,31 @@ Te esperamos!`;
         )}
       </AnimatePresence>
 
-      {/* Alunos em Alerta de Evasão (3+ Faltas Consecutivas) */}
-      {evasionAlertStudents.length > 0 && (
+      {!isDesktop ? (
+        <MobileAgendaView
+          openModal={openModal}
+          sendWhatsAppReminder={sendWhatsAppReminder}
+          deleteClass={deleteClass}
+          resyncClassGoogle={resyncClassGoogle}
+          currentUserProfile={currentUserProfile}
+          setSyncFeedback={setSyncFeedback}
+          resyncingClassId={resyncingClassId}
+          setResyncingClassId={setResyncingClassId}
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          filterTeacherId={filterTeacherId}
+          setFilterTeacherId={setFilterTeacherId}
+          onOpenAuditModal={() => setIsAuditModalOpen(true)}
+          onOpenReminderModal={() => {
+            setReminderSettings(loadReminderSettingsFromStorage());
+            setReminderActiveTab('settings');
+            setIsReminderModalOpen(true);
+          }}
+        />
+      ) : (
+        <>
+          {/* Alunos em Alerta de Evasão (3+ Faltas Consecutivas) */}
+          {evasionAlertStudents.length > 0 && (
         <div className="bg-rose-50 border border-rose-200/80 rounded-2xl p-5 space-y-3 shadow-sm shadow-rose-100/50">
           <div className="flex items-center space-x-2 text-rose-800">
             <AlertCircle className="w-5 h-5" />
@@ -2299,6 +2359,8 @@ Te esperamos!`;
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Modal */}
       <AnimatePresence>
