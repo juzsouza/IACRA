@@ -201,15 +201,53 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
         studentsMap,
         groupsMap
       );
+      // 1. Falha HTTP / Autenticação / Erro de comunicação
+      if (!res.success) {
+        if (res.authRequired || res.httpStatus === 401) {
+          setErrorMessage('Sessão expirada ou não autenticada na plataforma. Faça login novamente para sincronizar.');
+        } else if (res.forbidden || res.httpStatus === 403) {
+          setErrorMessage('Permissão negada para sincronizar aulas deste professor.');
+        } else if (res.httpStatus) {
+          setErrorMessage(`Falha no servidor ao sincronizar aulas futuras (HTTP ${res.httpStatus}): ${res.error || 'Erro interno'}`);
+        } else {
+          setErrorMessage(res.error || 'Falha de comunicação com o servidor ao sincronizar aulas futuras.');
+        }
+        return;
+      }
+
+      // 2. Resposta de sucesso (HTTP 200) com zero aulas elegíveis
+      if (res.total === 0) {
+        setSyncFeedback('Nenhuma aula futura pendente de sincronização encontrada para este professor.');
+        return;
+      }
+
+      // 3. Resposta onde todas as tentativas falharam (ex.: token Google expirado ou revogado)
+      if (res.failed > 0 && res.synced === 0 && res.skipped === 0) {
+        setErrorMessage(
+          `Falha na sincronização: nenhuma das ${res.failed} aula(s) pôde ser gravada no Google. A conta Google vinculada precisa de reautorização. Clique em "Reautorizar Google Agenda".`
+        );
+        return;
+      }
+
+      // 4. Sincronização concluída com aulas processadas
       const extraRemaining =
         res.remaining && res.remaining > 0
           ? ` (${res.remaining} restante(s) para o próximo lote)`
           : '';
-      setSyncFeedback(
-        `Sincronização em lote concluída: ${res.synced} aula(s) sincronizada(s), ${res.skipped} já estavam no Google${
-          res.failed > 0 ? `, ${res.failed} falha(s)` : ''
-        }${extraRemaining}.`
-      );
+
+      if (res.failed > 0) {
+        setSyncFeedback(
+          `Sincronização parcial: ${res.synced} aula(s) sincronizada(s), ${res.failed} falha(s)${
+            res.skipped > 0 ? `, ${res.skipped} já estavam no Google` : ''
+          }${extraRemaining}. Verifique a conexão com o Google Agenda caso as falhas persistam.`
+        );
+      } else {
+        setSyncFeedback(
+          `Sincronização em lote concluída: ${res.synced} aula(s) sincronizada(s)${
+            res.skipped > 0 ? `, ${res.skipped} já estavam no Google` : ''
+          }${extraRemaining}.`
+        );
+      }
     } catch (e: any) {
       setErrorMessage(e?.message || 'Falha ao sincronizar aulas futuras.');
     } finally {

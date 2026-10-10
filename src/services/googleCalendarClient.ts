@@ -458,6 +458,21 @@ export async function fetchClassDeleteContext(classId: string): Promise<{
   return { exists: false };
 }
 
+export interface SyncFutureClassesResult {
+  success: boolean;
+  total: number;
+  synced: number;
+  skipped: number;
+  failed: number;
+  remaining?: number;
+  rateLimited?: boolean;
+  httpStatus?: number;
+  error?: string;
+  authRequired?: boolean;
+  forbidden?: boolean;
+  reauthorizationRequired?: boolean;
+}
+
 /**
  * Sincroniza aulas futuras sob demanda (em lotes controlados com proteção contra rate-limit)
  */
@@ -466,9 +481,13 @@ export async function syncTeacherFutureClasses(
   classes: ClassSession[],
   studentsMap: Record<string, string>,
   groupsMap: Record<string, string>
-): Promise<{ total: number; synced: number; skipped: number; failed: number; remaining?: number; rateLimited?: boolean }> {
+): Promise<SyncFutureClassesResult> {
   try {
-    const authHeaders = await getAuthHeaders();
+    let authHeaders = await getAuthHeaders();
+    if (!authHeaders.Authorization) {
+      authHeaders = await getAuthHeaders(true);
+    }
+
     const formattedClasses = classes.map((c) => {
       let studentName = '';
       if (c.student_ids && c.student_ids.length > 0) {
@@ -489,7 +508,7 @@ export async function syncTeacherFutureClasses(
       };
     });
 
-    const res = await fetch('/api/google/sync-future', {
+    let res = await fetch('/api/google/sync-future', {
       method: 'POST',
       headers: {
         ...authHeaders,
@@ -498,13 +517,76 @@ export async function syncTeacherFutureClasses(
       body: JSON.stringify({ teacherId, classes: formattedClasses }),
     });
 
-    if (res.ok) {
-      return await res.json();
+    // Se a sessão expirou na plataforma (401/403), tenta renovar preventivamente uma vez
+    if (res.status === 401 || res.status === 403) {
+      const refreshedHeaders = await getAuthHeaders(true);
+      if (refreshedHeaders.Authorization) {
+        res = await fetch('/api/google/sync-future', {
+          method: 'POST',
+          headers: {
+            ...refreshedHeaders,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ teacherId, classes: formattedClasses }),
+        });
+      }
     }
-  } catch (e) {
-    console.warn('[GoogleCalendarClient] Erro ao sincronizar aulas futuras:', e);
+
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        success: true,
+        total: typeof data.total === 'number' ? data.total : 0,
+        synced: typeof data.synced === 'number' ? data.synced : 0,
+        skipped: typeof data.skipped === 'number' ? data.skipped : 0,
+        failed: typeof data.failed === 'number' ? data.failed : 0,
+        remaining: typeof data.remaining === 'number' ? data.remaining : 0,
+        rateLimited: !!data.rateLimited,
+        httpStatus: res.status,
+      };
+    }
+
+    // Resposta HTTP não-2xx do endpoint: interpretar erro de forma segura
+    const status = res.status;
+    let errorMessage = `Erro HTTP ${status} ao sincronizar aulas futuras.`;
+    try {
+      const errData = await res.json();
+      if (errData?.error && typeof errData.error === 'string') {
+        errorMessage = errData.error;
+      }
+    } catch {
+      // Ignora erro de parse de JSON caso resposta não seja JSON
+    }
+
+    // NUNCA expor tokens, chaves ou credenciais nos logs ou retornos
+    console.warn(`[GoogleCalendarClient] Falha HTTP ${status} ao sincronizar aulas futuras do professor ${teacherId}: ${errorMessage}`);
+
+    return {
+      success: false,
+      total: 0,
+      synced: 0,
+      skipped: 0,
+      failed: 0,
+      remaining: 0,
+      httpStatus: status,
+      error: errorMessage,
+      authRequired: status === 401,
+      forbidden: status === 403,
+    };
+  } catch (e: any) {
+    const errorMsg = e?.message || 'Falha de comunicação ao sincronizar aulas futuras.';
+    console.warn('[GoogleCalendarClient] Erro ao sincronizar aulas futuras:', errorMsg);
+    return {
+      success: false,
+      total: 0,
+      synced: 0,
+      skipped: 0,
+      failed: 0,
+      remaining: 0,
+      httpStatus: 0,
+      error: errorMsg,
+    };
   }
-  return { total: 0, synced: 0, skipped: 0, failed: 0, remaining: 0 };
 }
 
 /**
