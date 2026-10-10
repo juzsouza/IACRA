@@ -787,6 +787,13 @@ googleCalendarRouter.post('/sync-future', async (req, res) => {
       });
     }
 
+    // Limite de segurança por lote na rota para evitar sobrecarga de memória e rate limits (HTTP 413)
+    if (classes.length > 100) {
+      return res.status(413).json({
+        error: `O lote enviado contém ${classes.length} aulas, excedendo o limite máximo seguro de 100 aulas por requisição (HTTP 413). Envie as aulas em lotes menores.`,
+      });
+    }
+
     const result = await syncFutureClassesToGoogle(teacherId, classes);
     res.json(result);
   } catch (err: any) {

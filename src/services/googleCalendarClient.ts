@@ -473,22 +473,46 @@ export interface SyncFutureClassesResult {
   reauthorizationRequired?: boolean;
 }
 
+export const SYNC_FUTURE_CLASSES_DEFAULT_BATCH_SIZE = 25;
+
+export interface SyncTeacherFutureClassesOptions {
+  batchSize?: number;
+  delayBetweenBatchesMs?: number;
+}
+
 /**
- * Sincroniza aulas futuras sob demanda (em lotes controlados com proteção contra rate-limit)
+ * Sincroniza aulas futuras sob demanda dividindo a lista em lotes sequenciais pequenos e seguros,
+ * respeitando os limites de tamanho de requisição do servidor (evitando HTTP 413) e rate-limits.
  */
 export async function syncTeacherFutureClasses(
   teacherId: string,
   classes: ClassSession[],
   studentsMap: Record<string, string>,
-  groupsMap: Record<string, string>
+  groupsMap: Record<string, string>,
+  options?: SyncTeacherFutureClassesOptions
 ): Promise<SyncFutureClassesResult> {
+  let aggregatedTotal = 0;
+  let aggregatedSynced = 0;
+  let aggregatedSkipped = 0;
+  let aggregatedFailed = 0;
+  let aggregatedRemaining = 0;
+  let lastHttpStatus: number | undefined = undefined;
+
   try {
     let authHeaders = await getAuthHeaders();
     if (!authHeaders.Authorization) {
       authHeaders = await getAuthHeaders(true);
     }
 
-    const formattedClasses = classes.map((c) => {
+    // 1. Filtrar previamente apenas aulas do professor e não canceladas para economizar payload
+    const eligibleClasses = classes.filter((c) => {
+      if (c.teacher_id && c.teacher_id !== teacherId) return false;
+      if (c.status === 'cancelled') return false;
+      return true;
+    });
+
+    // 2. Extrair estritamente os campos necessários para cada aula (sem metadados extras para não inflar o payload)
+    const formattedClasses = eligibleClasses.map((c) => {
       let studentName = '';
       if (c.student_ids && c.student_ids.length > 0) {
         studentName = c.student_ids.map((id) => studentsMap[id] || id).join(', ');
@@ -497,7 +521,7 @@ export async function syncTeacherFutureClasses(
 
       return {
         id: c.id,
-        teacher_id: c.teacher_id,
+        teacher_id: c.teacher_id || teacherId,
         title: c.title,
         date: c.date,
         start_time: c.start_time,
@@ -508,83 +532,169 @@ export async function syncTeacherFutureClasses(
       };
     });
 
-    let res = await fetch('/api/google/sync-future', {
-      method: 'POST',
-      headers: {
-        ...authHeaders,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ teacherId, classes: formattedClasses }),
-    });
+    const batchSize = Math.max(1, options?.batchSize ?? SYNC_FUTURE_CLASSES_DEFAULT_BATCH_SIZE);
+    const delayBetweenBatchesMs = options?.delayBetweenBatchesMs ?? 0;
 
-    // Se a sessão expirou na plataforma (401/403), tenta renovar preventivamente uma vez
-    if (res.status === 401 || res.status === 403) {
-      const refreshedHeaders = await getAuthHeaders(true);
-      if (refreshedHeaders.Authorization) {
-        res = await fetch('/api/google/sync-future', {
-          method: 'POST',
-          headers: {
-            ...refreshedHeaders,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ teacherId, classes: formattedClasses }),
-        });
+    // 3. Dividir a lista em lotes sequenciais seguros
+    const batches: (typeof formattedClasses)[] = [];
+    if (formattedClasses.length === 0) {
+      batches.push([]);
+    } else {
+      for (let i = 0; i < formattedClasses.length; i += batchSize) {
+        batches.push(formattedClasses.slice(i, i + batchSize));
       }
     }
 
-    if (res.ok) {
+    // 4. Processar lotes sequencialmente (sem concorrência descontrolada)
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const currentBatch = batches[batchIndex];
+
+      if (batchIndex > 0 && delayBetweenBatchesMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayBetweenBatchesMs));
+      }
+
+      let res = await fetch('/api/google/sync-future', {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ teacherId, classes: currentBatch }),
+      });
+
+      // Se a sessão expirou na plataforma (401/403), tenta renovar preventivamente uma vez
+      if (res.status === 401 || res.status === 403) {
+        const refreshedHeaders = await getAuthHeaders(true);
+        if (refreshedHeaders.Authorization) {
+          authHeaders = refreshedHeaders;
+          res = await fetch('/api/google/sync-future', {
+            method: 'POST',
+            headers: {
+              ...refreshedHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ teacherId, classes: currentBatch }),
+          });
+        }
+      }
+
+      lastHttpStatus = res.status;
+
+      if (!res.ok) {
+        const status = res.status;
+        let errorMessage = `Erro HTTP ${status} ao sincronizar aulas futuras.`;
+        if (status === 413) {
+          errorMessage = 'O tamanho da requisição excedeu o limite do servidor (HTTP 413).';
+        }
+        try {
+          const errData = await res.json();
+          if (errData?.error && typeof errData.error === 'string') {
+            errorMessage = errData.error;
+          }
+        } catch {
+          // Ignora erro de JSON
+        }
+
+        console.warn(`[GoogleCalendarClient] Falha HTTP ${status} no lote ${batchIndex + 1}/${batches.length} do professor ${teacherId}: ${errorMessage}`);
+
+        // Se falha de autorização (401/403) ocorreu no primeiro lote antes de qualquer processamento
+        if ((status === 401 || status === 403) && aggregatedSynced === 0 && aggregatedSkipped === 0) {
+          return {
+            success: false,
+            total: 0,
+            synced: 0,
+            skipped: 0,
+            failed: 0,
+            remaining: 0,
+            httpStatus: status,
+            error: errorMessage,
+            authRequired: status === 401,
+            forbidden: status === 403,
+          };
+        }
+
+        // Lote atual falhou e lotes subsequentes foram abortados
+        let remainingAfterFailure = currentBatch.length;
+        for (let next = batchIndex + 1; next < batches.length; next++) {
+          remainingAfterFailure += batches[next].length;
+        }
+
+        aggregatedTotal += remainingAfterFailure;
+        aggregatedRemaining += remainingAfterFailure;
+
+        return {
+          success: false,
+          total: aggregatedTotal,
+          synced: aggregatedSynced,
+          skipped: aggregatedSkipped,
+          failed: aggregatedFailed,
+          remaining: aggregatedRemaining,
+          httpStatus: status,
+          error: errorMessage,
+          authRequired: status === 401,
+          forbidden: status === 403,
+        };
+      }
+
       const data = await res.json();
-      return {
-        success: true,
-        total: typeof data.total === 'number' ? data.total : 0,
-        synced: typeof data.synced === 'number' ? data.synced : 0,
-        skipped: typeof data.skipped === 'number' ? data.skipped : 0,
-        failed: typeof data.failed === 'number' ? data.failed : 0,
-        remaining: typeof data.remaining === 'number' ? data.remaining : 0,
-        rateLimited: !!data.rateLimited,
-        httpStatus: res.status,
-      };
-    }
+      const batchTotal = typeof data.total === 'number' ? data.total : currentBatch.length;
+      const batchSynced = typeof data.synced === 'number' ? data.synced : 0;
+      const batchSkipped = typeof data.skipped === 'number' ? data.skipped : 0;
+      const batchFailed = typeof data.failed === 'number' ? data.failed : 0;
+      const batchRemaining = typeof data.remaining === 'number' ? data.remaining : 0;
 
-    // Resposta HTTP não-2xx do endpoint: interpretar erro de forma segura
-    const status = res.status;
-    let errorMessage = `Erro HTTP ${status} ao sincronizar aulas futuras.`;
-    try {
-      const errData = await res.json();
-      if (errData?.error && typeof errData.error === 'string') {
-        errorMessage = errData.error;
+      aggregatedTotal += batchTotal;
+      aggregatedSynced += batchSynced;
+      aggregatedSkipped += batchSkipped;
+      aggregatedFailed += batchFailed;
+      aggregatedRemaining += batchRemaining;
+
+      // Se a resposta acusou rate limited, interrompe lotes subsequentes com segurança
+      if (data.rateLimited) {
+        let unexecutedRemaining = 0;
+        for (let next = batchIndex + 1; next < batches.length; next++) {
+          unexecutedRemaining += batches[next].length;
+        }
+        aggregatedTotal += unexecutedRemaining;
+        aggregatedRemaining += unexecutedRemaining;
+
+        return {
+          success: true,
+          total: aggregatedTotal,
+          synced: aggregatedSynced,
+          skipped: aggregatedSkipped,
+          failed: aggregatedFailed,
+          remaining: aggregatedRemaining,
+          rateLimited: true,
+          httpStatus: 200,
+        };
       }
-    } catch {
-      // Ignora erro de parse de JSON caso resposta não seja JSON
     }
-
-    // NUNCA expor tokens, chaves ou credenciais nos logs ou retornos
-    console.warn(`[GoogleCalendarClient] Falha HTTP ${status} ao sincronizar aulas futuras do professor ${teacherId}: ${errorMessage}`);
 
     return {
-      success: false,
-      total: 0,
-      synced: 0,
-      skipped: 0,
-      failed: 0,
-      remaining: 0,
-      httpStatus: status,
-      error: errorMessage,
-      authRequired: status === 401,
-      forbidden: status === 403,
+      success: true,
+      total: aggregatedTotal,
+      synced: aggregatedSynced,
+      skipped: aggregatedSkipped,
+      failed: aggregatedFailed,
+      remaining: aggregatedRemaining,
+      rateLimited: false,
+      httpStatus: lastHttpStatus || 200,
     };
   } catch (e: any) {
     const errorMsg = e?.message || 'Falha de comunicação ao sincronizar aulas futuras.';
     console.warn('[GoogleCalendarClient] Erro ao sincronizar aulas futuras:', errorMsg);
     return {
       success: false,
-      total: 0,
-      synced: 0,
-      skipped: 0,
-      failed: 0,
-      remaining: 0,
-      httpStatus: 0,
+      total: aggregatedTotal,
+      synced: aggregatedSynced,
+      skipped: aggregatedSkipped,
+      failed: aggregatedFailed,
+      remaining: aggregatedRemaining,
+      httpStatus: lastHttpStatus !== 200 ? lastHttpStatus : 0,
       error: errorMsg,
+      authRequired: false,
+      forbidden: false,
     };
   }
 }

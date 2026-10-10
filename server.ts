@@ -120,6 +120,16 @@ export async function createApp() {
   // Parser JSON para payloads de API
   app.use(express.json());
 
+  // Tratamento seguro para payloads excessivos (HTTP 413) no body parser
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err && (err.status === 413 || err.statusCode === 413 || err.type === 'entity.too.large')) {
+      return res.status(413).json({
+        error: 'O tamanho da requisição excedeu o limite permitido pelo servidor (HTTP 413). Reduza o tamanho do lote de aulas.',
+      });
+    }
+    next(err);
+  });
+
   // Rotas da API FIRST
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

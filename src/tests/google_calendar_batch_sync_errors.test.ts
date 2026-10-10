@@ -30,8 +30,18 @@ function computeCardFeedback(res: SyncFutureClassesResult): {
       errorMessage = 'Sessão expirada ou não autenticada na plataforma. Faça login novamente para sincronizar.';
     } else if (res.forbidden || res.httpStatus === 403) {
       errorMessage = 'Permissão negada para sincronizar aulas deste professor.';
+    } else if (res.httpStatus === 413) {
+      const partialInfo =
+        res.synced > 0 || res.skipped > 0
+          ? ` (${res.synced} sincronizada(s), ${res.skipped} já no Google antes da falha)`
+          : '';
+      errorMessage = `Falha no servidor ao sincronizar aulas futuras (HTTP 413): tamanho da requisição excedeu o limite do servidor.${partialInfo} Tente sincronizar novamente com lotes menores.`;
     } else if (res.httpStatus) {
-      errorMessage = `Falha no servidor ao sincronizar aulas futuras (HTTP ${res.httpStatus}): ${res.error || 'Erro interno'}`;
+      const partialInfo =
+        res.synced > 0 || res.skipped > 0
+          ? ` (${res.synced} sincronizada(s), ${res.skipped} já no Google antes da interrupção)`
+          : '';
+      errorMessage = `Falha no servidor ao sincronizar aulas futuras (HTTP ${res.httpStatus}): ${res.error || 'Erro interno'}.${partialInfo}`;
     } else {
       errorMessage = res.error || 'Falha de comunicação com o servidor ao sincronizar aulas futuras.';
     }

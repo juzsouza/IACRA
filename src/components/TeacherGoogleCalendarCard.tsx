@@ -195,9 +195,14 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
         groupsMap[g.id] = g.name;
       });
 
+      // Enviar apenas as aulas do professor e não canceladas para respeitar os limites de payload
+      const teacherClasses = state.classes.filter(
+        (c) => c.teacher_id === teacherId && c.status !== 'cancelled'
+      );
+
       const res = await syncTeacherFutureClasses(
         teacherId,
-        state.classes,
+        teacherClasses,
         studentsMap,
         groupsMap
       );
@@ -207,8 +212,20 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
           setErrorMessage('Sessão expirada ou não autenticada na plataforma. Faça login novamente para sincronizar.');
         } else if (res.forbidden || res.httpStatus === 403) {
           setErrorMessage('Permissão negada para sincronizar aulas deste professor.');
+        } else if (res.httpStatus === 413) {
+          const partialInfo =
+            res.synced > 0 || res.skipped > 0
+              ? ` (${res.synced} sincronizada(s), ${res.skipped} já no Google antes da falha)`
+              : '';
+          setErrorMessage(
+            `Falha no servidor ao sincronizar aulas futuras (HTTP 413): tamanho da requisição excedeu o limite do servidor.${partialInfo} Tente sincronizar novamente com lotes menores.`
+          );
         } else if (res.httpStatus) {
-          setErrorMessage(`Falha no servidor ao sincronizar aulas futuras (HTTP ${res.httpStatus}): ${res.error || 'Erro interno'}`);
+          const partialInfo =
+            res.synced > 0 || res.skipped > 0
+              ? ` (${res.synced} sincronizada(s), ${res.skipped} já no Google antes da interrupção)`
+              : '';
+          setErrorMessage(`Falha no servidor ao sincronizar aulas futuras (HTTP ${res.httpStatus}): ${res.error || 'Erro interno'}.${partialInfo}`);
         } else {
           setErrorMessage(res.error || 'Falha de comunicação com o servidor ao sincronizar aulas futuras.');
         }

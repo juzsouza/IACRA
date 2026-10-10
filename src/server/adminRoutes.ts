@@ -1,5 +1,12 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getTeacherPixKey,
+  getAllTeacherPixKeys,
+  setTeacherPixKey,
+  deleteTeacherPixKey,
+  TeacherPixStorageNotReadyError,
+} from './teacherPixService.js';
 
 export const adminRouter = Router();
 
@@ -250,3 +257,202 @@ adminRouter.post('/toggle-user-access', async (req, res) => {
     return res.status(500).json({ success: false, error: err?.message || 'Erro interno do servidor.' });
   }
 });
+
+/**
+ * Helper para validar autenticação e permissões administrativas (super_admin ou admin)
+ */
+async function checkAdminPixAuthorization(req: any): Promise<{
+  authorized: boolean;
+  statusCode: number;
+  error?: string;
+  user?: any;
+  profile?: any;
+}> {
+  const authHeader = req.headers?.authorization;
+  if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: 'Token de autenticação não fornecido.',
+    };
+  }
+
+  const token = authHeader.replace('Bearer ', '').trim();
+  if (!token) {
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: 'Token de autenticação não fornecido.',
+    };
+  }
+
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await userClient.auth.getUser();
+  if (userErr || !user) {
+    return {
+      authorized: false,
+      statusCode: 401,
+      error: 'Sessão inválida ou expirada.',
+    };
+  }
+
+  const { data: callerProfile, error: profErr } = await userClient
+    .from('profiles')
+    .select('id, role, teacher_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (
+    profErr ||
+    !callerProfile ||
+    !['super_admin', 'admin'].includes(callerProfile.role)
+  ) {
+    return {
+      authorized: false,
+      statusCode: 403,
+      error: 'Permissão negada. Apenas administradores podem gerenciar chaves Pix de professores.',
+    };
+  }
+
+  return { authorized: true, statusCode: 200, user, profile: callerProfile };
+}
+
+// GET /api/admin/teachers/pix-keys
+// Lista todas as chaves Pix dos professores (restrito a super_admin e admin)
+adminRouter.get('/teachers/pix-keys', async (req, res) => {
+  try {
+    const authCheck = await checkAdminPixAuthorization(req);
+    if (!authCheck.authorized) {
+      return res.status(authCheck.statusCode).json({
+        success: false,
+        error: authCheck.error,
+      });
+    }
+
+    const pixKeys = await getAllTeacherPixKeys();
+    return res.json({
+      success: true,
+      pixKeys,
+    });
+  } catch (err: any) {
+    const statusCode = err?.statusCode || (err instanceof TeacherPixStorageNotReadyError ? 503 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      code: err?.code || (err instanceof TeacherPixStorageNotReadyError ? 'STORAGE_NOT_READY' : undefined),
+      error: err?.message || 'Erro ao consultar chaves Pix dos professores.',
+    });
+  }
+});
+
+// GET /api/admin/teachers/:teacherId/pix-key
+// Consulta a chave Pix de um professor específico (restrito a super_admin e admin)
+adminRouter.get('/teachers/:teacherId/pix-key', async (req, res) => {
+  try {
+    const authCheck = await checkAdminPixAuthorization(req);
+    if (!authCheck.authorized) {
+      return res.status(authCheck.statusCode).json({
+        success: false,
+        error: authCheck.error,
+      });
+    }
+
+    const { teacherId } = req.params;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: 'teacherId é obrigatório.' });
+    }
+
+    const pixKey = await getTeacherPixKey(teacherId);
+    return res.json({
+      success: true,
+      teacherId,
+      pix_key: pixKey,
+    });
+  } catch (err: any) {
+    const statusCode = err?.statusCode || (err instanceof TeacherPixStorageNotReadyError ? 503 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      code: err?.code || (err instanceof TeacherPixStorageNotReadyError ? 'STORAGE_NOT_READY' : undefined),
+      error: err?.message || 'Erro ao consultar chave Pix do professor.',
+    });
+  }
+});
+
+// PUT /api/admin/teachers/:teacherId/pix-key
+// Cadastra ou atualiza a chave Pix de um professor (restrito a super_admin e admin)
+adminRouter.put('/teachers/:teacherId/pix-key', async (req, res) => {
+  try {
+    const authCheck = await checkAdminPixAuthorization(req);
+    if (!authCheck.authorized) {
+      return res.status(authCheck.statusCode).json({
+        success: false,
+        error: authCheck.error,
+      });
+    }
+
+    const { teacherId } = req.params;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: 'teacherId é obrigatório.' });
+    }
+
+    const { pix_key } = req.body;
+    // pix_key pode ser string (com zeros à esquerda, símbolos) ou null/undefined se vazio
+    const cleanPixKey = typeof pix_key === 'string' ? pix_key.trim() : null;
+
+    await setTeacherPixKey(teacherId, cleanPixKey);
+
+    return res.json({
+      success: true,
+      teacherId,
+      pix_key: cleanPixKey,
+      message: cleanPixKey ? 'Chave Pix salva com sucesso.' : 'Chave Pix removida.',
+    });
+  } catch (err: any) {
+    const statusCode = err?.statusCode || (err instanceof TeacherPixStorageNotReadyError ? 503 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      code: err?.code || (err instanceof TeacherPixStorageNotReadyError ? 'STORAGE_NOT_READY' : undefined),
+      error: err?.message || 'Erro ao atualizar chave Pix do professor.',
+    });
+  }
+});
+
+// DELETE /api/admin/teachers/:teacherId/pix-key
+// Remove a chave Pix de um professor (restrito a super_admin e admin)
+adminRouter.delete('/teachers/:teacherId/pix-key', async (req, res) => {
+  try {
+    const authCheck = await checkAdminPixAuthorization(req);
+    if (!authCheck.authorized) {
+      return res.status(authCheck.statusCode).json({
+        success: false,
+        error: authCheck.error,
+      });
+    }
+
+    const { teacherId } = req.params;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: 'teacherId é obrigatório.' });
+    }
+
+    await deleteTeacherPixKey(teacherId);
+
+    return res.json({
+      success: true,
+      teacherId,
+      message: 'Chave Pix removida com sucesso.',
+    });
+  } catch (err: any) {
+    const statusCode = err?.statusCode || (err instanceof TeacherPixStorageNotReadyError ? 503 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      code: err?.code || (err instanceof TeacherPixStorageNotReadyError ? 'STORAGE_NOT_READY' : undefined),
+      error: err?.message || 'Erro ao remover chave Pix do professor.',
+    });
+  }
+});
+

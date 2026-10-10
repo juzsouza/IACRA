@@ -23,6 +23,10 @@ import {
   executeUpdateEnrollmentFlow,
   syncEnrollmentAffiliateReferral,
 } from "./utils/enrollmentPersistence";
+import {
+  fetchTeacherPixKeys,
+  saveTeacherPixKey,
+} from "./services/teacherPixClient";
 
 export type Student = {
   id: string;
@@ -54,6 +58,7 @@ export type Teacher = {
   birth_date?: string;
   schedule?: WorkHour[];
   status: 'active' | 'inactive';
+  pix_key?: string | null;
 };
 
 export const normalizeTeacher = (t: any): Teacher => {
@@ -67,6 +72,7 @@ export const normalizeTeacher = (t: any): Teacher => {
       specialties: [],
       schedule: [],
       status: 'active',
+      pix_key: null,
     };
   }
   return {
@@ -89,6 +95,7 @@ export const normalizeTeacher = (t: any): Teacher => {
           })()
         : []),
     status: (t.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
+    pix_key: typeof t.pix_key === 'string' ? t.pix_key : (t.pix_key === null ? null : undefined),
   };
 };
 
@@ -1871,6 +1878,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         if (userProfile) {
           currentUserProfileRef.current = userProfile;
           setCurrentUserProfile(userProfile);
+
+          // Se for perfil administrativo, carrega as chaves Pix protegidas
+          if (['super_admin', 'admin'].includes(userProfile.role)) {
+            fetchTeacherPixKeys().then((pixKeys) => {
+              if (pixKeys && Object.keys(pixKeys).length > 0) {
+                setState((s) => ({
+                  ...s,
+                  teachers: s.teachers.map((t) => ({
+                    ...t,
+                    pix_key: pixKeys[t.id] !== undefined ? pixKeys[t.id] : t.pix_key,
+                  })),
+                }));
+              }
+            }).catch(() => {});
+          } else {
+            // Perfis não administrativos não devem armazenar chaves Pix no estado
+            setState((s) => ({
+              ...s,
+              teachers: s.teachers.map((t) => {
+                if (t.pix_key) {
+                  const { pix_key, ...rest } = t;
+                  return rest as Teacher;
+                }
+                return t;
+              }),
+            }));
+          }
         } else {
           console.warn('[AUTH SEGURANÇA] Perfil de usuário não localizado nem por ID nem por e-mail. currentUserProfile definido como null sem atribuição de roles.');
           currentUserProfileRef.current = null;
@@ -4784,12 +4818,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       email: teacher.email ? teacher.email.trim() : "",
       phone: teacher.phone ? teacher.phone.trim() : "",
       cpf: teacher.cpf ? teacher.cpf.trim() : "",
+      pix_key: teacher.pix_key ? teacher.pix_key.trim() : null,
     });
 
     setState((s) => ({
       ...s,
       teachers: [...s.teachers, newTeacher],
     }));
+
+    if (newTeacher.pix_key) {
+      saveTeacherPixKey(newTeacher.id, newTeacher.pix_key).catch((err) => {
+        console.warn('Erro ao salvar chave Pix do novo professor:', err);
+      });
+    }
 
     const dbTeacher = {
       id: newTeacher.id,
@@ -4833,6 +4874,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         teachers: updatedList,
       };
     });
+
+    if (updates.pix_key !== undefined) {
+      saveTeacherPixKey(id, updates.pix_key).catch((err) => {
+        console.warn('Erro ao atualizar chave Pix do professor:', err);
+      });
+    }
 
     if (mergedTeacher) {
       const dbUpdates: Record<string, any> = {};

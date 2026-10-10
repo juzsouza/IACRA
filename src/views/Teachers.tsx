@@ -119,6 +119,7 @@ export const Teachers: React.FC = () => {
     email: "",
     phone: "",
     cpf: "",
+    pix_key: "",
     specialties: "",
     birth_date: "",
   });
@@ -167,10 +168,15 @@ export const Teachers: React.FC = () => {
     if (editingTeacher) {
       await updateTeacher(editingTeacher.id, {
         ...formData,
+        pix_key: formData.pix_key.trim(),
         specialties: specialtiesArray,
       });
     } else {
-      await addTeacher({ ...formData, specialties: specialtiesArray });
+      await addTeacher({
+        ...formData,
+        pix_key: formData.pix_key.trim(),
+        specialties: specialtiesArray,
+      });
     }
     closeModal();
   };
@@ -184,6 +190,7 @@ export const Teachers: React.FC = () => {
         email: teacher.email,
         phone: teacher.phone,
         cpf: teacher.cpf || "",
+        pix_key: teacher.pix_key || "",
         specialties: (teacher.specialties || []).join(", "),
         birth_date: teacher.birth_date || "",
       });
@@ -194,6 +201,7 @@ export const Teachers: React.FC = () => {
         email: "",
         phone: "",
         cpf: "",
+        pix_key: "",
         specialties: "",
         birth_date: "",
       });
@@ -596,6 +604,21 @@ export const Teachers: React.FC = () => {
                     }
                     placeholder="000.000.000-00"
                     className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">
+                    Chave Pix <span className="text-xs text-zinc-400 font-normal">(Opcional — CPF, CNPJ, telefone, e-mail ou chave aleatória)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.pix_key}
+                    onChange={(e) =>
+                      setFormData({ ...formData, pix_key: e.target.value })
+                    }
+                    placeholder="CPF, CNPJ, telefone, e-mail ou chave aleatória"
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono"
+                    autoComplete="off"
                   />
                 </div>
                 <div>
