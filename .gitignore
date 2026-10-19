@@ -8,3 +8,4 @@ coverage/
 !.env.example
 .google_calendar_store/
 cookies.txt
+.env
