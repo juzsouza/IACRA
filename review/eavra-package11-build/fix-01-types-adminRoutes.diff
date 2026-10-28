@@ -1,0 +1,16 @@
+diff --git a/src/server/adminRoutes.ts b/src/server/adminRoutes.ts
+--- a/src/server/adminRoutes.ts
++++ b/src/server/adminRoutes.ts
+@@ -68,9 +68,10 @@
+       if (error || !data?.users) {
+         return res.status(503).json({ success: false, error: 'Não foi possível verificar contas existentes.' });
+       }
+-      const found = data.users.find(u => (u.email || '').trim().toLowerCase() === cleanEmail);
++      const listedUsers: Array<{ id: string; email?: string | null }> = data.users;
++      const found = listedUsers.find(u => (u.email || '').trim().toLowerCase() === cleanEmail);
+       if (found) authUserId = found.id;
+-      if (found || data.users.length < 100) {
++      if (found || listedUsers.length < 100) {
+         finished = true;
+         break;
+       }
