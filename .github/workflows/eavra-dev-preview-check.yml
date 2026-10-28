@@ -1,0 +1,109 @@
+name: EAVRA DEV - build e teste visual sem dados reais
+
+on:
+  push:
+    branches:
+      - eavra-dev-visual-isolado
+    paths:
+      - '.github/workflows/eavra-dev-preview-check.yml'
+      - '.env.example'
+      - 'index.html'
+      - 'src/lib/devPreviewSafety.ts'
+      - 'src/lib/devSupabaseConfig.ts'
+      - 'src/utils/permissionAdminConfig.ts'
+      - 'src/tests/eavra_dev_visual_gate.test.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-visual-isolado:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      NODE_ENV: development
+      VITE_EAVRA_DEV_PROJECT_REF: xuyimfugcdkqovqelrfz
+      VITE_SUPABASE_URL: https://xuyimfugcdkqovqelrfz.supabase.co
+      SUPABASE_URL: https://xuyimfugcdkqovqelrfz.supabase.co
+      # Chave ficticia. Nao conecta ao banco; apenas valida o carregamento da interface.
+      VITE_SUPABASE_ANON_KEY: sb_publishable_TESTONLY_PLACEHOLDER_NOT_VALID_CREDENTIAL
+      SUPABASE_KEY: sb_publishable_TESTONLY_PLACEHOLDER_NOT_VALID_CREDENTIAL
+      VITE_EAVRA_PERMISSION_ADMIN_ENABLED: 'false'
+      EAVRA_ENABLE_DEV_GOOGLE_CALENDAR: 'false'
+      PORT: '3000'
+    steps:
+      - name: Checkout da branch isolada
+        uses: actions/checkout@v4
+      - name: Garantir isolamento
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "eavra-dev-visual-isolado"
+          test ! -f .env
+          test ! -f .env.local
+          test ! -f .env.production
+          test "${VITE_EAVRA_PERMISSION_ADMIN_ENABLED}" = "false"
+          test "${EAVRA_ENABLE_DEV_GOOGLE_CALENDAR}" = "false"
+          test -f src/views/PermissionsManager.tsx
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependencias e testar tipagem
+        run: |
+          npm ci --ignore-scripts --no-audit --fund=false
+          npm run lint
+      - name: Testar travas da pre-visualizacao
+        run: |
+          node --experimental-strip-types src/tests/eavra_dev_visual_gate.test.ts
+          node --experimental-strip-types src/tests/permissions_admin_stage10.test.ts
+          node --experimental-strip-types src/tests/dev_environment_preflight.test.ts
+      - name: Compilar frontend e servidor
+        run: npm run build
+      - name: Subir aplicacao local temporaria e testar HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          (npm run dev > /tmp/eavra-dev-preview.log 2>&1 & echo $! > /tmp/eavra-dev-preview.pid)
+          trap 'kill "$(cat /tmp/eavra-dev-preview.pid)" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /tmp/eavra-dev-health.json; then break; fi
+            sleep 2
+          done
+          grep -q '"status":"ok"' /tmp/eavra-dev-health.json
+          curl --fail --silent http://127.0.0.1:3000/ > /tmp/eavra-dev-login.html
+          grep -q 'AMBIENTE DE TESTES' /tmp/eavra-dev-login.html
+          grep -q 'src/main.tsx' /tmp/eavra-dev-login.html
+          echo 'PASS: servidor DEV responde HTTP, banner e ponto de entrada React'
+      - name: Capturar tela de Login (sem nenhuma conta real)
+        shell: bash
+        run: |
+          set -euo pipefail
+          (npm run dev > /tmp/eavra-dev-visual.log 2>&1 & echo $! > /tmp/eavra-dev-visual.pid)
+          trap 'kill "$(cat /tmp/eavra-dev-visual.pid)" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then break; fi
+            sleep 2
+          done
+          BROWSER="$(command -v google-chrome || command -v chromium || true)"
+          if test -z "$BROWSER"; then
+            echo 'Chrome nao encontrado; somente teste HTTP confirmado.'
+            exit 0
+          fi
+          "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars \
+            --window-size=1365,850 --virtual-time-budget=7000 \
+            --screenshot="${GITHUB_WORKSPACE}/eavra-dev-login.png" \
+            http://127.0.0.1:3000/ >/tmp/eavra-chrome.log 2>&1 || true
+          test -s eavra-dev-login.png || (cat /tmp/eavra-chrome.log; exit 1)
+          echo 'Screenshot de DEV gerado sem contas.'
+      - name: Publicar captura do ambiente de teste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eavra-dev-login-preview
+          path: eavra-dev-login.png
+          if-no-files-found: ignore
+          retention-days: 7
