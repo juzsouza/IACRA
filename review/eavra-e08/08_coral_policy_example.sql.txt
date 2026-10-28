@@ -1,0 +1,14 @@
+-- EAVRA 08 -- Somente PostgreSQL temporario. Nao aplicar no Supabase.
+DROP POLICY IF EXISTS "choir_collaborators_select" ON public.choir_collaborators;
+CREATE POLICY "choir_collaborators_select" ON public.choir_collaborators FOR SELECT TO authenticated
+USING (public.is_active_super_admin() OR app_private.eavra_permission_scope('coral.manage_collaborators') = 'all');
+DROP POLICY IF EXISTS "choir_collaborators_insert_admin" ON public.choir_collaborators;
+CREATE POLICY "choir_collaborators_insert_admin" ON public.choir_collaborators FOR INSERT TO authenticated
+WITH CHECK (public.is_active_super_admin() OR app_private.eavra_permission_scope('coral.manage_collaborators') = 'all');
+DROP POLICY IF EXISTS "choir_collaborators_update_admin" ON public.choir_collaborators;
+CREATE POLICY "choir_collaborators_update_admin" ON public.choir_collaborators FOR UPDATE TO authenticated
+USING (public.is_active_super_admin() OR app_private.eavra_permission_scope('coral.manage_collaborators') = 'all')
+WITH CHECK (public.is_active_super_admin() OR app_private.eavra_permission_scope('coral.manage_collaborators') = 'all');
+DROP POLICY IF EXISTS "choir_collaborators_delete_admin" ON public.choir_collaborators;
+CREATE POLICY "choir_collaborators_delete_admin" ON public.choir_collaborators FOR DELETE TO authenticated
+USING (public.is_active_super_admin() OR app_private.eavra_permission_scope('coral.manage_collaborators') = 'all');
