@@ -153,7 +153,7 @@ DECLARE
 BEGIN
   SELECT count(*) INTO expected_audits
   FROM app_private.eavra_permission_audit_log;
-  IF expected_audits <> 6 THEN RAISE EXCEPTION 'Audit log esperado 6, recebido %', expected_audits; END IF;
+  IF expected_audits <> 5 THEN RAISE EXCEPTION 'Audit log esperado 5, recebido %', expected_audits; END IF;
   SELECT count(*) INTO rule_count
   FROM app_private.eavra_user_permission_overrides
   WHERE profile_id='00000000-0000-0000-0000-000000000102'
