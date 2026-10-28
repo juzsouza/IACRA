@@ -1,0 +1,106 @@
+\set ON_ERROR_STOP on
+-- EAVRA e08 - somente PostgreSQL 17 descartavel; fixtures inteiramente ficticias.
+INSERT INTO auth.users(id,email) VALUES
+('00000000-0000-0000-0000-000000000101','super@example.invalid'),
+('00000000-0000-0000-0000-000000000102','admin@example.invalid'),
+('00000000-0000-0000-0000-000000000103','teacher@example.invalid'),
+('00000000-0000-0000-0000-000000000104','blocked@example.invalid'),
+('00000000-0000-0000-0000-000000000105','mismatch@example.invalid');
+INSERT INTO public.profiles(id,email,role,access_status) VALUES
+('00000000-0000-0000-0000-000000000101','super@example.invalid','super_admin','active'),
+('00000000-0000-0000-0000-000000000102','admin@example.invalid','admin','active'),
+('00000000-0000-0000-0000-000000000103','teacher@example.invalid','teacher','active'),
+('00000000-0000-0000-0000-000000000104','blocked@example.invalid','admin','blocked'),
+('00000000-0000-0000-0000-000000000999','mismatch@example.invalid','admin','active');
+INSERT INTO public.choir_collaborators(id,name) VALUES ('test-collaborator','Ficticio');
+INSERT INTO app_private.eavra_permission_catalog(permission_key,module,action,reserved_super_admin,admin_only)
+VALUES ('coral.manage_collaborators','coral','manage_collaborators',false,true),
+('permissions.manage','permissions','manage',true,true);
+
+DO $t$
+BEGIN
+ IF has_table_privilege('authenticated','app_private.eavra_permission_catalog','SELECT')
+   OR has_table_privilege('authenticated','app_private.eavra_user_permission_overrides','UPDATE')
+   OR has_table_privilege('anon','app_private.eavra_permission_audit_log','INSERT') THEN
+   RAISE EXCEPTION 'Permissoes privadas expostas';
+ END IF;
+ IF NOT has_column_privilege('authenticated','public.profiles','role','UPDATE') THEN
+   RAISE EXCEPTION 'Expected legacy profiles UPDATE grant missing';
+ END IF;
+END $t$;
+
+SET ROLE authenticated;
+DO $t$
+DECLARE n int;
+BEGIN
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
+ SELECT count(*) INTO n FROM public.choir_collaborators;
+ IF n <> 1 OR app_private.eavra_permission_scope('permissions.manage') <> 'all' THEN
+   RAISE EXCEPTION 'Super Admin denied';
+ END IF;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+ SELECT count(*) INTO n FROM public.choir_collaborators;
+ IF n <> 0 OR app_private.eavra_permission_scope('permissions.manage') <> 'none' THEN
+   RAISE EXCEPTION 'Admin improperly permitted';
+ END IF;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+ IF app_private.eavra_permission_scope('coral.manage_collaborators') <> 'none' THEN
+   RAISE EXCEPTION 'Teacher improperly permitted';
+ END IF;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000104',true);
+ IF app_private.eavra_permission_scope('coral.manage_collaborators') <> 'none' THEN
+   RAISE EXCEPTION 'Blocked admin permitted';
+ END IF;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000105',true);
+ IF app_private.eavra_permission_scope('coral.manage_collaborators') <> 'none' THEN
+   RAISE EXCEPTION 'Mismatched profile permitted';
+ END IF;
+ IF app_private.eavra_permission_scope('unknown.action') <> 'none' THEN
+   RAISE EXCEPTION 'Unknown permission permitted';
+ END IF;
+END $t$;
+RESET ROLE;
+
+INSERT INTO app_private.eavra_role_permissions(role,permission_key,decision,scope) VALUES
+ ('admin','coral.manage_collaborators','allow','all'),
+ ('teacher','coral.manage_collaborators','allow','all');
+SET ROLE authenticated;
+DO $t$
+DECLARE n int;
+BEGIN
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+ SELECT count(*) INTO n FROM public.choir_collaborators;
+ IF n <> 1 OR app_private.eavra_permission_scope('coral.manage_collaborators') <> 'all' THEN
+   RAISE EXCEPTION 'Authorized Admin denied';
+ END IF;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+ SELECT count(*) INTO n FROM public.choir_collaborators;
+ IF n <> 0 OR app_private.eavra_permission_scope('coral.manage_collaborators') <> 'none' THEN
+   RAISE EXCEPTION 'Teacher got Admin-only permission';
+ END IF;
+END $t$;
+RESET ROLE;
+
+INSERT INTO app_private.eavra_user_permission_overrides
+(profile_id,permission_key,decision,scope,changed_by) VALUES
+('00000000-0000-0000-0000-000000000102','coral.manage_collaborators','deny','none','fixture');
+SET ROLE authenticated;
+DO $t$
+DECLARE n int;
+BEGIN
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+ SELECT count(*) INTO n FROM public.choir_collaborators;
+ IF n <> 0 THEN RAISE EXCEPTION 'User override deny ignored'; END IF;
+END $t$;
+RESET ROLE;
+
+-- Testar proposta de retirada de UPDATE direto, APENAS no Postgres temporario.
+REVOKE UPDATE ON TABLE public.profiles FROM authenticated;
+DO $t$
+BEGIN
+ IF has_column_privilege('authenticated','public.profiles','role','UPDATE')
+ OR has_column_privilege('authenticated','public.profiles','access_status','UPDATE') THEN
+   RAISE EXCEPTION 'profiles privilege escalation remains';
+ END IF;
+END $t$;
+SELECT 'PASS | RLS EAVRA 08 — postgres descartavel' AS result;
