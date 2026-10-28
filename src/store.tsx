@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "./lib/supabase";
+import { loadAuthorizedProfile } from "./utils/profileAccess";
+import { getBrowserDevSupabaseConfig } from "./lib/devSupabaseConfig";
 import { createClient } from "@supabase/supabase-js";
 import { normalizePhoneNumber, PhoneNormalizationResult } from "./utils/phone";
 import { calculateRaphaelClassCreditValue } from "./utils/raphaelBillingSimulation";
@@ -1770,10 +1772,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const [isProfileLoading, setIsProfileLoading] = useState(true);
 
+  // Cada solicitação possui um número de geração para impedir que respostas
+  // antigas reinstalem um perfil depois de logout, bloqueio ou mudança de usuário.
+  const profileRequestSequenceRef = useRef(0);
+
   const reloadCurrentUserProfile = async (
     sessionUser?: { id: string } | null,
     options?: { silent?: boolean }
   ) => {
+    const sequence = ++profileRequestSequenceRef.current;
     if (sessionUser === null) {
       currentUserProfileRef.current = null;
       setCurrentUserProfile(null);
@@ -1781,149 +1788,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    // Se options?.silent for true, ou se já existe perfil em memória, a revalidação é silenciosa
-    // em segundo plano (stale-while-revalidate), NÃO ativando o spinner e NÃO desmontando telas.
     const isSilent = options?.silent ?? (currentUserProfileRef.current !== null);
-    if (!isSilent) {
-      setIsProfileLoading(true);
-    }
+    if (!isSilent) setIsProfileLoading(true);
 
-    // Timeout de segurança de 10s para redes móveis instáveis: impede carregamento infinito sem conceder acesso falso
-    const timeoutPromise = new Promise<{ data: { user: null }; error: Error }>((resolve) => {
-      setTimeout(() => {
-        resolve({ data: { user: null }, error: new Error('Profile fetch timed out') });
-      }, 10000);
-    });
-
+    // Com erro de autenticação, consulta ou perfil divergente, não reaproveitar
+    // os privilégios do cache local nem resolver identidades por e-mail.
     try {
-      let user: { id: string; email?: string } | null = (sessionUser as any) || null;
+      let user = sessionUser;
       if (!user) {
-        const userResult = await Promise.race([
-          supabase.auth.getUser(),
-          timeoutPromise,
-        ]);
-        user = (userResult?.data?.user as any) || null;
+        const sessionResult = await supabase.auth.getUser();
+        if (sessionResult.error) throw sessionResult.error;
+        user = sessionResult.data.user;
       }
+      if (sequence !== profileRequestSequenceRef.current) return;
 
-      if (user && user.id) {
-        let userProfile: UserProfile | null = null;
-        const cleanEmail = (user.email || '').trim().toLowerCase();
-
-        // 1. Buscar perfil prioritariamente pelo ID de autenticação
-        try {
+      const decision = await loadAuthorizedProfile<UserProfile>(
+        user?.id,
+        async (id) => {
           const { data, error } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', user.id)
+            .eq('id', id)
             .maybeSingle();
-
-          if (!error && data) {
-            userProfile = data;
-          } else if (error) {
-            console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', error.message);
-          }
-        } catch (e) {
-          console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', e);
+          return { data, error };
         }
+      );
+      if (sequence !== profileRequestSequenceRef.current) return;
 
-        // 2. Se não encontrar e houver email: buscar por email normalizado (resiliência contra divergência de ID)
-        if (!userProfile && cleanEmail) {
-          try {
-            const { data: profileByEmail, error: emailErr } = await supabase
-              .from('profiles')
-              .select('*')
-              .ilike('email', cleanEmail)
-              .maybeSingle();
-
-            if (!emailErr && profileByEmail) {
-              console.warn(
-                `[AUTH DIAGNÓSTICO] Inconsistência de identificador detectada para ${cleanEmail}: ` +
-                `auth user.id (${user.id}) diverge do profiles.id (${profileByEmail.id}). ` +
-                `Perfil carregado com sucesso por e-mail com role "${profileByEmail.role}".`
-              );
-              userProfile = profileByEmail;
-            } else if (emailErr) {
-              console.warn('[AUTH] Erro ao buscar perfil por email:', emailErr.message);
-            }
-          } catch (e) {
-            console.warn('[AUTH] Erro ao buscar perfil por email:', e);
-          }
+      if (decision.kind !== 'allowed') {
+        currentUserProfileRef.current = null;
+        setCurrentUserProfile(null);
+        if (decision.kind === 'blocked') {
+          setGlobalError('Acesso bloqueado pela administração da escola.');
         }
+        return;
+      }
 
-        // 3. Fallback no cache local em memória (state.profiles)
-        if (!userProfile) {
-          const localById = state.profiles.find(p => p.id === user!.id);
-          if (localById) {
-            userProfile = localById;
-          } else if (cleanEmail) {
-            const localByEmail = state.profiles.find(p => (p.email || '').trim().toLowerCase() === cleanEmail);
-            if (localByEmail) {
-              console.warn(`[AUTH DIAGNÓSTICO] Perfil recuperado de state.profiles por e-mail para ${cleanEmail}.`);
-              userProfile = localByEmail;
-            }
-          }
-        }
+      const userProfile = decision.profile;
+      currentUserProfileRef.current = userProfile;
+      setCurrentUserProfile(userProfile);
 
-        // 4. Validação Crítica: Se perfil estiver com acesso bloqueado, revogar sessão imediatamente
-        if (userProfile && userProfile.access_status === 'blocked') {
-          console.warn('[AUTH] Acesso bloqueado pela administração da escola para usuário.');
-          await supabase.auth.signOut();
-          currentUserProfileRef.current = null;
-          setCurrentUserProfile(null);
-          setGlobalError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
-          return;
-        }
-
-        // 5. Se o perfil for resolvido, atualiza currentUserProfile; se NÃO for encontrado, define null SEM assumir teacher
-        if (userProfile) {
-          currentUserProfileRef.current = userProfile;
-          setCurrentUserProfile(userProfile);
-
-          // Se for perfil administrativo, carrega as chaves Pix protegidas
-          if (['super_admin', 'admin'].includes(userProfile.role)) {
-            fetchTeacherPixKeys().then((pixKeys) => {
-              if (pixKeys && Object.keys(pixKeys).length > 0) {
-                setState((s) => ({
-                  ...s,
-                  teachers: s.teachers.map((t) => ({
-                    ...t,
-                    pix_key: pixKeys[t.id] !== undefined ? pixKeys[t.id] : t.pix_key,
-                  })),
-                }));
-              }
-            }).catch(() => {});
-          } else {
-            // Perfis não administrativos não devem armazenar chaves Pix no estado
+      if (['super_admin', 'admin'].includes(userProfile.role)) {
+        fetchTeacherPixKeys().then((pixKeys) => {
+          if (pixKeys && Object.keys(pixKeys).length > 0 &&
+              profileRequestSequenceRef.current === sequence) {
             setState((s) => ({
               ...s,
-              teachers: s.teachers.map((t) => {
-                if (t.pix_key) {
-                  const { pix_key, ...rest } = t;
-                  return rest as Teacher;
-                }
-                return t;
-              }),
+              teachers: s.teachers.map((t) => ({
+                ...t,
+                pix_key: pixKeys[t.id] !== undefined ? pixKeys[t.id] : t.pix_key,
+              })),
             }));
           }
-        } else {
-          console.warn('[AUTH SEGURANÇA] Perfil de usuário não localizado nem por ID nem por e-mail. currentUserProfile definido como null sem atribuição de roles.');
-          currentUserProfileRef.current = null;
-          setCurrentUserProfile(null);
-        }
+        }).catch(() => {});
       } else {
-        // Falha transitória de rede ou timeout ao voltar do segundo plano:
-        // NÃO destruir o perfil existente se já houver um carregado em memória!
-        if (currentUserProfileRef.current) {
-          console.warn('[AUTH] Verificação de usuário em background não obteve resposta imediata; mantendo perfil ativo.');
-        } else {
-          setCurrentUserProfile(null);
-        }
+        setState((s) => ({
+          ...s,
+          teachers: s.teachers.map((t) => {
+            if (t.pix_key) {
+              const { pix_key, ...rest } = t;
+              return rest as Teacher;
+            }
+            return t;
+          }),
+        }));
       }
-    } catch (error: any) {
-      console.error('[AUTH] Erro ao carregar perfil do usuário:', error?.message || 'Erro inesperado');
-      // Preserva a segurança: mantém o perfil existente em caso de erro transitório
+    } catch {
+      if (sequence !== profileRequestSequenceRef.current) return;
+      console.warn('[AUTH] Não foi possível confirmar o perfil: acesso não liberado.');
+      currentUserProfileRef.current = null;
+      setCurrentUserProfile(null);
     } finally {
-      if (!isSilent) {
+      if (sequence === profileRequestSequenceRef.current && !isSilent) {
         setIsProfileLoading(false);
       }
     }
@@ -1934,6 +1870,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session?.user) {
+        ++profileRequestSequenceRef.current;
         classGoogleEventsMapRef.current.clear();
         currentUserProfileRef.current = null;
         setCurrentUserProfile(null);
@@ -2413,15 +2350,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       let activeUserProfile = currentUserProfile;
       if (!activeUserProfile) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email) {
-          const { data } = await supabase.from('profiles').select('*').eq('email', user.email).maybeSingle();
-          if (data) activeUserProfile = data;
-          else {
-            const local = state.profiles.find(p => p.email === user.email);
-            if (local) activeUserProfile = local;
-          }
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError) throw new Error('Sessão não verificada para auditoria de aulas.');
+        const decision = await loadAuthorizedProfile<UserProfile>(user?.id, async (id) => {
+          const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+          return { data, error };
+        });
+        if (decision.kind !== 'allowed') {
+          throw new Error('Acesso à auditoria de aulas negado: perfil não confirmado.');
         }
+        activeUserProfile = decision.profile;
       }
 
       const scope = getEffectiveAuditScope(activeUserProfile, state.teachers, options?.filterTeacherId);
@@ -4164,12 +4102,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             }
           }
 
-          const baseProfiles = profiles.length > 0
-            ? profiles.map((p: any) => {
-                const local = s.profiles.find((lp: any) => lp.id === p.id);
-                return local && local.temp_password && !p.temp_password ? { ...p, temp_password: local.temp_password } : p;
-              })
-            : s.profiles;
+          // Dados legados podem conter temp_password. Jamais trazer esse campo à interface.
+          const baseProfiles = (profiles.length > 0 ? profiles : s.profiles).map((p: any) => {
+            const { temp_password: _discardPassword, ...safeProfile } = p;
+            return safeProfile;
+          });
 
           // Deduplicação canônica por profile.id (fonte da verdade: public.profiles)
           const uniqueProfiles = Array.from(
@@ -6555,175 +6492,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const addProfile = async (profile: UserProfile, password?: string) => {
-    // 1. Validar permissão: SOMENTE super_admin pode criar usuários/logins
-    if (currentUserProfile?.role !== 'super_admin') {
-      const err = 'Permissão negada. Apenas Super Administradores podem criar novos usuários e credenciais de acesso.';
-      setGlobalError(err);
-      throw new Error(err);
+    // A única rota de provisionamento é a API administrativa validada no servidor.
+    // NUNCA usar signUp no cliente, recuperar acesso por e-mail ou fazer upsert de perfil
+    // após erro no backend. Em caso de falha, negar a operação sem alterar o estado local.
+    if (currentUserProfile?.role !== 'super_admin' || currentUserProfile.access_status !== 'active') {
+      throw new Error('Apenas um Super Admin ativo pode cadastrar usuários.');
     }
 
-    let finalProfile: UserProfile = { ...profile };
-    const cleanEmail = (profile.email || "").trim().toLowerCase();
-    finalProfile.email = cleanEmail;
-    finalProfile.access_status = profile.access_status || 'active';
-
-    // 1. Tentar primeiro criação e sincronização via backend Admin API oficial
-    // para garantir que public.profiles.id === auth.users.id
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        const response = await fetch('/api/admin/create-or-resolve-user', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({
-            email: cleanEmail,
-            password: password,
-            role: finalProfile.role,
-            teacher_id: finalProfile.teacher_id,
-          })
-        });
-
-        if (response.ok) {
-          const resJson = await response.json();
-          if (resJson.success && resJson.authUserId) {
-            finalProfile.id = resJson.authUserId;
-            if (resJson.profile) {
-              finalProfile = { ...resJson.profile, ...finalProfile, id: resJson.authUserId };
-            }
-            setState((s) => ({
-              ...s,
-              profiles: [...s.profiles.filter((p) => p.id !== finalProfile.id && (p.email || "").trim().toLowerCase() !== cleanEmail), finalProfile],
-            }));
-            return;
-          }
-        }
-      }
-    } catch (apiErr) {
-      console.warn('[ADMIN API] Nota: endpoint server-side não respondeu, prosseguindo com fluxo direto:', apiErr);
+    const cleanEmail = (profile.email || '').trim().toLowerCase();
+    if (!cleanEmail || !password || password.length < 6) {
+      throw new Error('Informe um e-mail e uma senha inicial de pelo menos 6 caracteres.');
     }
 
-    // 2. Check if profile with this email already exists in local state
-    const existingInState = state.profiles.find(p => (p.email || "").trim().toLowerCase() === cleanEmail);
-    if (existingInState) {
-      finalProfile = {
-        ...existingInState,
-        ...profile,
-        id: existingInState.id,
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      throw new Error('Sua sessão não foi confirmada. Faça login novamente.');
+    }
+
+    const response = await fetch('/api/admin/create-or-resolve-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
         email: cleanEmail,
-      };
-    } else {
-      // 2. Check if profile already exists in Supabase public.profiles table
-      try {
-        const { data: existingDbProfiles } = await supabase
-          .from('profiles')
-          .select('*')
-          .ilike('email', cleanEmail);
-
-        if (existingDbProfiles && existingDbProfiles.length > 0) {
-          const dbProfile = existingDbProfiles[0];
-          finalProfile = {
-            ...dbProfile,
-            ...profile,
-            id: dbProfile.id,
-            email: cleanEmail,
-          };
-        }
-      } catch (checkErr: any) {
-        console.warn('DB profile check warning:', checkErr);
-      }
+        password,
+        role: profile.role,
+        teacher_id: profile.teacher_id,
+      }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || result?.success !== true || !result?.profile || !result?.authUserId) {
+      throw new Error(result?.error || 'Cadastro não realizado. Nenhum perfil foi criado pelo navegador.');
     }
 
-    // 3. Try creating Auth account if password provided
-    if (password) {
-      finalProfile.temp_password = password;
-      try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
-        const supabaseKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
-        
-        const tempClient = createClient(supabaseUrl, supabaseKey, {
-          auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-          }
-        });
-
-        const { data: authData, error: authError } = await tempClient.auth.signUp({
-          email: cleanEmail,
-          password: password,
-        });
-
-        if (authData?.user) {
-          finalProfile.id = authData.user.id;
-        } else if (authError) {
-          console.warn(`Auth signup warning for ${cleanEmail}:`, authError.message);
-          // Try logging in with the password to retrieve the user's Auth ID if already registered
-          try {
-            const { data: loginData } = await tempClient.auth.signInWithPassword({
-              email: cleanEmail,
-              password: password,
-            });
-            if (loginData?.user) {
-              finalProfile.id = loginData.user.id;
-            }
-          } catch (loginErr) {
-            console.warn('Login test during addProfile:', loginErr);
-          }
-        }
-      } catch (e: any) {
-        console.warn('Non-fatal auth account creation note:', e);
-      }
-    }
-
-    // 4. Ensure created_at is always present to satisfy Postgres NOT NULL constraints
-    if (!finalProfile.created_at) {
-      finalProfile.created_at = new Date().toISOString();
-    }
-
-    // 5. Save to local React state so UI updates immediately
+    // O servidor é a fonte da verdade para id, role, teacher_id e access_status.
+    // Não preservar nem carregar uma senha em public.profiles ou no estado do React.
+    const { temp_password: _discardPassword, ...safeProfile } = result.profile as UserProfile;
+    const createdProfile: UserProfile = { ...safeProfile, id: result.authUserId };
     setState((s) => ({
       ...s,
-      profiles: [...s.profiles.filter((p) => p.id !== finalProfile.id && (p.email || "").trim().toLowerCase() !== cleanEmail), finalProfile],
+      profiles: [...s.profiles.filter((p) => p.id !== createdProfile.id), createdProfile],
     }));
-
-    // 6. Save/upsert to Supabase public.profiles table
-    try {
-      const { error } = await supabase.from('profiles').upsert([finalProfile]);
-      if (error) {
-        console.warn('Upsert profile warning:', error.message);
-        // Fallback: if temp_password column doesn't exist in DB, remove it and retry
-        const cleanProfile = { ...finalProfile };
-        delete (cleanProfile as any).temp_password;
-
-        const { error: errClean } = await supabase.from('profiles').upsert([cleanProfile]);
-        if (errClean) {
-          console.warn('Fallback clean profile upsert error:', errClean.message);
-          const { error: updateErr } = await supabase.from('profiles').update({
-            role: finalProfile.role,
-            teacher_id: finalProfile.teacher_id,
-          }).ilike('email', cleanEmail);
-
-          if (updateErr) {
-            console.warn('Update by email error:', updateErr.message);
-            await supabase.from('profiles').insert([{
-              id: finalProfile.id,
-              email: cleanEmail,
-              role: finalProfile.role,
-              teacher_id: finalProfile.teacher_id,
-              created_at: finalProfile.created_at || new Date().toISOString(),
-            }]);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.warn('Error saving profile to Supabase:', e);
-    }
   };
 
   const updateProfile = async (id: string, updates: Partial<UserProfile>) => {
+    if (Object.prototype.hasOwnProperty.call(updates, 'temp_password')) {
+      throw new Error('Não é permitido armazenar senhas em perfis.');
+    }
     // 1. Validar permissão: SOMENTE super_admin pode alterar usuários, e-mails ou credenciais de acesso
     if (currentUserProfile?.role !== 'super_admin') {
       const err = 'Permissão negada. Apenas Super Administradores podem alterar usuários, e-mails ou perfis de acesso.';

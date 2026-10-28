@@ -21,11 +21,13 @@ import { Groups } from "./views/Groups";
 import { Makeups } from "./views/Makeups";
 import { Prospects } from "./views/Prospects";
 import { Profiles } from "./views/Profiles";
+import { PermissionsManager } from "./views/PermissionsManager";
 import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
 import { PrivacyPolicy } from "./views/PrivacyPolicy";
 import { supabase } from "./lib/supabase";
+import { loadAuthorizedProfile } from "./utils/profileAccess";
 import {
   View,
   getDefaultViewForRole,
@@ -188,12 +190,13 @@ function AppContent() {
 
   // Handler for view changes from Layout navigation - updates state & immediately persists per profile
   const handleViewChange = useCallback((newView: View) => {
+    if (!currentUserProfile || !isViewPermittedForRole(newView, currentUserProfile.role)) return;
     setCurrentView(newView);
     currentViewRef.current = newView;
     if (currentUserProfile?.id) {
       persistView(currentUserProfile.id, newView);
     }
-  }, [currentUserProfile?.id]);
+  }, [currentUserProfile?.id, currentUserProfile?.role]);
 
   useEffect(() => {
     // Cleanup Acordo Especial plans
@@ -217,7 +220,21 @@ function AppContent() {
     );
   }
 
+  // O AppProvider pode estar carregando o perfil mesmo após Auth confirmar a sessão.
+  // Não renderizar conteúdo protegido sem um perfil correspondente confirmado.
+  if (!currentUserProfile || currentUserProfile.access_status !== 'active') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
+        <p className="text-zinc-700 text-sm">Não foi possível confirmar seu perfil. Atualize a página ou contate a coordenação.</p>
+      </div>
+    );
+  }
+
   const renderView = () => {
+    // Bloqueio adicional de acesso direto por estado/localStorage.
+    if (!isViewPermittedForRole(currentView, currentUserProfile.role)) {
+      return <div className="p-6 text-sm text-red-700">Acesso não autorizado a esta área.</div>;
+    }
     switch (currentView) {
       case "dashboard":
         return <Dashboard />;
@@ -249,6 +266,9 @@ function AppContent() {
         return <Prospects />;
       case "profiles":
         return <Profiles />;
+      case "permissions_manager":
+        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
+          ? <PermissionsManager /> : <div role="alert">Acesso restrito.</div>;
       case "affiliates":
         return <Affiliates />;
       case "not_eligible":
@@ -311,158 +331,145 @@ export default function App() {
   }, [session]);
 
   const [authStatus, setAuthStatus] = useState<
-    'loading' | 'unauthenticated' | 'verifying_profile' | 'authenticated' | 'blocked'
+    'loading' | 'unauthenticated' | 'verifying_profile' | 'authenticated' | 'blocked' | 'access_error'
   >('loading');
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
-  // Ref para sincronizar o authStatus atual sem disparar reexecuções desnecessárias no listener
   const authStatusRef = useRef(authStatus);
   useEffect(() => {
     authStatusRef.current = authStatus;
   }, [authStatus]);
 
-  // Verificação rígida e autoritativa de access_status antes de liberar a plataforma
-  // Suporta revalidação silenciosa (stale-while-revalidate) quando o usuário já está autenticado
+  // O resultado de uma verificação antiga NUNCA pode reautorizar outra sessão.
+  const verificationSequenceRef = useRef(0);
+
   const checkAccessAndSetSession = async (userSession: any, silent: boolean = false) => {
-    if (!userSession || !userSession.user) {
-      // Se já está autenticado e o evento de background veio sem sessão por oscilação transitória,
-      // preserva a sessão em memória e não desconecta
-      if (silent && sessionRef.current) {
-        console.warn('[AUTH GATE] Evento silencioso sem sessão no retorno de background; preservando sessão ativa.');
-        return;
-      }
+    const sequence = ++verificationSequenceRef.current;
+
+    if (!userSession?.user?.id) {
       setSession(null);
       setAuthStatus('unauthenticated');
       return;
     }
 
-    // Apenas coloca em verifying_profile se NÃO estiver silencioso e não autenticado
     if (!silent) {
+      setSession(null);
       setAuthStatus('verifying_profile');
     }
 
-    const user = userSession.user;
-    const cleanEmail = user.email ? user.email.trim().toLowerCase() : '';
-
-    try {
-      const { data: profile, error } = await supabase
+    const decision = await loadAuthorizedProfile(userSession.user.id, async (id) => {
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id, email, access_status, role')
-        .or(`id.eq.${user.id},email.ilike.${cleanEmail}`)
+        .select('id, role, access_status')
+        .eq('id', id)
         .maybeSingle();
+      return { data, error };
+    });
 
-      if (profile && profile.access_status === 'blocked') {
-        console.warn('[AUTH GATE] Acesso bloqueado identificado no perfil para:', user.email);
-        await supabase.auth.signOut();
-        setSession(null);
+    if (sequence !== verificationSequenceRef.current) return;
+
+    if (decision.kind !== 'allowed') {
+      // Falha de rede, perfil ausente, ID divergente ou bloqueio = SEM sessão autorizada.
+      setSession(null);
+      if (decision.kind === 'blocked') {
         setBlockedMessage('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
         setAuthStatus('blocked');
-        return;
+      } else {
+        setBlockedMessage(
+          decision.kind === 'unavailable'
+            ? 'Não foi possível verificar seu acesso agora. Tente novamente.'
+            : 'Perfil de acesso não encontrado ou inconsistente. Entre em contato com a coordenação.'
+        );
+        setAuthStatus('access_error');
       }
-
-      setSession(userSession);
-      setAuthStatus('authenticated');
-    } catch (err) {
-      console.warn('[AUTH GATE] Aviso ao verificar perfil:', err);
-      // Mantém seguro sem derrubar a aplicação
-      setSession(userSession);
-      setAuthStatus('authenticated');
+      return;
     }
+
+    setBlockedMessage(null);
+    setSession(userSession);
+    setAuthStatus('authenticated');
   };
 
   useEffect(() => {
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        checkAccessAndSetSession(session, false);
+    let disposed = false;
+    const initialSequence = verificationSequenceRef.current;
+    void supabase.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        if (disposed || initialSequence !== verificationSequenceRef.current) return;
+        if (error) {
+          ++verificationSequenceRef.current;
+          setSession(null);
+          setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
+          setAuthStatus('access_error');
+          return;
+        }
+        void checkAccessAndSetSession(session, false);
       })
-      .catch((err) => {
-        console.error("Error getting session, possibly due to network failure:", err);
-        setAuthStatus('unauthenticated');
+      .catch(() => {
+        if (disposed || initialSequence !== verificationSequenceRef.current) return;
+        ++verificationSequenceRef.current;
+        setSession(null);
+        setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
+        setAuthStatus('access_error');
       });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      // Se for SIGNED_OUT ou não houver sessão, desconecta de imediato
-      if (event === 'SIGNED_OUT' || !session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, updatedSession) => {
+      if (disposed) return;
+
+      if (event === 'SIGNED_OUT' || !updatedSession) {
+        ++verificationSequenceRef.current;
         setSession(null);
         setAuthStatus('unauthenticated');
         return;
       }
 
-      // Se o usuário já está autenticado (ex: TOKEN_REFRESHED ou foco), faz revalidação silenciosa (stale-while-revalidate)
-      // usando authStatusRef.current para NÃO depender de authStatus no array de dependências e NÃO desmontar a árvore
-      const isAlreadyAuth = authStatusRef.current === 'authenticated';
-      checkAccessAndSetSession(session, isAlreadyAuth);
+      const previouslyVerified =
+        authStatusRef.current === 'authenticated' &&
+        sessionRef.current?.user?.id === updatedSession.user?.id;
+
+      void checkAccessAndSetSession(updatedSession, previouslyVerified);
     });
 
     return () => {
-      if (subscription) {
-        subscription.unsubscribe();
-      }
+      disposed = true;
+      ++verificationSequenceRef.current;
+      subscription?.unsubscribe();
     };
   }, []);
 
-  // Monitoramento Ativo em Tempo Real para Sessões Concorrentes (Revogação Imediata)
+  // Revogação: a verificação periódica e ao voltar o foco reutilizam o mesmo
+  // gate rigoroso. Erros NÃO são ignorados; a UI protegida deixa de ser exibida.
   useEffect(() => {
     if (authStatus !== 'authenticated' || !session?.user?.id) return;
 
-    const currentUserId = session.user.id;
-    const currentUserEmail = session.user.email ? session.user.email.trim().toLowerCase() : '';
-
-    const verifyCurrentAccess = async () => {
-      try {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('access_status')
-          .or(`id.eq.${currentUserId},email.ilike.${currentUserEmail}`)
-          .maybeSingle();
-
-        if (prof && prof.access_status === 'blocked') {
-          console.warn('[SECURITY] Sessão revogada imediatamente: status alterado para bloqueado.');
-          await supabase.auth.signOut();
-          setSession(null);
-          setBlockedMessage('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
-          setAuthStatus('blocked');
-        }
-      } catch (e) {
-        // no-op
+    const userId = session.user.id;
+    const verifyCurrentAccess = () => {
+      if (sessionRef.current?.user?.id === userId) {
+        void checkAccessAndSetSession(sessionRef.current, true);
       }
     };
 
-    // 1. Ouvinte Supabase Realtime para alterações imediatas no perfil
     const channel = supabase
-      .channel(`profile-access-watcher-${currentUserId}`)
+      .channel(`profile-access-watcher-${userId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'profiles',
-          filter: `id=eq.${currentUserId}`,
+          filter: `id=eq.${userId}`,
         },
-        (payload) => {
-          if (payload.new && (payload.new as any).access_status === 'blocked') {
-            console.warn('[SECURITY] Notificação Realtime de bloqueio recebida.');
-            verifyCurrentAccess();
-          }
-        }
+        verifyCurrentAccess
       )
       .subscribe();
 
-    // 2. Verificação periódica a cada 20 segundos
     const intervalId = setInterval(verifyCurrentAccess, 20000);
-
-    // 3. Verificação ao retornar o foco à aba
-    const handleFocus = () => {
-      verifyCurrentAccess();
-    };
-    window.addEventListener('focus', handleFocus);
+    window.addEventListener('focus', verifyCurrentAccess);
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
       clearInterval(intervalId);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', verifyCurrentAccess);
     };
   }, [authStatus, session?.user?.id]);
 
@@ -510,6 +517,41 @@ export default function App() {
           <p className="text-zinc-600 font-medium text-sm animate-pulse">
             Verificando permissões de acesso...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus === 'access_error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
+        <div className="max-w-md w-full bg-white border border-amber-200 rounded-2xl shadow-lg p-8 text-center space-y-5">
+          <ShieldAlert className="w-10 h-10 text-amber-600 mx-auto" />
+          <h2 className="text-xl font-bold text-zinc-900">Acesso não confirmado</h2>
+          <p className="text-sm text-zinc-600">
+            {blockedMessage || 'Não foi possível confirmar seu perfil de acesso.'}
+          </p>
+          <button type="button" onClick={() => {
+            const retrySequence = ++verificationSequenceRef.current;
+            setSession(null);
+            setAuthStatus('verifying_profile');
+            void supabase.auth.getSession().then(({ data, error }) => {
+              if (retrySequence !== verificationSequenceRef.current) return;
+              if (error) throw error;
+              return checkAccessAndSetSession(data.session, false);
+            }).catch(() => {
+              if (retrySequence !== verificationSequenceRef.current) return;
+              setSession(null);
+              setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
+              setAuthStatus('access_error');
+            });
+          }} className="w-full py-2.5 px-4 bg-indigo-600 text-white rounded-xl font-semibold">
+            Tentar novamente
+          </button>
+          <button type="button" onClick={() => { void supabase.auth.signOut(); }}
+            className="w-full py-2.5 px-4 border rounded-xl text-sm">
+            Sair e voltar ao login
+          </button>
         </div>
       </div>
     );

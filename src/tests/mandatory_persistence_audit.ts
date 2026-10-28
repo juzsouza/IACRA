@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
+import { getServerDevSupabaseConfig } from '../server/devSupabaseConfig.ts';
 import { resolveCompetenceBilling } from '../utils/competenceBillingResolver';
 import { CompetenceBilling, Student, Enrollment, FinancialPlan } from '../store';
 
-const supabaseUrl = 'https://ldumzwrwbhjtrnlioigg.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+const { url: supabaseUrl, anonKey: supabaseKey } = getServerDevSupabaseConfig();
 
 async function runPersistenceTest() {
+  if (process.env.EAVRA_ENABLE_DEV_WRITE_TESTS !== 'CONFIRMADO_DEV_ISOLADO') {
+    throw new Error('[EAVRA DEV] Teste de escrita bloqueado até revisão e confirmação expressa de ambiente isolado.');
+  }
   console.log('====================================================');
   console.log('INÍCIO DO TESTE OBRIGATÓRIO DE PERSISTÊNCIA REAL');
   console.log('====================================================\n');

@@ -29,7 +29,10 @@
     "test:mobile-agenda": "tsx src/tests/mobile_agenda_view.test.ts",
     "test:batch-sync": "tsx src/tests/google_calendar_batch_sync_errors.test.ts",
     "test:batch-chunking": "tsx src/tests/google_calendar_batch_chunking.test.ts",
-    "test:pix": "tsx src/tests/teacher_pix_key.test.ts"
+    "test:pix": "tsx src/tests/teacher_pix_key.test.ts",
+    "test:profile-gate": "node --experimental-strip-types src/tests/profile_access_gate.test.ts",
+    "test:admin-gate": "node --experimental-strip-types src/tests/admin_authorization_gate.test.ts",
+    "test:dev-preflight": "node --experimental-strip-types src/tests/dev_environment_preflight.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

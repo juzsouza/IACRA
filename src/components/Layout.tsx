@@ -61,10 +61,11 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "discount_rules", label: "Regras de Desconto", icon: Wallet, roles: ["super_admin"] },
     { id: "choir", label: "Coral", icon: Users, roles: ["super_admin", "admin"] },
     { id: "profiles", label: "Usuários", icon: Shield, roles: ["super_admin"] },
+    { id: "permissions_manager", label: "Permissões (DEV)", icon: ShieldCheck, roles: ["super_admin"] },
   ] as const;
 
   const userRole = currentUserProfile?.role;
-  const navItems = userRole
+  const navItems = userRole && currentUserProfile?.access_status === "active"
     ? allNavItems.filter((item) => item.roles.includes(userRole))
     : [];
 

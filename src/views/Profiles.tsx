@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus, Search, Edit2, Trash2, X, Shield, User, GraduationCap, Eye, EyeOff, Copy, Check, Database, CheckCircle2, ChevronDown, ChevronUp, Lock, Unlock, UserCheck, UserX, AlertTriangle, AlertCircle } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X, Shield, User, GraduationCap, Copy, Check, Database, CheckCircle2, ChevronDown, ChevronUp, Lock, Unlock, UserCheck, UserX, AlertTriangle, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppStore, UserProfile } from "../store";
 import { supabase } from "../lib/supabase";
@@ -30,20 +30,8 @@ export const Profiles: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetEmailStatus, setResetEmailStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
 
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
-  const [newDirectPassword, setNewDirectPassword] = useState("");
-  const [directResetStatus, setDirectResetStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'missing_rpc'>('idle');
-  const [rpcErrorText, setRpcErrorText] = useState("");
-  const [copiedSql, setCopiedSql] = useState(false);
   const [copiedRlsSql, setCopiedRlsSql] = useState(false);
   const [showRlsCard, setShowRlsCard] = useState(false);
-
-  const togglePasswordVisibility = (id: string) => {
-    setVisiblePasswords(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -144,10 +132,6 @@ export const Profiles: React.FC = () => {
   const openModal = (profile?: UserProfile) => {
     setError(null);
     setResetEmailStatus('idle');
-    setNewDirectPassword("");
-    setDirectResetStatus('idle');
-    setRpcErrorText("");
-    setCopiedSql(false);
     if (profile) {
       setEditingProfile(profile);
       setFormData({
@@ -498,7 +482,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[190px] whitespace-nowrap">Professor Associado</th>
                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Status do Professor</th>
                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[160px] whitespace-nowrap">Status do Acesso</th>
-                <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Senha Provisória</th>
+                <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Credencial</th>
                 <th className="px-6 py-3.5 bg-zinc-50 text-right min-w-[210px] whitespace-nowrap sticky right-0">Ações</th>
               </tr>
             </thead>
@@ -595,26 +579,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
                       </td>
 
                       <td className="px-6 py-4">
-                        {p.temp_password ? (
-                          <div className="flex items-center space-x-2">
-                            <span className="font-mono text-xs bg-zinc-100 px-2 py-1 rounded select-all">
-                              {visiblePasswords[p.id] ? p.temp_password : "••••••"}
-                            </span>
-                            <button
-                              onClick={() => togglePasswordVisibility(p.id)}
-                              className="p-1 hover:bg-zinc-200 rounded text-zinc-500 transition-colors"
-                              title={visiblePasswords[p.id] ? "Ocultar" : "Mostrar"}
-                            >
-                              {visiblePasswords[p.id] ? (
-                                <EyeOff className="w-3.5 h-3.5" />
-                              ) : (
-                                <Eye className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-zinc-400 text-xs italic">Não registrada</span>
-                        )}
+                        <span className="text-zinc-500 text-xs">Gerenciada no Supabase Auth</span>
                       </td>
                       <td className="px-6 py-4 text-right whitespace-nowrap min-w-[210px]">
                         <div className="flex items-center justify-end space-x-2">
@@ -755,264 +720,11 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
                     />
                   </div>
                 ) : (
-                  <div className="space-y-4 border border-zinc-150 rounded-2xl p-4 bg-zinc-50/50">
-                    <div className="flex items-center space-x-2 text-indigo-600 font-semibold text-sm">
-                      <Shield className="w-4 h-4" />
-                      <span>Gerenciamento de Senha</span>
-                    </div>
-
-                    <div className="border-t border-zinc-100 pt-3 space-y-3">
-                      {/* Option 1: Direct update */}
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-600 mb-1">
-                          Definir Nova Senha Direto (Instante)
-                        </label>
-                        <div className="flex space-x-2">
-                          <input
-                            type="text"
-                            placeholder="Nova senha (mín. 6 caracteres)"
-                            value={newDirectPassword}
-                            onChange={(e) => setNewDirectPassword(e.target.value)}
-                            disabled={directResetStatus === 'loading'}
-                            className="flex-1 px-3 py-1.5 border border-zinc-200 rounded-lg text-xs outline-none bg-white focus:ring-1 focus:ring-indigo-500"
-                          />
-                          <button
-                            type="button"
-                            disabled={newDirectPassword.length < 6 || directResetStatus === 'loading'}
-                            onClick={async () => {
-                              if (newDirectPassword.length < 6) return;
-                              setDirectResetStatus('loading');
-                              setRpcErrorText("");
-                              try {
-                                // 1. Attempt to call RPC
-                                const { data, error: rpcErr } = await supabase.rpc('admin_reset_user_password', {
-                                  target_user_id: editingProfile.id,
-                                  new_password: newDirectPassword
-                                });
-
-                                if (rpcErr) {
-                                  setDirectResetStatus('missing_rpc');
-                                  setRpcErrorText(rpcErr.message);
-                                  return;
-                                }
-
-                                const response = data as any;
-                                if (response && response.success === false) {
-                                  throw new Error(response.message || 'Erro na redefinição.');
-                                }
-
-                                // 2. Update the local state & profiles table
-                                await updateProfile(editingProfile.id, { temp_password: newDirectPassword });
-                                setDirectResetStatus('success');
-                                setNewDirectPassword("");
-                              } catch (err: any) {
-                                console.error('Error in direct password reset:', err);
-                                setDirectResetStatus('error');
-                                setRpcErrorText(err.message || 'Erro desconhecido ao tentar alterar senha.');
-                              }
-                            }}
-                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition-colors shadow-sm disabled:opacity-40"
-                          >
-                            {directResetStatus === 'loading' ? 'Alterando...' : 'Alterar Agora'}
-                          </button>
-                        </div>
-                        
-                        {directResetStatus === 'success' && (
-                          <p className="text-xs text-emerald-600 font-semibold mt-1">
-                            ✅ Senha alterada e anotada com sucesso!
-                          </p>
-                        )}
-                        {directResetStatus === 'error' && (
-                          <p className="text-xs text-rose-600 font-medium mt-1">
-                            ❌ {rpcErrorText}
-                          </p>
-                        )}
-                        
-                        {/* Missing RPC Instructions */}
-                        {directResetStatus === 'missing_rpc' && (
-                          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2 text-zinc-700">
-                            <div className="flex items-center space-x-1.5 font-bold text-amber-800 text-xs">
-                              <span>⚠️ Executar Script SQL no Supabase</span>
-                            </div>
-                            <p className="text-[11px] leading-relaxed text-zinc-600">
-                              Para o Super Admin alterar senhas diretamente no banco Supabase (sem depender de confirmações de e-mail), execute a função abaixo no <strong>SQL Editor</strong> do seu projeto Supabase:
-                            </p>
-                            
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                setDirectResetStatus('loading');
-                                try {
-                                  // Just update the profile annotation
-                                  await updateProfile(editingProfile.id, { temp_password: newDirectPassword });
-                                  setDirectResetStatus('success');
-                                  setNewDirectPassword("");
-                                } catch (err: any) {
-                                  setDirectResetStatus('error');
-                                  setRpcErrorText(err.message || 'Erro ao anotar.');
-                                }
-                              }}
-                              className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm"
-                            >
-                              Salvar como "Anotação de Senha" no Perfil
-                            </button>
-
-                            <div className="mt-2 space-y-2 text-left">
-                              <p className="text-[10px] font-semibold text-zinc-600">
-                                Script SQL para rodar no Supabase SQL Editor:
-                              </p>
-                              <div className="relative">
-                                <pre className="bg-zinc-900 text-zinc-100 p-2.5 rounded-lg font-mono text-[9px] overflow-x-auto max-h-40 leading-relaxed">
-                                  {`ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password text;
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
-
-CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
-  target_user_id text,
-  new_password text
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth, extensions
-AS $$
-DECLARE
-  caller_role text;
-  uuid_target uuid;
-  hashed_pwd text;
-BEGIN
-  SELECT role INTO caller_role FROM public.profiles WHERE id = auth.uid()::text;
-  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
-    RETURN jsonb_build_object('success', false, 'message', 'Apenas Super Admins podem redefinir senhas.');
-  END IF;
-
-  BEGIN
-    uuid_target := target_user_id::uuid;
-  EXCEPTION WHEN OTHERS THEN
-    RETURN jsonb_build_object('success', false, 'message', 'ID de usuário inválido.');
-  END;
-
-  BEGIN
-    hashed_pwd := extensions.crypt(new_password, extensions.gen_salt('bf', 10));
-  EXCEPTION WHEN OTHERS THEN
-    BEGIN
-      hashed_pwd := crypt(new_password, gen_salt('bf', 10));
-    EXCEPTION WHEN OTHERS THEN
-      RETURN jsonb_build_object('success', false, 'message', 'Extensão pgcrypto ausente no Supabase.');
-    END;
-  END;
-
-  UPDATE auth.users 
-  SET encrypted_password = hashed_pwd,
-      email_confirmed_at = COALESCE(email_confirmed_at, now()),
-      updated_at = now()
-  WHERE id = uuid_target;
-
-  BEGIN
-    UPDATE public.profiles 
-    SET temp_password = new_password 
-    WHERE id = target_user_id;
-  EXCEPTION WHEN OTHERS THEN
-    -- Ignorar caso a coluna temp_password ainda não exista
-    NULL;
-  END;
-
-  RETURN jsonb_build_object('success', true, 'message', 'Senha alterada com sucesso.');
-EXCEPTION WHEN OTHERS THEN
-  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO service_role;`}
-                                </pre>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(`ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password text;
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
-
-CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
-  target_user_id text,
-  new_password text
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth, extensions
-AS $$
-DECLARE
-  caller_role text;
-  uuid_target uuid;
-  hashed_pwd text;
-BEGIN
-  SELECT role INTO caller_role FROM public.profiles WHERE id = auth.uid()::text;
-  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
-    RETURN jsonb_build_object('success', false, 'message', 'Apenas Super Admins podem redefinir senhas.');
-  END IF;
-
-  BEGIN
-    uuid_target := target_user_id::uuid;
-  EXCEPTION WHEN OTHERS THEN
-    RETURN jsonb_build_object('success', false, 'message', 'ID de usuário inválido.');
-  END;
-
-  BEGIN
-    hashed_pwd := extensions.crypt(new_password, extensions.gen_salt('bf', 10));
-  EXCEPTION WHEN OTHERS THEN
-    BEGIN
-      hashed_pwd := crypt(new_password, gen_salt('bf', 10));
-    EXCEPTION WHEN OTHERS THEN
-      RETURN jsonb_build_object('success', false, 'message', 'Extensão pgcrypto ausente no Supabase.');
-    END;
-  END;
-
-  UPDATE auth.users 
-  SET encrypted_password = hashed_pwd,
-      email_confirmed_at = COALESCE(email_confirmed_at, now()),
-      updated_at = now()
-  WHERE id = uuid_target;
-
-  BEGIN
-    UPDATE public.profiles 
-    SET temp_password = new_password 
-    WHERE id = target_user_id;
-  EXCEPTION WHEN OTHERS THEN
-    -- Ignorar caso a coluna temp_password ainda não exista
-    NULL;
-  END;
-
-  RETURN jsonb_build_object('success', true, 'message', 'Senha alterada com sucesso.');
-EXCEPTION WHEN OTHERS THEN
-  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO service_role;`);
-                                    setCopiedSql(true);
-                                    setTimeout(() => setCopiedSql(false), 2000);
-                                  }}
-                                  className="absolute right-2 top-2 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded text-[10px] flex items-center space-x-1 shadow transition-colors"
-                                  title="Copiar código SQL"
-                                >
-                                  {copiedSql ? (
-                                    <>
-                                      <Check className="w-3 h-3 text-emerald-300" />
-                                      <span>Copiado!</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="w-3 h-3" />
-                                      <span>Copiar SQL</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+                    Senhas não podem ser exibidas, anotadas no perfil ou redefinidas
+                    por SQL incorporado à interface. A redefinição administrativa
+                    segura será implementada em uma etapa separada, após validar
+                    a identidade da conta e as permissões no servidor.
                   </div>
                 )}
 

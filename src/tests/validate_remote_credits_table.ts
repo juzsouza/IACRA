@@ -2,6 +2,9 @@ import { supabaseAdmin } from '../server/googleCalendarService';
 import { RAPHAEL_TEACHER_ID } from '../utils/raphaelBillingSimulation';
 
 async function validateRemoteCredits() {
+  if (process.env.EAVRA_ENABLE_DEV_WRITE_TESTS !== 'CONFIRMADO_DEV_ISOLADO') {
+    throw new Error('[EAVRA DEV] Teste remoto de créditos bloqueado até revisão de ambiente e dados.');
+  }
   console.log('================================================================');
   console.log('VALIDAÇÃO DO BANCO REMOTO SUPABASE: public.credits');
   console.log('================================================================\n');
