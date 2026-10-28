@@ -1,0 +1,36 @@
+name: EAVRA-11 Diagnostico de Build (base atual)
+on:
+  push:
+    branches:
+      - bolt-migration-test
+    paths:
+      - '.github/workflows/validate-eavra-stage11-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout da branch de testes
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Confirmar ambiente sem conexoes de producao
+        shell: bash
+        run: |
+          test "${{ github.ref_name }}" = "bolt-migration-test"
+          test ! -f .env
+          test ! -f .env.local
+      - name: Instalar dependencias reproduziveis
+        run: npm ci --ignore-scripts --no-audit --fund=false
+      - name: TypeScript typecheck da base atual
+        run: npm run lint
+      - name: Compilar Vite e servidor da base atual
+        run: npm run build
