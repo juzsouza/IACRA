@@ -1,6 +1,12 @@
 name: Validar EAVRA-08 em PostgreSQL descartavel
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - bolt-migration-test
+    paths:
+      - '.github/workflows/validate-eavra-permissions-e08.yml'
+      - 'review/eavra-e08/**'
 
 permissions:
   contents: read
