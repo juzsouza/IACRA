@@ -1,0 +1,198 @@
+name: Validar schema-dev-v9 em PostgreSQL isolado
+
+on:
+  push:
+    branches:
+      - bolt-migration-test
+    paths:
+      - '.github/workflows/validate-iacra-schema-v9.yml'
+      - 'supabase/schema-dev-v9-review.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-v9:
+    name: Teste isolado de sintaxe, permissões e RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: iacra_schema_test
+          POSTGRES_INITDB_ARGS: '--set=wal_level=logical'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_schema_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Obter arquivos da branch de teste
+        uses: actions/checkout@v4
+
+      - name: Confirmar arquivo alvo
+        run: test -f supabase/schema-dev-v9-review.sql
+
+      - name: Preparar objetos mínimos de compatibilidade com Supabase Auth
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d iacra_schema_test <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+
+          CREATE SCHEMA auth;
+          CREATE TABLE auth.users (
+            id uuid PRIMARY KEY,
+            email text,
+            banned_until timestamptz
+          );
+
+          CREATE FUNCTION auth.uid()
+          RETURNS uuid
+          LANGUAGE sql
+          STABLE
+          AS $auth_uid$
+            SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
+          $auth_uid$;
+          SQL
+
+      - name: Executar schema v9 em banco PostgreSQL descartável
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d iacra_schema_test < supabase/schema-dev-v9-review.sql
+
+      - name: Verificar RLS, privilégios sensíveis e publicação Realtime
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d iacra_schema_test <<'SQL'
+          DO $assert$
+          DECLARE
+            table_name text;
+          BEGIN
+            SELECT c.relname INTO table_name
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND NOT c.relrowsecurity
+            LIMIT 1;
+            IF table_name IS NOT NULL THEN
+              RAISE EXCEPTION 'RLS desativada em public.%', table_name;
+            END IF;
+
+            IF has_table_privilege('anon', 'public.students', 'SELECT')
+              OR has_table_privilege('anon', 'public.students', 'INSERT')
+              OR has_table_privilege('anon', 'public.students', 'UPDATE')
+              OR has_table_privilege('anon', 'public.students', 'DELETE') THEN
+              RAISE EXCEPTION 'anon recebeu privilégios diretos na tabela public.students';
+            END IF;
+
+            IF has_table_privilege('authenticated', 'public.teacher_google_accounts', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.teacher_google_accounts', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.teacher_google_accounts', 'DELETE') THEN
+              RAISE EXCEPTION 'authenticated recebeu escrita direta em teacher_google_accounts';
+            END IF;
+
+            IF has_column_privilege('authenticated', 'public.teacher_google_accounts', 'refresh_token', 'SELECT')
+              OR has_column_privilege('authenticated', 'public.teacher_google_accounts', 'refresh_token', 'UPDATE')
+              OR has_column_privilege('authenticated', 'public.teacher_google_accounts', 'access_token', 'SELECT')
+              OR has_column_privilege('authenticated', 'public.teacher_google_accounts', 'access_token', 'UPDATE') THEN
+              RAISE EXCEPTION 'authenticated consegue acessar ou alterar tokens Google';
+            END IF;
+
+            IF NOT has_column_privilege('authenticated', 'public.teacher_google_accounts', 'google_email', 'SELECT') THEN
+              RAISE EXCEPTION 'A leitura dos metadados permitidos de teacher_google_accounts não foi concedida';
+            END IF;
+
+            IF has_function_privilege('anon', 'public.is_active_super_admin()', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.is_active_super_admin()', 'EXECUTE') THEN
+              RAISE EXCEPTION 'ACL incorreta na função is_active_super_admin';
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_publication_tables
+              WHERE pubname = 'supabase_realtime'
+                AND schemaname = 'public'
+                AND tablename = 'profiles'
+            ) THEN
+              RAISE EXCEPTION 'public.profiles não foi incluída em supabase_realtime';
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'choir_collaborators' AND policyname = 'choir_collaborators_select' AND coalesce(qual, '') ILIKE '%is_active_super_admin%')
+              OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'choir_monthly_closings' AND policyname = 'choir_monthly_closings_select' AND coalesce(qual, '') ILIKE '%is_active_super_admin%')
+              OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'choir_monthly_closing_items' AND policyname = 'choir_monthly_closing_items_select' AND coalesce(qual, '') ILIKE '%is_active_super_admin%') THEN
+              RAISE EXCEPTION 'Uma ou mais políticas SELECT não estão restritas ao Super Admin';
+            END IF;
+          END
+          $assert$;
+
+          SELECT 'PASS' AS status, 'Schema aplicado; RLS e privilégios sensíveis verificados' AS resultado;
+          SQL
+
+      - name: Testar visibilidade dos dados por perfil
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d iacra_schema_test <<'SQL'
+          INSERT INTO public.profiles (id, email, role, access_status) VALUES
+            ('00000000-0000-0000-0000-000000000101', 'test-super-admin@example.invalid', 'super_admin', 'active'),
+            ('00000000-0000-0000-0000-000000000102', 'test-admin@example.invalid', 'admin', 'active'),
+            ('00000000-0000-0000-0000-000000000103', 'test-teacher@example.invalid', 'teacher', 'active');
+
+          INSERT INTO public.choir_collaborators (id, name) VALUES ('test-collaborator-1', 'Colaborador de teste');
+          INSERT INTO public.choir_monthly_closings (id, competence, closed_by_name) VALUES ('test-closing-1', '2026-10', 'Teste isolado');
+          INSERT INTO public.choir_monthly_closing_items (
+            id, closing_id, collaborator_id, collaborator_name_snapshot,
+            collaborator_role_snapshot, remuneration_type_snapshot,
+            remuneration_value_snapshot, calculation_rule_snapshot
+          ) VALUES (
+            'test-closing-item-1', 'test-closing-1', 'test-collaborator-1',
+            'Colaborador de teste', 'Colaborador', 'per_rehearsal', 0.00, 'Teste isolado'
+          );
+
+          BEGIN;
+          SET LOCAL ROLE authenticated;
+          SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
+          DO $teacher_test$
+          BEGIN
+            IF (SELECT count(*) FROM public.choir_collaborators) <> 0
+              OR (SELECT count(*) FROM public.choir_monthly_closings) <> 0
+              OR (SELECT count(*) FROM public.choir_monthly_closing_items) <> 0 THEN
+              RAISE EXCEPTION 'Falha de RLS: professor conseguiu ver dados exclusivos do Super Admin';
+            END IF;
+          END
+          $teacher_test$;
+          COMMIT;
+
+          BEGIN;
+          SET LOCAL ROLE authenticated;
+          SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
+          DO $admin_test$
+          BEGIN
+            IF (SELECT count(*) FROM public.choir_collaborators) <> 0
+              OR (SELECT count(*) FROM public.choir_monthly_closings) <> 0
+              OR (SELECT count(*) FROM public.choir_monthly_closing_items) <> 0 THEN
+              RAISE EXCEPTION 'Falha de RLS: admin comum conseguiu ver dados exclusivos do Super Admin';
+            END IF;
+          END
+          $admin_test$;
+          COMMIT;
+
+          BEGIN;
+          SET LOCAL ROLE authenticated;
+          SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
+          DO $super_admin_test$
+          BEGIN
+            IF (SELECT count(*) FROM public.choir_collaborators) <> 1
+              OR (SELECT count(*) FROM public.choir_monthly_closings) <> 1
+              OR (SELECT count(*) FROM public.choir_monthly_closing_items) <> 1 THEN
+              RAISE EXCEPTION 'Falha de RLS: Super Admin ativo não consegue ver os dados esperados';
+            END IF;
+          END
+          $super_admin_test$;
+          COMMIT;
+
+          SELECT 'PASS' AS status, 'Professor e admin comum sem acesso; Super Admin com acesso' AS resultado;
+          SQL
