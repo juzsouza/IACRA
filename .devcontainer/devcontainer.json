@@ -1,0 +1,21 @@
+{
+  "name": "IACRA-DEV - previa visual privada",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "forwardPorts": [
+    3000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "IACRA-DEV (acesso privado)",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "npm ci --ignore-scripts --no-audit --fund=false",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  }
+}
