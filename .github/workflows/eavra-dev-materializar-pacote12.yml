@@ -1,0 +1,78 @@
+name: EAVRA DEV - materializar pacote 12 em branch isolada
+on:
+  push:
+    branches:
+      - eavra-dev-visual-isolado
+    paths:
+      - '.github/workflows/eavra-dev-materializar-pacote12.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materializar-e-validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      VITE_EAVRA_PERMISSION_ADMIN_ENABLED: 'false'
+    steps:
+      - name: Obter somente a branch de testes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validar ambiente isolado
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "eavra-dev-visual-isolado"
+          test ! -f .env
+          test ! -f .env.production
+          test "${VITE_EAVRA_PERMISSION_ADMIN_ENABLED}" = "false"
+      - name: Confirmar integridade do pacote
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "0bbf1314942fde6e4429a8cc3c11309c1af4d84a2e082ac4e71e336ed5d57a77  review/eavra-package11-build/patch-consolidado11.diff" | sha256sum --check
+          echo "9a7678af652f9b2fe02575943d84bf32363c3f3a4df0d1244367ca14cbace026  review/eavra-package11-build/fix-01-types-adminRoutes.diff" | sha256sum --check
+          test "$(grep -c '^diff --git ' review/eavra-package11-build/patch-consolidado11.diff)" = "33"
+          git apply --check review/eavra-package11-build/patch-consolidado11.diff
+      - name: Aplicar arquivos consolidados em checkout descartavel
+        run: |
+          git apply review/eavra-package11-build/patch-consolidado11.diff
+          git apply --check review/eavra-package11-build/fix-01-types-adminRoutes.diff
+          git apply review/eavra-package11-build/fix-01-types-adminRoutes.diff
+          test -f src/views/PermissionsManager.tsx
+          test -f src/services/permissionsAdmin.ts
+      - name: Node 22 e npm lock
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependencias sem scripts de terceiros
+        run: npm ci --ignore-scripts --no-audit --fund=false
+      - name: Verificacao completa de TypeScript
+        run: npm run lint
+      - name: Compilar frontend e backend
+        run: npm run build
+      - name: Executar testes de acesso e permissoes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in             src/tests/profile_access_gate.test.ts             src/tests/admin_authorization_gate.test.ts             src/tests/admin_identity_regression.test.ts             src/tests/dev_environment_preflight.test.ts             src/tests/dev_supabase_isolation.test.ts             src/tests/user_provisioning_safety.test.ts             src/tests/permissions_admin_stage10.test.ts             src/tests/auth_profile_resolution_security.test.ts
+          do
+            node --experimental-strip-types "$f"
+          done
+      - name: Registrar codigo somente na branch temporaria apos testes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "eavra-dev-visual-isolado"
+          git add package.json server.ts vite.config.ts src
+          test "$(git diff --cached --name-only | wc -l)" = "33"
+          if git diff --cached --name-only | grep -E '(^|/)(\.env|node_modules|dist)(/|$)'; then
+            echo "Arquivo proibido no commit"; exit 1
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "test(dev): materializar pacote 12 validado na branch visual isolada"
+          git push origin "HEAD:refs/heads/eavra-dev-visual-isolado"
+          echo 'Codigo DEV versionado sem SQL, credenciais ou deploy'
