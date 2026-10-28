@@ -94,11 +94,20 @@ jobs:
             exit 0
           fi
           "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars \
-            --window-size=1365,850 --virtual-time-budget=7000 \
+            --window-size=1365,850 --virtual-time-budget=30000 \
+            --dump-dom http://127.0.0.1:3000/ > /tmp/eavra-dev-rendered-dom.html 2>/tmp/eavra-dom-errors.log || true
+          if ! grep -q 'Acesso ao Sistema' /tmp/eavra-dev-rendered-dom.html; then
+            echo 'React nao apresentou o formulario de Login. Verificando diagnostico:'
+            grep -o -E 'Verificando permissões de acesso|Acesso não confirmado|Acesso ao Sistema|Erro' /tmp/eavra-dev-rendered-dom.html | tail -10 || true
+            tail -25 /tmp/eavra-dom-errors.log || true
+            exit 1
+          fi
+          "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars \
+            --window-size=1365,850 --virtual-time-budget=30000 \
             --screenshot="${GITHUB_WORKSPACE}/eavra-dev-login.png" \
             http://127.0.0.1:3000/ >/tmp/eavra-chrome.log 2>&1 || true
           test -s eavra-dev-login.png || (cat /tmp/eavra-chrome.log; exit 1)
-          echo 'Screenshot de DEV gerado sem contas.'
+          echo 'PASS: login React renderizado com aviso DEV.'
       - name: Publicar captura do ambiente de teste
         if: always()
         uses: actions/upload-artifact@v4
