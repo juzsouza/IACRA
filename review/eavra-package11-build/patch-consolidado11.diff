@@ -1,0 +1,2851 @@
+diff --git a/package.json b/package.json
+index f304c3f..0842a20 100644
+--- a/package.json
++++ b/package.json
+@@ -29,7 +29,10 @@
+     "test:mobile-agenda": "tsx src/tests/mobile_agenda_view.test.ts",
+     "test:batch-sync": "tsx src/tests/google_calendar_batch_sync_errors.test.ts",
+     "test:batch-chunking": "tsx src/tests/google_calendar_batch_chunking.test.ts",
+-    "test:pix": "tsx src/tests/teacher_pix_key.test.ts"
++    "test:pix": "tsx src/tests/teacher_pix_key.test.ts",
++    "test:profile-gate": "node --experimental-strip-types src/tests/profile_access_gate.test.ts",
++    "test:admin-gate": "node --experimental-strip-types src/tests/admin_authorization_gate.test.ts",
++    "test:dev-preflight": "node --experimental-strip-types src/tests/dev_environment_preflight.test.ts"
+   },
+   "dependencies": {
+     "@google/genai": "^1.29.0",
+diff --git a/server.ts b/server.ts
+index a3c9301..7d5782c 100644
+--- a/server.ts
++++ b/server.ts
+@@ -1,3 +1,4 @@
++import 'dotenv/config';
+ import express from 'express';
+ import path from 'path';
+ import fs from 'fs';
+diff --git a/src/App.tsx b/src/App.tsx
+index 94dd32c..bda27dc 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -21,11 +21,13 @@ import { Groups } from "./views/Groups";
+ import { Makeups } from "./views/Makeups";
+ import { Prospects } from "./views/Prospects";
+ import { Profiles } from "./views/Profiles";
++import { PermissionsManager } from "./views/PermissionsManager";
+ import { Login } from "./views/Login";
+ import { NotEligible } from "./views/NotEligible";
+ import { Affiliates } from "./views/Affiliates";
+ import { PrivacyPolicy } from "./views/PrivacyPolicy";
+ import { supabase } from "./lib/supabase";
++import { loadAuthorizedProfile } from "./utils/profileAccess";
+ import {
+   View,
+   getDefaultViewForRole,
+@@ -188,12 +190,13 @@ function AppContent() {
+ 
+   // Handler for view changes from Layout navigation - updates state & immediately persists per profile
+   const handleViewChange = useCallback((newView: View) => {
++    if (!currentUserProfile || !isViewPermittedForRole(newView, currentUserProfile.role)) return;
+     setCurrentView(newView);
+     currentViewRef.current = newView;
+     if (currentUserProfile?.id) {
+       persistView(currentUserProfile.id, newView);
+     }
+-  }, [currentUserProfile?.id]);
++  }, [currentUserProfile?.id, currentUserProfile?.role]);
+ 
+   useEffect(() => {
+     // Cleanup Acordo Especial plans
+@@ -217,7 +220,21 @@ function AppContent() {
+     );
+   }
+ 
++  // O AppProvider pode estar carregando o perfil mesmo após Auth confirmar a sessão.
++  // Não renderizar conteúdo protegido sem um perfil correspondente confirmado.
++  if (!currentUserProfile || currentUserProfile.access_status !== 'active') {
++    return (
++      <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
++        <p className="text-zinc-700 text-sm">Não foi possível confirmar seu perfil. Atualize a página ou contate a coordenação.</p>
++      </div>
++    );
++  }
++
+   const renderView = () => {
++    // Bloqueio adicional de acesso direto por estado/localStorage.
++    if (!isViewPermittedForRole(currentView, currentUserProfile.role)) {
++      return <div className="p-6 text-sm text-red-700">Acesso não autorizado a esta área.</div>;
++    }
+     switch (currentView) {
+       case "dashboard":
+         return <Dashboard />;
+@@ -249,6 +266,9 @@ function AppContent() {
+         return <Prospects />;
+       case "profiles":
+         return <Profiles />;
++      case "permissions_manager":
++        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
++          ? <PermissionsManager /> : <div role="alert">Acesso restrito.</div>;
+       case "affiliates":
+         return <Affiliates />;
+       case "not_eligible":
+@@ -311,158 +331,145 @@ export default function App() {
+   }, [session]);
+ 
+   const [authStatus, setAuthStatus] = useState<
+-    'loading' | 'unauthenticated' | 'verifying_profile' | 'authenticated' | 'blocked'
++    'loading' | 'unauthenticated' | 'verifying_profile' | 'authenticated' | 'blocked' | 'access_error'
+   >('loading');
+   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
+ 
+-  // Ref para sincronizar o authStatus atual sem disparar reexecuções desnecessárias no listener
+   const authStatusRef = useRef(authStatus);
+   useEffect(() => {
+     authStatusRef.current = authStatus;
+   }, [authStatus]);
+ 
+-  // Verificação rígida e autoritativa de access_status antes de liberar a plataforma
+-  // Suporta revalidação silenciosa (stale-while-revalidate) quando o usuário já está autenticado
++  // O resultado de uma verificação antiga NUNCA pode reautorizar outra sessão.
++  const verificationSequenceRef = useRef(0);
++
+   const checkAccessAndSetSession = async (userSession: any, silent: boolean = false) => {
+-    if (!userSession || !userSession.user) {
+-      // Se já está autenticado e o evento de background veio sem sessão por oscilação transitória,
+-      // preserva a sessão em memória e não desconecta
+-      if (silent && sessionRef.current) {
+-        console.warn('[AUTH GATE] Evento silencioso sem sessão no retorno de background; preservando sessão ativa.');
+-        return;
+-      }
++    const sequence = ++verificationSequenceRef.current;
++
++    if (!userSession?.user?.id) {
+       setSession(null);
+       setAuthStatus('unauthenticated');
+       return;
+     }
+ 
+-    // Apenas coloca em verifying_profile se NÃO estiver silencioso e não autenticado
+     if (!silent) {
++      setSession(null);
+       setAuthStatus('verifying_profile');
+     }
+ 
+-    const user = userSession.user;
+-    const cleanEmail = user.email ? user.email.trim().toLowerCase() : '';
+-
+-    try {
+-      const { data: profile, error } = await supabase
++    const decision = await loadAuthorizedProfile(userSession.user.id, async (id) => {
++      const { data, error } = await supabase
+         .from('profiles')
+-        .select('id, email, access_status, role')
+-        .or(`id.eq.${user.id},email.ilike.${cleanEmail}`)
++        .select('id, role, access_status')
++        .eq('id', id)
+         .maybeSingle();
++      return { data, error };
++    });
+ 
+-      if (profile && profile.access_status === 'blocked') {
+-        console.warn('[AUTH GATE] Acesso bloqueado identificado no perfil para:', user.email);
+-        await supabase.auth.signOut();
+-        setSession(null);
++    if (sequence !== verificationSequenceRef.current) return;
++
++    if (decision.kind !== 'allowed') {
++      // Falha de rede, perfil ausente, ID divergente ou bloqueio = SEM sessão autorizada.
++      setSession(null);
++      if (decision.kind === 'blocked') {
+         setBlockedMessage('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
+         setAuthStatus('blocked');
+-        return;
++      } else {
++        setBlockedMessage(
++          decision.kind === 'unavailable'
++            ? 'Não foi possível verificar seu acesso agora. Tente novamente.'
++            : 'Perfil de acesso não encontrado ou inconsistente. Entre em contato com a coordenação.'
++        );
++        setAuthStatus('access_error');
+       }
+-
+-      setSession(userSession);
+-      setAuthStatus('authenticated');
+-    } catch (err) {
+-      console.warn('[AUTH GATE] Aviso ao verificar perfil:', err);
+-      // Mantém seguro sem derrubar a aplicação
+-      setSession(userSession);
+-      setAuthStatus('authenticated');
++      return;
+     }
++
++    setBlockedMessage(null);
++    setSession(userSession);
++    setAuthStatus('authenticated');
+   };
+ 
+   useEffect(() => {
+-    supabase.auth.getSession()
+-      .then(({ data: { session } }) => {
+-        checkAccessAndSetSession(session, false);
++    let disposed = false;
++    const initialSequence = verificationSequenceRef.current;
++    void supabase.auth.getSession()
++      .then(({ data: { session }, error }) => {
++        if (disposed || initialSequence !== verificationSequenceRef.current) return;
++        if (error) {
++          ++verificationSequenceRef.current;
++          setSession(null);
++          setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
++          setAuthStatus('access_error');
++          return;
++        }
++        void checkAccessAndSetSession(session, false);
+       })
+-      .catch((err) => {
+-        console.error("Error getting session, possibly due to network failure:", err);
+-        setAuthStatus('unauthenticated');
++      .catch(() => {
++        if (disposed || initialSequence !== verificationSequenceRef.current) return;
++        ++verificationSequenceRef.current;
++        setSession(null);
++        setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
++        setAuthStatus('access_error');
+       });
+ 
+-    const {
+-      data: { subscription },
+-    } = supabase.auth.onAuthStateChange((event, session) => {
+-      // Se for SIGNED_OUT ou não houver sessão, desconecta de imediato
+-      if (event === 'SIGNED_OUT' || !session) {
++    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, updatedSession) => {
++      if (disposed) return;
++
++      if (event === 'SIGNED_OUT' || !updatedSession) {
++        ++verificationSequenceRef.current;
+         setSession(null);
+         setAuthStatus('unauthenticated');
+         return;
+       }
+ 
+-      // Se o usuário já está autenticado (ex: TOKEN_REFRESHED ou foco), faz revalidação silenciosa (stale-while-revalidate)
+-      // usando authStatusRef.current para NÃO depender de authStatus no array de dependências e NÃO desmontar a árvore
+-      const isAlreadyAuth = authStatusRef.current === 'authenticated';
+-      checkAccessAndSetSession(session, isAlreadyAuth);
++      const previouslyVerified =
++        authStatusRef.current === 'authenticated' &&
++        sessionRef.current?.user?.id === updatedSession.user?.id;
++
++      void checkAccessAndSetSession(updatedSession, previouslyVerified);
+     });
+ 
+     return () => {
+-      if (subscription) {
+-        subscription.unsubscribe();
+-      }
++      disposed = true;
++      ++verificationSequenceRef.current;
++      subscription?.unsubscribe();
+     };
+   }, []);
+ 
+-  // Monitoramento Ativo em Tempo Real para Sessões Concorrentes (Revogação Imediata)
++  // Revogação: a verificação periódica e ao voltar o foco reutilizam o mesmo
++  // gate rigoroso. Erros NÃO são ignorados; a UI protegida deixa de ser exibida.
+   useEffect(() => {
+     if (authStatus !== 'authenticated' || !session?.user?.id) return;
+ 
+-    const currentUserId = session.user.id;
+-    const currentUserEmail = session.user.email ? session.user.email.trim().toLowerCase() : '';
+-
+-    const verifyCurrentAccess = async () => {
+-      try {
+-        const { data: prof } = await supabase
+-          .from('profiles')
+-          .select('access_status')
+-          .or(`id.eq.${currentUserId},email.ilike.${currentUserEmail}`)
+-          .maybeSingle();
+-
+-        if (prof && prof.access_status === 'blocked') {
+-          console.warn('[SECURITY] Sessão revogada imediatamente: status alterado para bloqueado.');
+-          await supabase.auth.signOut();
+-          setSession(null);
+-          setBlockedMessage('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
+-          setAuthStatus('blocked');
+-        }
+-      } catch (e) {
+-        // no-op
++    const userId = session.user.id;
++    const verifyCurrentAccess = () => {
++      if (sessionRef.current?.user?.id === userId) {
++        void checkAccessAndSetSession(sessionRef.current, true);
+       }
+     };
+ 
+-    // 1. Ouvinte Supabase Realtime para alterações imediatas no perfil
+     const channel = supabase
+-      .channel(`profile-access-watcher-${currentUserId}`)
++      .channel(`profile-access-watcher-${userId}`)
+       .on(
+         'postgres_changes',
+         {
+           event: 'UPDATE',
+           schema: 'public',
+           table: 'profiles',
+-          filter: `id=eq.${currentUserId}`,
++          filter: `id=eq.${userId}`,
+         },
+-        (payload) => {
+-          if (payload.new && (payload.new as any).access_status === 'blocked') {
+-            console.warn('[SECURITY] Notificação Realtime de bloqueio recebida.');
+-            verifyCurrentAccess();
+-          }
+-        }
++        verifyCurrentAccess
+       )
+       .subscribe();
+ 
+-    // 2. Verificação periódica a cada 20 segundos
+     const intervalId = setInterval(verifyCurrentAccess, 20000);
+-
+-    // 3. Verificação ao retornar o foco à aba
+-    const handleFocus = () => {
+-      verifyCurrentAccess();
+-    };
+-    window.addEventListener('focus', handleFocus);
++    window.addEventListener('focus', verifyCurrentAccess);
+ 
+     return () => {
+-      supabase.removeChannel(channel);
++      void supabase.removeChannel(channel);
+       clearInterval(intervalId);
+-      window.removeEventListener('focus', handleFocus);
++      window.removeEventListener('focus', verifyCurrentAccess);
+     };
+   }, [authStatus, session?.user?.id]);
+ 
+@@ -515,6 +522,41 @@ export default function App() {
+     );
+   }
+ 
++  if (authStatus === 'access_error') {
++    return (
++      <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
++        <div className="max-w-md w-full bg-white border border-amber-200 rounded-2xl shadow-lg p-8 text-center space-y-5">
++          <ShieldAlert className="w-10 h-10 text-amber-600 mx-auto" />
++          <h2 className="text-xl font-bold text-zinc-900">Acesso não confirmado</h2>
++          <p className="text-sm text-zinc-600">
++            {blockedMessage || 'Não foi possível confirmar seu perfil de acesso.'}
++          </p>
++          <button type="button" onClick={() => {
++            const retrySequence = ++verificationSequenceRef.current;
++            setSession(null);
++            setAuthStatus('verifying_profile');
++            void supabase.auth.getSession().then(({ data, error }) => {
++              if (retrySequence !== verificationSequenceRef.current) return;
++              if (error) throw error;
++              return checkAccessAndSetSession(data.session, false);
++            }).catch(() => {
++              if (retrySequence !== verificationSequenceRef.current) return;
++              setSession(null);
++              setBlockedMessage('Não foi possível verificar a sessão. Tente novamente.');
++              setAuthStatus('access_error');
++            });
++          }} className="w-full py-2.5 px-4 bg-indigo-600 text-white rounded-xl font-semibold">
++            Tentar novamente
++          </button>
++          <button type="button" onClick={() => { void supabase.auth.signOut(); }}
++            className="w-full py-2.5 px-4 border rounded-xl text-sm">
++            Sair e voltar ao login
++          </button>
++        </div>
++      </div>
++    );
++  }
++
+   if (authStatus === 'blocked') {
+     return (
+       <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-4">
+diff --git a/src/components/Layout.tsx b/src/components/Layout.tsx
+index 7b46d4d..6edbf3e 100644
+--- a/src/components/Layout.tsx
++++ b/src/components/Layout.tsx
+@@ -61,10 +61,11 @@ export const Layout: React.FC<LayoutProps> = ({
+     { id: "discount_rules", label: "Regras de Desconto", icon: Wallet, roles: ["super_admin"] },
+     { id: "choir", label: "Coral", icon: Users, roles: ["super_admin", "admin"] },
+     { id: "profiles", label: "Usuários", icon: Shield, roles: ["super_admin"] },
++    { id: "permissions_manager", label: "Permissões (DEV)", icon: ShieldCheck, roles: ["super_admin"] },
+   ] as const;
+ 
+   const userRole = currentUserProfile?.role;
+-  const navItems = userRole
++  const navItems = userRole && currentUserProfile?.access_status === "active"
+     ? allNavItems.filter((item) => item.roles.includes(userRole))
+     : [];
+ 
+diff --git a/src/lib/devSupabaseConfig.ts b/src/lib/devSupabaseConfig.ts
+new file mode 100644
+index 0000000..4a01419
+--- /dev/null
++++ b/src/lib/devSupabaseConfig.ts
+@@ -0,0 +1,16 @@
++import { validateDevSupabaseUrl } from '../shared/approvedDevSupabase';
++
++// Ambiente isolado: configuração explícita. Nunca usar valor padrão de produção.
++export function getBrowserDevSupabaseConfig() {
++  const url = validateDevSupabaseUrl(
++    import.meta.env.VITE_SUPABASE_URL,
++    import.meta.env.VITE_EAVRA_DEV_PROJECT_REF,
++  );
++  const anonKey = String(
++    import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '',
++  ).trim();
++  if (!anonKey) {
++    throw new Error('[EAVRA DEV] Chave pública do Supabase não configurada.');
++  }
++  return { url, anonKey };
++}
+diff --git a/src/lib/supabase.ts b/src/lib/supabase.ts
+index 8c92c90..17d59b8 100644
+--- a/src/lib/supabase.ts
++++ b/src/lib/supabase.ts
+@@ -1,13 +1,8 @@
+ /// <reference types="vite/client" />
+ import { createClient } from '@supabase/supabase-js';
++import { getBrowserDevSupabaseConfig } from './devSupabaseConfig';
+ 
+-const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL) || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+-
+-export const supabase = createClient(supabaseUrl, supabaseKey, {
+-  auth: {
+-    persistSession: true,
+-    autoRefreshToken: true,
+-  }
++const { url, anonKey } = getBrowserDevSupabaseConfig();
++export const supabase = createClient(url, anonKey, {
++  auth: { persistSession: true, autoRefreshToken: true },
+ });
+-
+diff --git a/src/server/adminAuthorization.ts b/src/server/adminAuthorization.ts
+new file mode 100644
+index 0000000..d76562d
+--- /dev/null
++++ b/src/server/adminAuthorization.ts
+@@ -0,0 +1,18 @@
++/** Gate de autorização para operações administrativas sensíveis. Sem consultas nem segredos. */
++export interface AdminCallerProfile {
++  id?: string | null;
++  role?: string | null;
++  access_status?: string | null;
++}
++
++export function isActiveAdminCaller(
++  profile: AdminCallerProfile | null | undefined,
++  authUserId: string,
++  allowedRoles: readonly string[],
++): boolean {
++  return Boolean(
++    authUserId && profile && profile.id === authUserId &&
++    profile.access_status === 'active' &&
++    profile.role && allowedRoles.includes(profile.role)
++  );
++}
+diff --git a/src/server/adminRoutes.ts b/src/server/adminRoutes.ts
+index e2141ee..cd1a82f 100644
+--- a/src/server/adminRoutes.ts
++++ b/src/server/adminRoutes.ts
+@@ -1,5 +1,8 @@
+ import { Router } from 'express';
+ import { createClient } from '@supabase/supabase-js';
++import { getServerDevSupabaseConfig } from './devSupabaseConfig.ts';
++import { reviewProvisioningIdentity } from './userProvisioningSafety.js';
++import { isActiveAdminCaller } from './adminAuthorization.js';
+ import {
+   getTeacherPixKey,
+   getAllTeacherPixKeys,
+@@ -10,133 +13,126 @@ import {
+ 
+ export const adminRouter = Router();
+ 
+-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-const rawSupabaseKey = (process.env.SUPABASE_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
+-const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('eyJ')
+-  ? rawSupabaseKey
+-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
++const { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY } = getServerDevSupabaseConfig();
+ const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
+ 
+ // POST /api/admin/create-or-resolve-user
+-// Garante que public.profiles.id seja rigorosamente idêntico ao auth.users.id
++// Fluxo exclusivamente administrativo. NÃO reconcilia perfis existentes automaticamente.
+ adminRouter.post('/create-or-resolve-user', async (req, res) => {
+   try {
+-    const authHeader = req.headers.authorization;
+-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+-      return res.status(401).json({ success: false, error: 'Token de autenticação não fornecido.' });
++    const authorization = req.headers.authorization;
++    if (!authorization?.startsWith('Bearer ')) {
++      return res.status(401).json({ success: false, error: 'Sessão não informada.' });
+     }
+ 
+-    const token = authHeader.replace('Bearer ', '').trim();
+-    const { email, password, role, teacher_id } = req.body;
+-
+-    if (!email || !role) {
+-      return res.status(400).json({ success: false, error: 'E-mail e role são obrigatórios.' });
++    const { email, password, role, teacher_id } = req.body || {};
++    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
++    if (!cleanEmail || !['super_admin', 'admin', 'teacher'].includes(role) ||
++        typeof password !== 'string' || password.length < 6) {
++      return res.status(400).json({ success: false, error: 'E-mail, papel válido e senha inicial são obrigatórios.' });
++    }
++    if (role === 'teacher' && teacher_id != null && typeof teacher_id !== 'string') {
++      return res.status(400).json({ success: false, error: 'Professor associado inválido.' });
+     }
+ 
+-    const cleanEmail = email.trim().toLowerCase();
+-
+-    // 1. Validar solicitante via JWT
++    const token = authorization.slice('Bearer '.length).trim();
+     const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+-      global: { headers: { Authorization: `Bearer ${token}` } }
++      global: { headers: { Authorization: `Bearer ${token}` } },
+     });
+-
+-    const { data: { user: callerUser }, error: callerErr } = await userClient.auth.getUser();
+-    if (callerErr || !callerUser) {
++    const { data: { user: caller }, error: authError } = await userClient.auth.getUser();
++    if (authError || !caller) {
+       return res.status(401).json({ success: false, error: 'Sessão inválida ou expirada.' });
+     }
+-
+-    // 2. Validar que solicitante é super_admin
+-    const { data: callerProfile } = await userClient
++    const { data: callerProfile, error: profileError } = await userClient
+       .from('profiles')
+-      .select('role')
+-      .eq('id', callerUser.id)
++      .select('id, role, access_status')
++      .eq('id', caller.id)
+       .maybeSingle();
+-
+-    if (!callerProfile || callerProfile.role !== 'super_admin') {
+-      return res.status(403).json({
+-        success: false,
+-        error: 'Permissão negada. Apenas Super Administradores podem criar ou sincronizar usuários.'
+-      });
++    if (profileError || !callerProfile || callerProfile.id !== caller.id ||
++        callerProfile.role !== 'super_admin' || callerProfile.access_status !== 'active') {
++      return res.status(403).json({ success: false, error: 'Apenas Super Admin ativo pode cadastrar usuários.' });
+     }
+-
+     if (!SUPABASE_SERVICE_ROLE_KEY) {
+-      return res.status(503).json({
+-        success: false,
+-        error: 'Chave administrativa não configurada no servidor.'
+-      });
++      return res.status(503).json({ success: false, error: 'Serviço administrativo não configurado.' });
+     }
+ 
+     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+-      auth: { autoRefreshToken: false, persistSession: false }
++      auth: { autoRefreshToken: false, persistSession: false },
+     });
+ 
+-    // 3. Buscar se o usuário já existe no Supabase Auth
++    // Percorrer páginas de Auth; falha ao listar => não criar conta duplicada.
+     let authUserId: string | null = null;
+-    const { data: listData, error: listErr } = await adminClient.auth.admin.listUsers();
+-    if (!listErr && listData?.users) {
+-      const existing = listData.users.find((u: any) => u.email?.toLowerCase().trim() === cleanEmail);
+-      if (existing) {
+-        authUserId = existing.id;
++    let finished = false;
++    for (let page = 1; page <= 100; page += 1) {
++      const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 100 });
++      if (error || !data?.users) {
++        return res.status(503).json({ success: false, error: 'Não foi possível verificar contas existentes.' });
+       }
+-    }
+-
+-    // 4. Se não existir no Auth e houver senha, criar conta oficial no Supabase Auth
+-    if (!authUserId) {
+-      if (!password || password.length < 6) {
+-        return res.status(400).json({
+-          success: false,
+-          error: 'Para criar um novo usuário no Supabase Auth é necessário fornecer uma senha de no mínimo 6 dígitos.'
+-        });
++      const found = data.users.find(u => (u.email || '').trim().toLowerCase() === cleanEmail);
++      if (found) authUserId = found.id;
++      if (found || data.users.length < 100) {
++        finished = true;
++        break;
+       }
++    }
++    if (!finished) {
++      return res.status(503).json({ success: false, error: 'A busca de contas excedeu o limite de auditoria.' });
++    }
+ 
+-      const { data: createdAuth, error: createAuthErr } = await adminClient.auth.admin.createUser({
+-        email: cleanEmail,
+-        password: password,
+-        email_confirm: true,
++    const { data: profilesByEmail, error: lookupError } = await adminClient
++      .from('profiles')
++      .select('id, email')
++      .ilike('email', cleanEmail)
++      .limit(2);
++    if (lookupError || !profilesByEmail) {
++      return res.status(503).json({ success: false, error: 'Não foi possível verificar os perfis existentes.' });
++    }
++    const decision = reviewProvisioningIdentity(authUserId, cleanEmail, profilesByEmail);
++    if (decision !== 'create_new') {
++      return res.status(409).json({
++        success: false,
++        code: decision === 'already_linked' ? 'USER_ALREADY_EXISTS' : 'IDENTITY_REVIEW_REQUIRED',
++        error: decision === 'already_linked'
++          ? 'Conta e perfil já existem. Use a edição administrativa, sem recriar a conta.'
++          : 'Identidade não conciliada. Revisão manual necessária; nenhum ID será modificado.',
+       });
+-
+-      if (createAuthErr || !createdAuth?.user) {
+-        return res.status(500).json({
+-          success: false,
+-          error: `Falha ao criar usuário no Supabase Auth: ${createAuthErr?.message || 'Erro desconhecido'}`
+-        });
+-      }
+-
+-      authUserId = createdAuth.user.id;
+     }
+ 
+-    // 5. Garantir que public.profiles receba EXATAMENTE o authUserId como chave primária
+-    const profilePayload = {
+-      id: authUserId,
++    const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+       email: cleanEmail,
+-      role: role,
+-      teacher_id: role === 'teacher' && teacher_id ? teacher_id : null,
+-      temp_password: password || null,
+-      access_status: 'active',
+-      created_at: new Date().toISOString()
+-    };
++      password,
++      email_confirm: true,
++    });
++    if (createError || !created?.user?.id) {
++      return res.status(500).json({ success: false, error: 'Não foi possível criar a conta de autenticação.' });
++    }
+ 
+-    const { data: savedProfile, error: profileErr } = await adminClient
++    // Apenas INSERT, não UPSERT: nunca substituir um perfil ou papel preexistente.
++    const { data: saved, error: insertError } = await adminClient
+       .from('profiles')
+-      .upsert([profilePayload])
+-      .select()
++      .insert([{
++        id: created.user.id,
++        email: cleanEmail,
++        role,
++        teacher_id: role === 'teacher' ? (teacher_id || null) : null,
++        access_status: 'active',
++        created_at: new Date().toISOString(),
++      }])
++      .select('id, email, role, teacher_id, access_status, created_at')
+       .single();
+-
+-    if (profileErr) {
++    if (insertError || !saved) {
++      // Rollback apenas da conta criada nesta própria requisição. Sem tocar em contas antigas.
++      const { error: rollbackError } = await adminClient.auth.admin.deleteUser(created.user.id);
++      if (rollbackError) console.error('[ADMIN] Falha no rollback de conta recém-criada. Intervenção manual necessária.');
+       return res.status(500).json({
+         success: false,
+-        error: `Falha ao salvar perfil sincronizado em public.profiles: ${profileErr.message}`
++        error: 'Perfil não foi criado; verifique o resultado da operação antes de tentar novamente.',
+       });
+     }
+-
+-    return res.json({
+-      success: true,
+-      authUserId,
+-      profile: savedProfile,
+-      message: 'Usuário sincronizado com sucesso: profiles.id é rigorosamente igual a auth.users.id.'
+-    });
+-  } catch (err: any) {
+-    return res.status(500).json({ success: false, error: err?.message || 'Erro interno do servidor.' });
++    return res.status(201).json({ success: true, authUserId: created.user.id, profile: saved });
++  } catch (error) {
++    console.error('[ADMIN] Erro no cadastro administrativo:', error);
++    return res.status(500).json({ success: false, error: 'Falha administrativa. Nenhuma reconciliação automática foi autorizada.' });
+   }
+ });
+ 
+@@ -172,11 +168,11 @@ adminRouter.post('/toggle-user-access', async (req, res) => {
+     // Validar se o solicitante possui role super_admin
+     const { data: callerProfile, error: profErr } = await userClient
+       .from('profiles')
+-      .select('role')
++      .select('id, role, access_status')
+       .eq('id', user.id)
+       .maybeSingle();
+ 
+-    if (profErr || !callerProfile || callerProfile.role !== 'super_admin') {
++    if (profErr || !isActiveAdminCaller(callerProfile, user.id, ['super_admin'])) {
+       return res.status(403).json({
+         success: false,
+         error: 'Permissão negada. Apenas Super Administradores podem alterar o status de acesso de usuários.'
+@@ -212,6 +208,19 @@ adminRouter.post('/toggle-user-access', async (req, res) => {
+       });
+     }
+ 
++    // Não alterar Auth se não houver perfil válido para sincronizar.
++    const { data: targetProfile, error: targetProfileErr } = await adminClient
++      .from('profiles')
++      .select('id, access_status')
++      .eq('id', target_user_id)
++      .maybeSingle();
++    if (targetProfileErr || targetProfile?.id !== target_user_id) {
++      return res.status(409).json({
++        success: false,
++        error: 'Conta sem perfil correspondente. Revisão manual necessária; nada foi alterado.',
++      });
++    }
++
+     // Atualizar Supabase Auth com ban_duration
+     const isBlocking = target_access_status === 'blocked';
+     const banDuration = isBlocking ? '876000h' : 'none';
+@@ -228,19 +237,22 @@ adminRouter.post('/toggle-user-access', async (req, res) => {
+     }
+ 
+     // Atualizar profiles.access_status SOMENTE APÓS confirmação de sucesso no Auth
+-    const { error: profileUpdateErr } = await adminClient
++    const { data: updatedProfile, error: profileUpdateErr } = await adminClient
+       .from('profiles')
+       .update({ access_status: target_access_status })
+-      .eq('id', target_user_id);
++      .eq('id', target_user_id)
++      .select('id, access_status')
++      .maybeSingle();
+ 
+-    if (profileUpdateErr) {
++    if (profileUpdateErr || updatedProfile?.id !== target_user_id ||
++        updatedProfile?.access_status !== target_access_status) {
+       // Reverter alteração no Auth para manter consistência absoluta
+       const rollbackBanDuration = isBlocking ? 'none' : '876000h';
+       await adminClient.auth.admin.updateUserById(target_user_id, { ban_duration: rollbackBanDuration });
+ 
+       return res.status(500).json({
+         success: false,
+-        error: `Falha ao atualizar public.profiles: ${profileUpdateErr.message}. Ação revertida no Supabase Auth por consistência.`
++        error: 'Falha ao confirmar a alteração do perfil. A reversão no Auth foi solicitada; confira o estado do usuário antes de repetir.'
+       });
+     }
+ 
+@@ -304,15 +316,11 @@ async function checkAdminPixAuthorization(req: any): Promise<{
+ 
+   const { data: callerProfile, error: profErr } = await userClient
+     .from('profiles')
+-    .select('id, role, teacher_id')
++    .select('id, role, teacher_id, access_status')
+     .eq('id', user.id)
+     .maybeSingle();
+ 
+-  if (
+-    profErr ||
+-    !callerProfile ||
+-    !['super_admin', 'admin'].includes(callerProfile.role)
+-  ) {
++  if (profErr || !isActiveAdminCaller(callerProfile, user.id, ['super_admin', 'admin'])) {
+     return {
+       authorized: false,
+       statusCode: 403,
+diff --git a/src/server/devSupabaseConfig.ts b/src/server/devSupabaseConfig.ts
+new file mode 100644
+index 0000000..5a5beba
+--- /dev/null
++++ b/src/server/devSupabaseConfig.ts
+@@ -0,0 +1,24 @@
++import { validateDevSupabaseUrl } from '../shared/approvedDevSupabase.ts';
++
++/**
++ * Os endpoints server-side devem apontar EXATAMENTE para o mesmo DEV que o browser.
++ * É proposital falhar ao iniciar se não houver configuração: nunca usar fallback.
++ */
++export function getServerDevSupabaseConfig(env: NodeJS.ProcessEnv = process.env) {
++  const frontendUrl = validateDevSupabaseUrl(
++    env.VITE_SUPABASE_URL,
++    env.VITE_EAVRA_DEV_PROJECT_REF,
++  );
++  const serverUrl = validateDevSupabaseUrl(
++    env.SUPABASE_URL,
++    env.VITE_EAVRA_DEV_PROJECT_REF,
++  );
++  if (frontendUrl !== serverUrl) {
++    throw new Error('[EAVRA DEV] Frontend e backend apontam para bancos diferentes.');
++  }
++  const anonKey = String(env.SUPABASE_KEY || env.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_KEY || '').trim();
++  if (!anonKey) {
++    throw new Error('[EAVRA DEV] Chave pública do servidor não configurada.');
++  }
++  return { url: serverUrl, anonKey };
++}
+diff --git a/src/server/googleCalendarRoutes.ts b/src/server/googleCalendarRoutes.ts
+index 2a8a4da..c8a4d56 100644
+--- a/src/server/googleCalendarRoutes.ts
++++ b/src/server/googleCalendarRoutes.ts
+@@ -7,6 +7,7 @@
+ 
+ import { Router } from 'express';
+ import { createClient } from '@supabase/supabase-js';
++import { getServerDevSupabaseConfig } from './devSupabaseConfig.ts';
+ import {
+   getGoogleConfig,
+   generateGoogleAuthUrl,
+@@ -28,11 +29,15 @@ import {
+ 
+ export const googleCalendarRouter = Router();
+ 
+-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-const rawSupabaseKey = (process.env.SUPABASE_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
+-const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('eyJ')
+-  ? rawSupabaseKey
+-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
++// DEV: OAuth e sincronizações suspensos até aprovação de testes com contas fictícias.
++googleCalendarRouter.use((_req, res, next) => {
++  if (process.env.EAVRA_ENABLE_DEV_GOOGLE_CALENDAR !== 'true') {
++    return res.status(503).json({ error: 'Integração Google Calendar desativada no ambiente de testes.' });
++  }
++  next();
++});
++
++const { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY } = getServerDevSupabaseConfig();
+ 
+ // Resolução compatível do secret administrativo (SUPABASE_SECRET_KEY || SUPABASE_SERVICE_ROLE_KEY)
+ const rawSecretInput = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+diff --git a/src/server/googleCalendarService.ts b/src/server/googleCalendarService.ts
+index baf0d59..064be40 100644
+--- a/src/server/googleCalendarService.ts
++++ b/src/server/googleCalendarService.ts
+@@ -10,6 +10,7 @@
+  */
+ 
+ import { createClient } from '@supabase/supabase-js';
++import { getServerDevSupabaseConfig } from './devSupabaseConfig.ts';
+ 
+ export interface TeacherGoogleAccount {
+   teacher_id: string;
+@@ -76,11 +77,7 @@ export interface SyncClassPayload {
+ }
+ 
+ // Configuração Supabase
+-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
+-const supabaseKey = rawSupabaseKey.startsWith('eyJ')
+-  ? rawSupabaseKey
+-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
++const { url: supabaseUrl, anonKey: supabaseKey } = getServerDevSupabaseConfig();
+ 
+ // Cliente administrativo exclusivo de servidor para teacher_google_accounts e class_google_events
+ // Suporta a nova Supabase Secret Key (prefixo sb_...) e JWT legado (prefixo eyJ...)
+diff --git a/src/server/userProvisioningSafety.ts b/src/server/userProvisioningSafety.ts
+new file mode 100644
+index 0000000..9c58771
+--- /dev/null
++++ b/src/server/userProvisioningSafety.ts
+@@ -0,0 +1,24 @@
++/**
++ * Decisão segura para provisionamento. Um e-mail coincidente é sinal de revisão,
++ * jamais prova de identidade nem autorização para alterar o ID existente.
++ */
++export type ExistingProfile = { id: string; email: string | null };
++export type ProvisioningDecision = 'create_new' | 'already_linked' | 'manual_review';
++
++export function reviewProvisioningIdentity(
++  authId: string | null,
++  email: string,
++  profilesByEmail: ExistingProfile[],
++): ProvisioningDecision {
++  const target = email.trim().toLowerCase();
++  if (!target || !Array.isArray(profilesByEmail)) return 'manual_review';
++  // Múltiplos perfis com o mesmo e-mail são ambíguos até na hipótese de um ID coincidir.
++  if (profilesByEmail.length > 1) return 'manual_review';
++  const matchedProfile = profilesByEmail[0];
++  if (matchedProfile && (matchedProfile.email || '').trim().toLowerCase() !== target) {
++    return 'manual_review';
++  }
++  if (!authId) return matchedProfile ? 'manual_review' : 'create_new';
++  if (!matchedProfile || matchedProfile.id !== authId) return 'manual_review';
++  return 'already_linked';
++}
+diff --git a/src/services/permissionsAdmin.ts b/src/services/permissionsAdmin.ts
+new file mode 100644
+index 0000000..aa24de7
+--- /dev/null
++++ b/src/services/permissionsAdmin.ts
+@@ -0,0 +1,33 @@
++/** Etapa 10: only Supabase Auth + protected PostgreSQL RPCs are used.
++ * The stage09 RPCs verify role, status and auth.uid() again server-side.
++ */
++import { supabase } from '../lib/supabase';
++import { createPermissionsAdminController } from '../utils/permissionAdminController';
++import { getPermissionDevEnvironment } from '../utils/permissionAdminConfig';
++export type {
++  PermissionDecision, PermissionScope, PermissionSubject, RoleTarget, PermissionCatalogItem,
++  PermissionRule, RolePermissionRule, UserPermissionRule, PermissionSnapshot,
++  PermissionMutation, PermissionSaveResult,
++} from '../utils/permissionAdminRules';
++
++const controller = createPermissionsAdminController({
++  async currentAuthUser() {
++    // getUser calls Supabase Auth to verify the token, never trust a cached session alone.
++    const { data: { user }, error } = await supabase.auth.getUser();
++    if (error || !user?.id) return null;
++    return { id: user.id };
++  },
++  async profileByAuthId(id) {
++    const { data, error } = await supabase.from('profiles')
++      .select('id,role,access_status').eq('id', id).maybeSingle();
++    if (error || !data) return null;
++    return { id: data.id, role: data.role, access_status: data.access_status };
++  },
++  async rpc(name, args) {
++    const { data, error } = await supabase.rpc(name, args);
++    return { data, error };
++  },
++}, getPermissionDevEnvironment);
++
++export const loadAdminPermissions = controller.load;
++export const saveAdminPermission = controller.save;
+diff --git a/src/shared/approvedDevSupabase.ts b/src/shared/approvedDevSupabase.ts
+new file mode 100644
+index 0000000..8eb20e7
+--- /dev/null
++++ b/src/shared/approvedDevSupabase.ts
+@@ -0,0 +1,42 @@
++/**
++ * Restrição de ambiente de desenvolvimento do EAVRA.
++ * Jamais deve ser importado pelo aplicativo de produção.
++ * A aprovação do projeto é configurada por um ID explícito (não é uma credencial).
++ */
++const KNOWN_PRODUCTION_REFS = new Set(['ldumzwrwbhjtrnlioigg']);
++
++export function validateDevSupabaseUrl(urlInput: unknown, allowedRefInput: unknown): string {
++  const allowedRef = String(allowedRefInput || '').trim().toLowerCase();
++  const rawUrl = String(urlInput || '').trim();
++  if (!/^[a-z0-9]{20}$/.test(allowedRef)) {
++    throw new Error('[EAVRA DEV] Referência do projeto DEV ausente ou inválida.');
++  }
++  if (KNOWN_PRODUCTION_REFS.has(allowedRef)) {
++    throw new Error('[EAVRA DEV] Projeto original/produção não é permitido nesta branch.');
++  }
++  if (!rawUrl) {
++    throw new Error('[EAVRA DEV] URL do Supabase ausente.');
++  }
++  let parsed: URL;
++  try {
++    parsed = new URL(rawUrl);
++  } catch {
++    throw new Error('[EAVRA DEV] URL do Supabase inválida.');
++  }
++  if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
++      parsed.port || parsed.pathname !== '/' || parsed.search || parsed.hash) {
++    throw new Error('[EAVRA DEV] A URL precisa ser a raiz HTTPS de um projeto Supabase.');
++  }
++  const match = /^([a-z0-9]{20})\.supabase\.co$/i.exec(parsed.hostname);
++  if (!match) {
++    throw new Error('[EAVRA DEV] Domínio Supabase não reconhecido.');
++  }
++  const actualRef = match[1].toLowerCase();
++  if (KNOWN_PRODUCTION_REFS.has(actualRef)) {
++    throw new Error('[EAVRA DEV] Conexão com o Supabase original bloqueada.');
++  }
++  if (actualRef !== allowedRef) {
++    throw new Error('[EAVRA DEV] Supabase configurado difere do projeto DEV autorizado.');
++  }
++  return parsed.origin;
++}
+diff --git a/src/store.tsx b/src/store.tsx
+index 7038071..568ad13 100644
+--- a/src/store.tsx
++++ b/src/store.tsx
+@@ -1,5 +1,7 @@
+ import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from "react";
+ import { supabase } from "./lib/supabase";
++import { loadAuthorizedProfile } from "./utils/profileAccess";
++import { getBrowserDevSupabaseConfig } from "./lib/devSupabaseConfig";
+ import { createClient } from "@supabase/supabase-js";
+ import { normalizePhoneNumber, PhoneNormalizationResult } from "./utils/phone";
+ import { calculateRaphaelClassCreditValue } from "./utils/raphaelBillingSimulation";
+@@ -1770,10 +1772,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+ 
+   const [isProfileLoading, setIsProfileLoading] = useState(true);
+ 
++  // Cada solicitação possui um número de geração para impedir que respostas
++  // antigas reinstalem um perfil depois de logout, bloqueio ou mudança de usuário.
++  const profileRequestSequenceRef = useRef(0);
++
+   const reloadCurrentUserProfile = async (
+     sessionUser?: { id: string } | null,
+     options?: { silent?: boolean }
+   ) => {
++    const sequence = ++profileRequestSequenceRef.current;
+     if (sessionUser === null) {
+       currentUserProfileRef.current = null;
+       setCurrentUserProfile(null);
+@@ -1781,149 +1788,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+       return;
+     }
+ 
+-    // Se options?.silent for true, ou se já existe perfil em memória, a revalidação é silenciosa
+-    // em segundo plano (stale-while-revalidate), NÃO ativando o spinner e NÃO desmontando telas.
+     const isSilent = options?.silent ?? (currentUserProfileRef.current !== null);
+-    if (!isSilent) {
+-      setIsProfileLoading(true);
+-    }
+-
+-    // Timeout de segurança de 10s para redes móveis instáveis: impede carregamento infinito sem conceder acesso falso
+-    const timeoutPromise = new Promise<{ data: { user: null }; error: Error }>((resolve) => {
+-      setTimeout(() => {
+-        resolve({ data: { user: null }, error: new Error('Profile fetch timed out') });
+-      }, 10000);
+-    });
++    if (!isSilent) setIsProfileLoading(true);
+ 
++    // Com erro de autenticação, consulta ou perfil divergente, não reaproveitar
++    // os privilégios do cache local nem resolver identidades por e-mail.
+     try {
+-      let user: { id: string; email?: string } | null = (sessionUser as any) || null;
++      let user = sessionUser;
+       if (!user) {
+-        const userResult = await Promise.race([
+-          supabase.auth.getUser(),
+-          timeoutPromise,
+-        ]);
+-        user = (userResult?.data?.user as any) || null;
++        const sessionResult = await supabase.auth.getUser();
++        if (sessionResult.error) throw sessionResult.error;
++        user = sessionResult.data.user;
+       }
++      if (sequence !== profileRequestSequenceRef.current) return;
+ 
+-      if (user && user.id) {
+-        let userProfile: UserProfile | null = null;
+-        const cleanEmail = (user.email || '').trim().toLowerCase();
+-
+-        // 1. Buscar perfil prioritariamente pelo ID de autenticação
+-        try {
++      const decision = await loadAuthorizedProfile<UserProfile>(
++        user?.id,
++        async (id) => {
+           const { data, error } = await supabase
+             .from('profiles')
+             .select('*')
+-            .eq('id', user.id)
++            .eq('id', id)
+             .maybeSingle();
+-
+-          if (!error && data) {
+-            userProfile = data;
+-          } else if (error) {
+-            console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', error.message);
+-          }
+-        } catch (e) {
+-          console.warn('[AUTH] Could not fetch user profile by ID from Supabase:', e);
+-        }
+-
+-        // 2. Se não encontrar e houver email: buscar por email normalizado (resiliência contra divergência de ID)
+-        if (!userProfile && cleanEmail) {
+-          try {
+-            const { data: profileByEmail, error: emailErr } = await supabase
+-              .from('profiles')
+-              .select('*')
+-              .ilike('email', cleanEmail)
+-              .maybeSingle();
+-
+-            if (!emailErr && profileByEmail) {
+-              console.warn(
+-                `[AUTH DIAGNÓSTICO] Inconsistência de identificador detectada para ${cleanEmail}: ` +
+-                `auth user.id (${user.id}) diverge do profiles.id (${profileByEmail.id}). ` +
+-                `Perfil carregado com sucesso por e-mail com role "${profileByEmail.role}".`
+-              );
+-              userProfile = profileByEmail;
+-            } else if (emailErr) {
+-              console.warn('[AUTH] Erro ao buscar perfil por email:', emailErr.message);
+-            }
+-          } catch (e) {
+-            console.warn('[AUTH] Erro ao buscar perfil por email:', e);
+-          }
++          return { data, error };
+         }
++      );
++      if (sequence !== profileRequestSequenceRef.current) return;
+ 
+-        // 3. Fallback no cache local em memória (state.profiles)
+-        if (!userProfile) {
+-          const localById = state.profiles.find(p => p.id === user!.id);
+-          if (localById) {
+-            userProfile = localById;
+-          } else if (cleanEmail) {
+-            const localByEmail = state.profiles.find(p => (p.email || '').trim().toLowerCase() === cleanEmail);
+-            if (localByEmail) {
+-              console.warn(`[AUTH DIAGNÓSTICO] Perfil recuperado de state.profiles por e-mail para ${cleanEmail}.`);
+-              userProfile = localByEmail;
+-            }
+-          }
++      if (decision.kind !== 'allowed') {
++        currentUserProfileRef.current = null;
++        setCurrentUserProfile(null);
++        if (decision.kind === 'blocked') {
++          setGlobalError('Acesso bloqueado pela administração da escola.');
+         }
++        return;
++      }
+ 
+-        // 4. Validação Crítica: Se perfil estiver com acesso bloqueado, revogar sessão imediatamente
+-        if (userProfile && userProfile.access_status === 'blocked') {
+-          console.warn('[AUTH] Acesso bloqueado pela administração da escola para usuário.');
+-          await supabase.auth.signOut();
+-          currentUserProfileRef.current = null;
+-          setCurrentUserProfile(null);
+-          setGlobalError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
+-          return;
+-        }
++      const userProfile = decision.profile;
++      currentUserProfileRef.current = userProfile;
++      setCurrentUserProfile(userProfile);
+ 
+-        // 5. Se o perfil for resolvido, atualiza currentUserProfile; se NÃO for encontrado, define null SEM assumir teacher
+-        if (userProfile) {
+-          currentUserProfileRef.current = userProfile;
+-          setCurrentUserProfile(userProfile);
+-
+-          // Se for perfil administrativo, carrega as chaves Pix protegidas
+-          if (['super_admin', 'admin'].includes(userProfile.role)) {
+-            fetchTeacherPixKeys().then((pixKeys) => {
+-              if (pixKeys && Object.keys(pixKeys).length > 0) {
+-                setState((s) => ({
+-                  ...s,
+-                  teachers: s.teachers.map((t) => ({
+-                    ...t,
+-                    pix_key: pixKeys[t.id] !== undefined ? pixKeys[t.id] : t.pix_key,
+-                  })),
+-                }));
+-              }
+-            }).catch(() => {});
+-          } else {
+-            // Perfis não administrativos não devem armazenar chaves Pix no estado
++      if (['super_admin', 'admin'].includes(userProfile.role)) {
++        fetchTeacherPixKeys().then((pixKeys) => {
++          if (pixKeys && Object.keys(pixKeys).length > 0 &&
++              profileRequestSequenceRef.current === sequence) {
+             setState((s) => ({
+               ...s,
+-              teachers: s.teachers.map((t) => {
+-                if (t.pix_key) {
+-                  const { pix_key, ...rest } = t;
+-                  return rest as Teacher;
+-                }
+-                return t;
+-              }),
++              teachers: s.teachers.map((t) => ({
++                ...t,
++                pix_key: pixKeys[t.id] !== undefined ? pixKeys[t.id] : t.pix_key,
++              })),
+             }));
+           }
+-        } else {
+-          console.warn('[AUTH SEGURANÇA] Perfil de usuário não localizado nem por ID nem por e-mail. currentUserProfile definido como null sem atribuição de roles.');
+-          currentUserProfileRef.current = null;
+-          setCurrentUserProfile(null);
+-        }
++        }).catch(() => {});
+       } else {
+-        // Falha transitória de rede ou timeout ao voltar do segundo plano:
+-        // NÃO destruir o perfil existente se já houver um carregado em memória!
+-        if (currentUserProfileRef.current) {
+-          console.warn('[AUTH] Verificação de usuário em background não obteve resposta imediata; mantendo perfil ativo.');
+-        } else {
+-          setCurrentUserProfile(null);
+-        }
++        setState((s) => ({
++          ...s,
++          teachers: s.teachers.map((t) => {
++            if (t.pix_key) {
++              const { pix_key, ...rest } = t;
++              return rest as Teacher;
++            }
++            return t;
++          }),
++        }));
+       }
+-    } catch (error: any) {
+-      console.error('[AUTH] Erro ao carregar perfil do usuário:', error?.message || 'Erro inesperado');
+-      // Preserva a segurança: mantém o perfil existente em caso de erro transitório
++    } catch {
++      if (sequence !== profileRequestSequenceRef.current) return;
++      console.warn('[AUTH] Não foi possível confirmar o perfil: acesso não liberado.');
++      currentUserProfileRef.current = null;
++      setCurrentUserProfile(null);
+     } finally {
+-      if (!isSilent) {
++      if (sequence === profileRequestSequenceRef.current && !isSilent) {
+         setIsProfileLoading(false);
+       }
+     }
+@@ -1934,6 +1870,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+ 
+     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+       if (event === 'SIGNED_OUT' || !session?.user) {
++        ++profileRequestSequenceRef.current;
+         classGoogleEventsMapRef.current.clear();
+         currentUserProfileRef.current = null;
+         setCurrentUserProfile(null);
+@@ -2413,15 +2350,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+     try {
+       let activeUserProfile = currentUserProfile;
+       if (!activeUserProfile) {
+-        const { data: { user } } = await supabase.auth.getUser();
+-        if (user?.email) {
+-          const { data } = await supabase.from('profiles').select('*').eq('email', user.email).maybeSingle();
+-          if (data) activeUserProfile = data;
+-          else {
+-            const local = state.profiles.find(p => p.email === user.email);
+-            if (local) activeUserProfile = local;
+-          }
++        const { data: { user }, error: userError } = await supabase.auth.getUser();
++        if (userError) throw new Error('Sessão não verificada para auditoria de aulas.');
++        const decision = await loadAuthorizedProfile<UserProfile>(user?.id, async (id) => {
++          const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
++          return { data, error };
++        });
++        if (decision.kind !== 'allowed') {
++          throw new Error('Acesso à auditoria de aulas negado: perfil não confirmado.');
+         }
++        activeUserProfile = decision.profile;
+       }
+ 
+       const scope = getEffectiveAuditScope(activeUserProfile, state.teachers, options?.filterTeacherId);
+@@ -4164,12 +4102,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+             }
+           }
+ 
+-          const baseProfiles = profiles.length > 0
+-            ? profiles.map((p: any) => {
+-                const local = s.profiles.find((lp: any) => lp.id === p.id);
+-                return local && local.temp_password && !p.temp_password ? { ...p, temp_password: local.temp_password } : p;
+-              })
+-            : s.profiles;
++          // Dados legados podem conter temp_password. Jamais trazer esse campo à interface.
++          const baseProfiles = (profiles.length > 0 ? profiles : s.profiles).map((p: any) => {
++            const { temp_password: _discardPassword, ...safeProfile } = p;
++            return safeProfile;
++          });
+ 
+           // Deduplicação canônica por profile.id (fonte da verdade: public.profiles)
+           const uniqueProfiles = Array.from(
+@@ -6555,175 +6492,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+   };
+ 
+   const addProfile = async (profile: UserProfile, password?: string) => {
+-    // 1. Validar permissão: SOMENTE super_admin pode criar usuários/logins
+-    if (currentUserProfile?.role !== 'super_admin') {
+-      const err = 'Permissão negada. Apenas Super Administradores podem criar novos usuários e credenciais de acesso.';
+-      setGlobalError(err);
+-      throw new Error(err);
++    // A única rota de provisionamento é a API administrativa validada no servidor.
++    // NUNCA usar signUp no cliente, recuperar acesso por e-mail ou fazer upsert de perfil
++    // após erro no backend. Em caso de falha, negar a operação sem alterar o estado local.
++    if (currentUserProfile?.role !== 'super_admin' || currentUserProfile.access_status !== 'active') {
++      throw new Error('Apenas um Super Admin ativo pode cadastrar usuários.');
+     }
+ 
+-    let finalProfile: UserProfile = { ...profile };
+-    const cleanEmail = (profile.email || "").trim().toLowerCase();
+-    finalProfile.email = cleanEmail;
+-    finalProfile.access_status = profile.access_status || 'active';
+-
+-    // 1. Tentar primeiro criação e sincronização via backend Admin API oficial
+-    // para garantir que public.profiles.id === auth.users.id
+-    try {
+-      const { data: { session } } = await supabase.auth.getSession();
+-      if (session?.access_token) {
+-        const response = await fetch('/api/admin/create-or-resolve-user', {
+-          method: 'POST',
+-          headers: {
+-            'Content-Type': 'application/json',
+-            'Authorization': `Bearer ${session.access_token}`
+-          },
+-          body: JSON.stringify({
+-            email: cleanEmail,
+-            password: password,
+-            role: finalProfile.role,
+-            teacher_id: finalProfile.teacher_id,
+-          })
+-        });
+-
+-        if (response.ok) {
+-          const resJson = await response.json();
+-          if (resJson.success && resJson.authUserId) {
+-            finalProfile.id = resJson.authUserId;
+-            if (resJson.profile) {
+-              finalProfile = { ...resJson.profile, ...finalProfile, id: resJson.authUserId };
+-            }
+-            setState((s) => ({
+-              ...s,
+-              profiles: [...s.profiles.filter((p) => p.id !== finalProfile.id && (p.email || "").trim().toLowerCase() !== cleanEmail), finalProfile],
+-            }));
+-            return;
+-          }
+-        }
+-      }
+-    } catch (apiErr) {
+-      console.warn('[ADMIN API] Nota: endpoint server-side não respondeu, prosseguindo com fluxo direto:', apiErr);
++    const cleanEmail = (profile.email || '').trim().toLowerCase();
++    if (!cleanEmail || !password || password.length < 6) {
++      throw new Error('Informe um e-mail e uma senha inicial de pelo menos 6 caracteres.');
+     }
+ 
+-    // 2. Check if profile with this email already exists in local state
+-    const existingInState = state.profiles.find(p => (p.email || "").trim().toLowerCase() === cleanEmail);
+-    if (existingInState) {
+-      finalProfile = {
+-        ...existingInState,
+-        ...profile,
+-        id: existingInState.id,
+-        email: cleanEmail,
+-      };
+-    } else {
+-      // 2. Check if profile already exists in Supabase public.profiles table
+-      try {
+-        const { data: existingDbProfiles } = await supabase
+-          .from('profiles')
+-          .select('*')
+-          .ilike('email', cleanEmail);
+-
+-        if (existingDbProfiles && existingDbProfiles.length > 0) {
+-          const dbProfile = existingDbProfiles[0];
+-          finalProfile = {
+-            ...dbProfile,
+-            ...profile,
+-            id: dbProfile.id,
+-            email: cleanEmail,
+-          };
+-        }
+-      } catch (checkErr: any) {
+-        console.warn('DB profile check warning:', checkErr);
+-      }
++    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
++    if (sessionError || !session?.access_token) {
++      throw new Error('Sua sessão não foi confirmada. Faça login novamente.');
+     }
+ 
+-    // 3. Try creating Auth account if password provided
+-    if (password) {
+-      finalProfile.temp_password = password;
+-      try {
+-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-        const supabaseKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+-        
+-        const tempClient = createClient(supabaseUrl, supabaseKey, {
+-          auth: {
+-            persistSession: false,
+-            autoRefreshToken: false,
+-            detectSessionInUrl: false
+-          }
+-        });
+-
+-        const { data: authData, error: authError } = await tempClient.auth.signUp({
+-          email: cleanEmail,
+-          password: password,
+-        });
+-
+-        if (authData?.user) {
+-          finalProfile.id = authData.user.id;
+-        } else if (authError) {
+-          console.warn(`Auth signup warning for ${cleanEmail}:`, authError.message);
+-          // Try logging in with the password to retrieve the user's Auth ID if already registered
+-          try {
+-            const { data: loginData } = await tempClient.auth.signInWithPassword({
+-              email: cleanEmail,
+-              password: password,
+-            });
+-            if (loginData?.user) {
+-              finalProfile.id = loginData.user.id;
+-            }
+-          } catch (loginErr) {
+-            console.warn('Login test during addProfile:', loginErr);
+-          }
+-        }
+-      } catch (e: any) {
+-        console.warn('Non-fatal auth account creation note:', e);
+-      }
+-    }
+-
+-    // 4. Ensure created_at is always present to satisfy Postgres NOT NULL constraints
+-    if (!finalProfile.created_at) {
+-      finalProfile.created_at = new Date().toISOString();
++    const response = await fetch('/api/admin/create-or-resolve-user', {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        Authorization: `Bearer ${session.access_token}`,
++      },
++      body: JSON.stringify({
++        email: cleanEmail,
++        password,
++        role: profile.role,
++        teacher_id: profile.teacher_id,
++      }),
++    });
++    const result = await response.json().catch(() => null);
++    if (!response.ok || result?.success !== true || !result?.profile || !result?.authUserId) {
++      throw new Error(result?.error || 'Cadastro não realizado. Nenhum perfil foi criado pelo navegador.');
+     }
+ 
+-    // 5. Save to local React state so UI updates immediately
++    // O servidor é a fonte da verdade para id, role, teacher_id e access_status.
++    // Não preservar nem carregar uma senha em public.profiles ou no estado do React.
++    const { temp_password: _discardPassword, ...safeProfile } = result.profile as UserProfile;
++    const createdProfile: UserProfile = { ...safeProfile, id: result.authUserId };
+     setState((s) => ({
+       ...s,
+-      profiles: [...s.profiles.filter((p) => p.id !== finalProfile.id && (p.email || "").trim().toLowerCase() !== cleanEmail), finalProfile],
++      profiles: [...s.profiles.filter((p) => p.id !== createdProfile.id), createdProfile],
+     }));
+-
+-    // 6. Save/upsert to Supabase public.profiles table
+-    try {
+-      const { error } = await supabase.from('profiles').upsert([finalProfile]);
+-      if (error) {
+-        console.warn('Upsert profile warning:', error.message);
+-        // Fallback: if temp_password column doesn't exist in DB, remove it and retry
+-        const cleanProfile = { ...finalProfile };
+-        delete (cleanProfile as any).temp_password;
+-
+-        const { error: errClean } = await supabase.from('profiles').upsert([cleanProfile]);
+-        if (errClean) {
+-          console.warn('Fallback clean profile upsert error:', errClean.message);
+-          const { error: updateErr } = await supabase.from('profiles').update({
+-            role: finalProfile.role,
+-            teacher_id: finalProfile.teacher_id,
+-          }).ilike('email', cleanEmail);
+-
+-          if (updateErr) {
+-            console.warn('Update by email error:', updateErr.message);
+-            await supabase.from('profiles').insert([{
+-              id: finalProfile.id,
+-              email: cleanEmail,
+-              role: finalProfile.role,
+-              teacher_id: finalProfile.teacher_id,
+-              created_at: finalProfile.created_at || new Date().toISOString(),
+-            }]);
+-          }
+-        }
+-      }
+-    } catch (e: any) {
+-      console.warn('Error saving profile to Supabase:', e);
+-    }
+   };
+ 
+   const updateProfile = async (id: string, updates: Partial<UserProfile>) => {
++    if (Object.prototype.hasOwnProperty.call(updates, 'temp_password')) {
++      throw new Error('Não é permitido armazenar senhas em perfis.');
++    }
+     // 1. Validar permissão: SOMENTE super_admin pode alterar usuários, e-mails ou credenciais de acesso
+     if (currentUserProfile?.role !== 'super_admin') {
+       const err = 'Permissão negada. Apenas Super Administradores podem alterar usuários, e-mails ou perfis de acesso.';
+diff --git a/src/tests/admin_authorization_gate.test.ts b/src/tests/admin_authorization_gate.test.ts
+new file mode 100644
+index 0000000..c39209e
+--- /dev/null
++++ b/src/tests/admin_authorization_gate.test.ts
+@@ -0,0 +1,23 @@
++import assert from 'node:assert/strict';
++import { isActiveAdminCaller } from '../server/adminAuthorization.ts';
++
++const uid = 'uuid-teste-001';
++const activeSuper = { id: uid, role: 'super_admin', access_status: 'active' };
++const activeAdmin = { id: uid, role: 'admin', access_status: 'active' };
++const cases: Array<[string, boolean]> = [
++  ['Super Admin ativo', isActiveAdminCaller(activeSuper, uid, ['super_admin'])],
++  ['Admin ativo para módulo administrativo', isActiveAdminCaller(activeAdmin, uid, ['super_admin', 'admin'])],
++  ['Admin não tem privilégio Super Admin', !isActiveAdminCaller(activeAdmin, uid, ['super_admin'])],
++  ['Super Admin bloqueado', !isActiveAdminCaller({ ...activeSuper, access_status: 'blocked' }, uid, ['super_admin'])],
++  ['Super Admin sem status', !isActiveAdminCaller({ id: uid, role: 'super_admin' }, uid, ['super_admin'])],
++  ['Super Admin com ID divergente', !isActiveAdminCaller({ ...activeSuper, id: 'outro' }, uid, ['super_admin'])],
++  ['Perfil ausente', !isActiveAdminCaller(null, uid, ['super_admin'])],
++  ['Conta sem ID', !isActiveAdminCaller(activeSuper, '', ['super_admin'])],
++  ['Professor não é Admin', !isActiveAdminCaller({ id: uid, role: 'teacher', access_status: 'active' }, uid, ['super_admin','admin'])],
++  ['Status indefinido não autoriza', !isActiveAdminCaller({ id: uid, role: 'admin', access_status: 'pending' }, uid, ['super_admin','admin'])],
++];
++for (const [label, passed] of cases) {
++  assert.equal(passed, true, `Falha: ${label}`);
++  console.log(`PASS: ${label}`);
++}
++console.log(`PASS: ${cases.length} cenários de autorização administrativa.`);
+diff --git a/src/tests/admin_identity_regression.test.ts b/src/tests/admin_identity_regression.test.ts
+new file mode 100644
+index 0000000..7aaf478
+--- /dev/null
++++ b/src/tests/admin_identity_regression.test.ts
+@@ -0,0 +1,19 @@
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++
++const store = readFileSync(new URL('../store.tsx', import.meta.url), 'utf8');
++const admin = readFileSync(new URL('../server/adminRoutes.ts', import.meta.url), 'utf8');
++const profiles = readFileSync(new URL('../views/Profiles.tsx', import.meta.url), 'utf8');
++const add = store.slice(store.indexOf('  const addProfile = async ('), store.indexOf('  const updateProfile = async ('));
++const create = admin.slice(admin.indexOf("adminRouter.post('/create-or-resolve-user'"), admin.indexOf('// POST /api/admin/toggle-user-access'));
++assert.ok(add.includes("fetch('/api/admin/create-or-resolve-user'"), 'criação somente por API administrativa');
++assert.ok(!add.includes('.auth.signUp('), 'proibir signup pelo navegador');
++assert.ok(!add.includes('signInWithPassword('), 'proibir teste de senha de terceiros');
++assert.ok(!add.includes(".from('profiles').upsert"), 'proibir upsert alternativo');
++assert.ok(!create.includes('temp_password:'), 'proibir armazenamento de senha');
++assert.ok(!create.includes(".upsert(["), 'proibir sobrescrever perfis existentes');
++assert.ok(create.includes(".insert(["), 'inserção apenas de conta nova');
++assert.ok(create.includes('reviewProvisioningIdentity'), 'conflitos exigem revisão');
++assert.ok(!profiles.includes('admin_reset_user_password'), 'não oferecer SQL de redefinição em tela');
++assert.ok(!profiles.includes('p.temp_password'), 'não mostrar senha em lista de usuários');
++console.log('PASS: 10 verificações de regressão de segurança');
+diff --git a/src/tests/auth_profile_resolution_security.test.ts b/src/tests/auth_profile_resolution_security.test.ts
+index fbc928e..82055b5 100644
+--- a/src/tests/auth_profile_resolution_security.test.ts
++++ b/src/tests/auth_profile_resolution_security.test.ts
+@@ -1,226 +1,6 @@
+-import assert from 'node:assert';
+-import { isViewPermittedForRole, getDefaultViewForRole, ALL_VIEWS, VIEW_ROLE_PERMISSIONS } from '../utils/navigation';
+-
+ /**
+- * Testes de Segurança e Resolução de Perfil de Usuário
+- * Valida os 10 requisitos de integridade de roles e segurança estrita contra elevação/rebaixamento inadvertido.
++ * Compatibilidade com o comando de testes preexistente.
++ * As validações usam o gate de produção em src/utils/profileAccess.ts;
++ * o fallback antigo por email/cache foi removido por risco de elevação de privilégios.
+  */
+-
+-interface MockProfile {
+-  id: string;
+-  email: string;
+-  role: 'super_admin' | 'admin' | 'teacher';
+-  teacher_id?: string | null;
+-  access_status: 'active' | 'blocked';
+-}
+-
+-// Implementação pura do motor de resolução de perfil (idêntica à de store.tsx)
+-function resolveUserProfile(
+-  authUser: { id: string; email?: string } | null,
+-  dbProfiles: MockProfile[],
+-  localProfiles: MockProfile[] = []
+-): { profile: MockProfile | null; diagnosticWarning?: string } {
+-  if (!authUser || !authUser.id) {
+-    return { profile: null };
+-  }
+-
+-  const cleanEmail = (authUser.email || '').trim().toLowerCase();
+-
+-  // 1. Buscar prioritariamente por ID
+-  const byId = dbProfiles.find(p => p.id === authUser.id);
+-  if (byId) {
+-    return { profile: byId };
+-  }
+-
+-  // 2. Se não encontrar e houver email, buscar por email normalizado (resiliência contra divergência de ID)
+-  if (cleanEmail) {
+-    const byEmail = dbProfiles.find(p => (p.email || '').trim().toLowerCase() === cleanEmail);
+-    if (byEmail) {
+-      const diagnosticWarning = `[AUTH DIAGNÓSTICO] Inconsistência de identificador detectada para ${cleanEmail}: auth user.id (${authUser.id}) diverge do profiles.id (${byEmail.id}). Carregando perfil com sucesso por e-mail com role "${byEmail.role}".`;
+-      return { profile: byEmail, diagnosticWarning };
+-    }
+-  }
+-
+-  // 3. Fallback no cache local
+-  const localById = localProfiles.find(p => p.id === authUser.id);
+-  if (localById) {
+-    return { profile: localById };
+-  }
+-
+-  if (cleanEmail) {
+-    const localByEmail = localProfiles.find(p => (p.email || '').trim().toLowerCase() === cleanEmail);
+-    if (localByEmail) {
+-      return { profile: localByEmail, diagnosticWarning: `Recuperado de cache local por e-mail: ${cleanEmail}` };
+-    }
+-  }
+-
+-  // 4. Não encontrado de nenhuma forma: perfil permanece estritamente null sem assumir role padrão
+-  return { profile: null };
+-}
+-
+-// Simulação de renderização de navItems do Layout
+-function computeNavItems(currentUserProfile: MockProfile | null, allNavItems: { id: string; roles: string[] }[]) {
+-  const userRole = currentUserProfile?.role;
+-  return userRole ? allNavItems.filter(item => item.roles.includes(userRole)) : [];
+-}
+-
+-const mockNavItems = [
+-  { id: "dashboard", roles: ["super_admin", "admin"] },
+-  { id: "students", roles: ["super_admin", "admin", "teacher"] },
+-  { id: "payments", roles: ["super_admin"] },
+-  { id: "teachers", roles: ["super_admin", "admin"] },
+-  { id: "classes", roles: ["super_admin", "admin", "teacher"] },
+-  { id: "class_reports", roles: ["super_admin", "admin", "teacher"] },
+-  { id: "finance", roles: ["super_admin"] },
+-  { id: "profiles", roles: ["super_admin"] },
+-];
+-
+-async function runTests() {
+-  console.log('--- INICIANDO TESTES: AUTH PROFILE RESOLUTION & SECURITY ---');
+-
+-  const testDb: MockProfile[] = [
+-    {
+-      id: 'fc5d565f-7178-499e-97e4-4e8f3c8bae86',
+-      email: 'institutodeartera@gmail.com',
+-      role: 'super_admin',
+-      teacher_id: null,
+-      access_status: 'active'
+-    },
+-    {
+-      id: 'teacher-uuid-001',
+-      email: 'luckviolinista@hotmail.com',
+-      role: 'teacher',
+-      teacher_id: '7171c7c8-0dca-42d8-bbaf-3d5e4ea369ae',
+-      access_status: 'active'
+-    },
+-    {
+-      id: 'admin-uuid-002',
+-      email: 'deboratrindade23@gmail.com',
+-      role: 'admin',
+-      teacher_id: null,
+-      access_status: 'active'
+-    },
+-    {
+-      id: 'superadmin-uuid-003',
+-      email: 'jusssouzaa@gmail.com',
+-      role: 'super_admin',
+-      teacher_id: null,
+-      access_status: 'active'
+-    }
+-  ];
+-
+-  // 1. Auth ID igual ao profile ID → role correta
+-  {
+-    const authUser = { id: 'teacher-uuid-001', email: 'luckviolinista@hotmail.com' };
+-    const { profile } = resolveUserProfile(authUser, testDb);
+-    assert.ok(profile, 'Perfil deve ser encontrado');
+-    assert.strictEqual(profile?.role, 'teacher', 'Role deve ser teacher');
+-    assert.strictEqual(profile?.id, 'teacher-uuid-001');
+-    console.log('✅ 1. Auth ID igual ao profile ID → role correta');
+-  }
+-
+-  // 2. Auth ID diferente + email correspondente → perfil encontrado por email (fallback resiliente)
+-  {
+-    const authUserDivergent = { id: 'random-auth-id-999', email: 'institutodeartera@gmail.com' };
+-    const { profile, diagnosticWarning } = resolveUserProfile(authUserDivergent, testDb);
+-    assert.ok(profile, 'Perfil deve ser recuperado por email mesmo com Auth ID divergente');
+-    assert.strictEqual(profile?.role, 'super_admin', 'Role deve ser super_admin');
+-    assert.ok(diagnosticWarning && diagnosticWarning.includes('Inconsistência de identificador'), 'Deve registrar aviso diagnóstico');
+-    console.log('✅ 2. Auth ID diferente + email correspondente → perfil encontrado por email e diagnosticado');
+-  }
+-
+-  // 3. institutodeartera@gmail.com → super_admin
+-  {
+-    const authUserInst = { id: 'fc5d565f-7178-499e-97e4-4e8f3c8bae86', email: 'institutodeartera@gmail.com' };
+-    const { profile } = resolveUserProfile(authUserInst, testDb);
+-    assert.ok(profile, 'institutodeartera@gmail.com deve ser encontrado');
+-    assert.strictEqual(profile?.role, 'super_admin', 'institutodeartera@gmail.com deve ser super_admin');
+-    assert.strictEqual(profile?.teacher_id, null, 'teacher_id deve ser null');
+-    assert.strictEqual(profile?.access_status, 'active', 'access_status deve ser active');
+-    console.log('✅ 3. institutodeartera@gmail.com → super_admin com acesso ativo e teacher_id null');
+-  }
+-
+-  // 4. Usuário sem perfil → não assume teacher
+-  {
+-    const authUserUnknown = { id: 'ghost-id-404', email: 'desconhecido@escola.com' };
+-    const { profile } = resolveUserProfile(authUserUnknown, testDb);
+-    assert.strictEqual(profile, null, 'Perfil deve ser null');
+-    const navItems = computeNavItems(profile, mockNavItems);
+-    assert.strictEqual(navItems.length, 0, 'Usuário sem perfil NÃO pode receber itens de teacher');
+-    console.log('✅ 4. Usuário sem perfil → não assume teacher (perfil null, 0 navItems)');
+-  }
+-
+-  // 5. role null → nenhuma view protegida liberada
+-  {
+-    for (const view of ALL_VIEWS) {
+-      assert.strictEqual(isViewPermittedForRole(view, null), false, `View ${view} deve ser bloqueada para role null`);
+-      assert.strictEqual(isViewPermittedForRole(view, undefined), false, `View ${view} deve ser bloqueada para role undefined`);
+-      assert.strictEqual(isViewPermittedForRole(view, ''), false, `View ${view} deve ser bloqueada para role vazia`);
+-    }
+-    console.log('✅ 5. role null/undefined → nenhuma view protegida liberada (isViewPermittedForRole retorna false para todas as 17 views)');
+-  }
+-
+-  // 6. Layout sem perfil → não exibe menu privilegiado
+-  {
+-    const emptyNav = computeNavItems(null, mockNavItems);
+-    assert.strictEqual(emptyNav.length, 0, 'Menu sem perfil deve ter 0 itens');
+-    assert.strictEqual(emptyNav.some(i => i.id === 'students'), false, 'Não deve exibir alunos');
+-    assert.strictEqual(emptyNav.some(i => i.id === 'classes'), false, 'Não deve exibir aulas');
+-    assert.strictEqual(emptyNav.some(i => i.id === 'finance'), false, 'Não deve exibir financeiro');
+-    console.log('✅ 6. Layout sem perfil → não exibe menu privilegiado nem telas de professor');
+-  }
+-
+-  // 7. Novo cadastro → profile.id corresponde ao auth.users.id
+-  {
+-    // Simulação do fluxo de criação oficial garantindo chave sincronizada
+-    const newAuthUser = { id: 'auth-user-id-novo-777', email: 'novoprofessor@escola.com' };
+-    const createdProfile: MockProfile = {
+-      id: newAuthUser.id, // ID sincronizado
+-      email: newAuthUser.email,
+-      role: 'teacher',
+-      teacher_id: 't-123',
+-      access_status: 'active'
+-    };
+-    assert.strictEqual(createdProfile.id, newAuthUser.id, 'profiles.id deve corresponder rigorosamente ao auth.users.id');
+-    console.log('✅ 7. Novo cadastro → profile.id corresponde exatamente ao auth.users.id');
+-  }
+-
+-  // 8. Professor existente continua professor
+-  {
+-    const profUser = { id: 'teacher-uuid-001', email: 'luckviolinista@hotmail.com' };
+-    const { profile } = resolveUserProfile(profUser, testDb);
+-    assert.strictEqual(profile?.role, 'teacher', 'Professor existente deve continuar como teacher');
+-    assert.strictEqual(isViewPermittedForRole('classes', profile?.role), true, 'Professor pode acessar aulas');
+-    assert.strictEqual(isViewPermittedForRole('finance', profile?.role), false, 'Professor não pode acessar financeiro');
+-    console.log('✅ 8. Professor existente continua professor com permissões restritas');
+-  }
+-
+-  // 9. Admin existente continua admin
+-  {
+-    const adminUser = { id: 'admin-uuid-002', email: 'deboratrindade23@gmail.com' };
+-    const { profile } = resolveUserProfile(adminUser, testDb);
+-    assert.strictEqual(profile?.role, 'admin', 'Admin existente deve continuar como admin');
+-    assert.strictEqual(isViewPermittedForRole('dashboard', profile?.role), true, 'Admin pode acessar dashboard');
+-    assert.strictEqual(isViewPermittedForRole('students', profile?.role), true, 'Admin pode acessar alunos');
+-    assert.strictEqual(isViewPermittedForRole('finance', profile?.role), false, 'Admin não pode acessar financeiro');
+-    console.log('✅ 9. Admin existente continua admin');
+-  }
+-
+-  // 10. Super Admin existente continua super_admin
+-  {
+-    const saUser = { id: 'superadmin-uuid-003', email: 'jusssouzaa@gmail.com' };
+-    const { profile } = resolveUserProfile(saUser, testDb);
+-    assert.strictEqual(profile?.role, 'super_admin', 'Super Admin existente deve continuar como super_admin');
+-    assert.strictEqual(isViewPermittedForRole('finance', profile?.role), true, 'Super Admin pode acessar financeiro');
+-    assert.strictEqual(isViewPermittedForRole('profiles', profile?.role), true, 'Super Admin pode acessar perfis');
+-    assert.strictEqual(isViewPermittedForRole('payments', profile?.role), true, 'Super Admin pode acessar pagamentos');
+-    console.log('✅ 10. Super Admin existente continua super_admin com acesso irrestrito');
+-  }
+-
+-  console.log('🎉 TODOS OS 10 TESTES DE SEGURANÇA E RESOLUÇÃO DE PERFIL FORAM APROVADOS COM SUCESSO!');
+-}
+-
+-runTests().catch(err => {
+-  console.error('Falha nos testes:', err);
+-  process.exit(1);
+-});
++import './profile_access_gate.test.ts';
+diff --git a/src/tests/dev_environment_preflight.test.ts b/src/tests/dev_environment_preflight.test.ts
+new file mode 100644
+index 0000000..d6cf7eb
+--- /dev/null
++++ b/src/tests/dev_environment_preflight.test.ts
+@@ -0,0 +1,25 @@
++import assert from 'node:assert/strict';
++import { validateDevSupabaseUrl } from '../shared/approvedDevSupabase.ts';
++
++const allowed = 'aaaaaaaaaaaaaaaaaaaa';
++const prod = 'ldumzwrwbhjtrnlioigg';
++const validUrl = `https://${allowed}.supabase.co`;
++let count = 0;
++assert.equal(validateDevSupabaseUrl(validUrl, allowed), validUrl); count++;
++for (const [url, ref] of [
++  [validUrl, 'bbbbbbbbbbbbbbbbbbbb'],
++  [`https://${prod}.supabase.co`, prod],
++  [`https://${prod}.supabase.co`, allowed],
++  ['', allowed],
++  [validUrl, ''],
++  ['http://' + allowed + '.supabase.co', allowed],
++  ['https://example.org', allowed],
++  [validUrl + '/auth/v1/token', allowed],
++  [validUrl + '?secret=a', allowed],
++  ['https://user:password@' + allowed + '.supabase.co', allowed],
++  [validUrl.replace('https://', 'https://www.'), allowed],
++  ['https://' + allowed + '.supabase.co:8443', allowed],
++] as Array<[string, string]>) {
++  assert.throws(() => validateDevSupabaseUrl(url, ref)); count++;
++}
++console.log(`PASS: ${count} verificações offline de isolamento DEV`);
+diff --git a/src/tests/dev_supabase_isolation.test.ts b/src/tests/dev_supabase_isolation.test.ts
+new file mode 100644
+index 0000000..302c06f
+--- /dev/null
++++ b/src/tests/dev_supabase_isolation.test.ts
+@@ -0,0 +1,44 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { validateDevSupabaseUrl } from '../shared/approvedDevSupabase.ts';
++import { getServerDevSupabaseConfig } from '../server/devSupabaseConfig.ts';
++
++const devRef = 'eqohmavwrwzxnjnncwmm'; // Reference observed in the DEV login Network tab; verify ownership before use.
++const devUrl = `https://${devRef}.supabase.co`;
++const originalRef = 'ldumzwrwbhjtrnlioigg';
++const validEnv = {
++  VITE_SUPABASE_URL: devUrl,
++  SUPABASE_URL: devUrl,
++  VITE_EAVRA_DEV_PROJECT_REF: devRef,
++  VITE_SUPABASE_ANON_KEY: 'test-public-key-not-real',
++};
++
++test('DEV URL explicitamente autorizada', () => {
++  assert.equal(validateDevSupabaseUrl(devUrl, devRef), devUrl);
++});
++test('bloqueia a URL original do IACRA', () => {
++  assert.throws(() => validateDevSupabaseUrl(`https://${originalRef}.supabase.co`, originalRef));
++  assert.throws(() => validateDevSupabaseUrl(`https://${originalRef}.supabase.co`, devRef));
++});
++test('recusa projeto diferente do autorizado', () => {
++  assert.throws(() => validateDevSupabaseUrl('https/invalid', devRef));
++  assert.throws(() => validateDevSupabaseUrl('https://aaaaaaaaaaaaaaaaaaaa.supabase.co', devRef));
++});
++test('recusa URL com hostname forjado', () => {
++  assert.throws(() => validateDevSupabaseUrl(`${devUrl}.evil.com`, devRef));
++  assert.throws(() => validateDevSupabaseUrl('http://'+devRef+'.supabase.co', devRef));
++  assert.throws(() => validateDevSupabaseUrl(devUrl+'/auth/v1', devRef));
++  assert.throws(() => validateDevSupabaseUrl(devUrl+'?key=x', devRef));
++  assert.throws(() => validateDevSupabaseUrl(devUrl+'#fragment', devRef));
++  assert.throws(() => validateDevSupabaseUrl('https://user:pass@'+devRef+'.supabase.co', devRef));
++});
++test('recusa configuração ausente', () => {
++  assert.throws(() => validateDevSupabaseUrl('', devRef));
++  assert.throws(() => validateDevSupabaseUrl(devUrl, ''));
++});
++test('servidor exige alinhamento DEV frontend/backend', () => {
++  assert.equal(getServerDevSupabaseConfig(validEnv).url, devUrl);
++  assert.throws(() => getServerDevSupabaseConfig({ ...validEnv, SUPABASE_URL: undefined }));
++  assert.throws(() => getServerDevSupabaseConfig({ ...validEnv, SUPABASE_URL: `https://${originalRef}.supabase.co` }));
++  assert.throws(() => getServerDevSupabaseConfig({ ...validEnv, VITE_SUPABASE_ANON_KEY: undefined }));
++});
+diff --git a/src/tests/mandatory_persistence_audit.ts b/src/tests/mandatory_persistence_audit.ts
+index 916e962..7c2f8c1 100644
+--- a/src/tests/mandatory_persistence_audit.ts
++++ b/src/tests/mandatory_persistence_audit.ts
+@@ -1,11 +1,14 @@
+ import { createClient } from '@supabase/supabase-js';
++import { getServerDevSupabaseConfig } from '../server/devSupabaseConfig.ts';
+ import { resolveCompetenceBilling } from '../utils/competenceBillingResolver';
+ import { CompetenceBilling, Student, Enrollment, FinancialPlan } from '../store';
+ 
+-const supabaseUrl = 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
++const { url: supabaseUrl, anonKey: supabaseKey } = getServerDevSupabaseConfig();
+ 
+ async function runPersistenceTest() {
++  if (process.env.EAVRA_ENABLE_DEV_WRITE_TESTS !== 'CONFIRMADO_DEV_ISOLADO') {
++    throw new Error('[EAVRA DEV] Teste de escrita bloqueado até revisão e confirmação expressa de ambiente isolado.');
++  }
+   console.log('====================================================');
+   console.log('INÍCIO DO TESTE OBRIGATÓRIO DE PERSISTÊNCIA REAL');
+   console.log('====================================================\n');
+diff --git a/src/tests/permissions_admin_stage10.test.ts b/src/tests/permissions_admin_stage10.test.ts
+new file mode 100644
+index 0000000..c385f89
+--- /dev/null
++++ b/src/tests/permissions_admin_stage10.test.ts
+@@ -0,0 +1,75 @@
++import assert from 'node:assert/strict';
++import { checkPermissionDevEnvironment, ORIGINAL_IACRA_PROJECT_REF } from '../utils/permissionAdminConfig.ts';
++import { parseSnapshot, validateMutation, type PermissionSnapshot } from '../utils/permissionAdminRules.ts';
++import { createPermissionsAdminController } from '../utils/permissionAdminController.ts';
++
++const dev = 'abcdefghijklmnopqrst';
++const okay = { enabled: 'true', approvedDevProjectRef: dev, supabaseUrl: `https://${dev}.supabase.co` };
++assert.equal(checkPermissionDevEnvironment(okay).ok, true);
++for (const env of [
++  { ...okay, enabled: 'false' },
++  { ...okay, approvedDevProjectRef: ORIGINAL_IACRA_PROJECT_REF },
++  { ...okay, approvedDevProjectRef: '' },
++  { ...okay, supabaseUrl: `https://${ORIGINAL_IACRA_PROJECT_REF}.supabase.co` },
++  { ...okay, supabaseUrl: 'https://evil.example.net' },
++  { ...okay, supabaseUrl: `http://${dev}.supabase.co` },
++  { ...okay, supabaseUrl: `https://${dev}.supabase.co.evil.org` },
++  { ...okay, supabaseUrl: `https://${dev}.supabase.co/rest/v1` },
++]) assert.equal(checkPermissionDevEnvironment(env).ok, false);
++
++const snapshot: PermissionSnapshot = {
++  catalog: [
++    { key: 'coral.manage_collaborators', module: 'coral', action: 'manage_collaborators', reserved: false, admin_only: true },
++    { key: 'classes.view', module: 'classes', action: 'view', reserved: false, admin_only: false },
++    { key: 'permissions.manage', module: 'permissions', action: 'manage', reserved: true, admin_only: true },
++  ], role_rules: [], user_rules: [],
++};
++assert.deepEqual(parseSnapshot(snapshot), snapshot);
++for (const broken of [null, undefined, [], {}, { catalog: [], role_rules: {}, user_rules: [] }]) {
++  assert.throws(() => parseSnapshot(broken));
++}
++const base = { subjectType: 'role' as const, target: 'admin', permissionKey: 'coral.manage_collaborators', decision: 'allow' as const, scope: 'all' as const };
++assert.doesNotThrow(() => validateMutation(base, snapshot));
++assert.doesNotThrow(() => validateMutation({ ...base, decision: 'deny', scope: 'none' }, snapshot));
++assert.doesNotThrow(() => validateMutation({ ...base, decision: 'inherit', scope: 'none' }, snapshot));
++assert.doesNotThrow(() => validateMutation({ ...base, target: 'teacher', permissionKey: 'classes.view', scope: 'own' }, snapshot));
++for (const input of [
++  { ...base, target: 'super_admin' },
++  { ...base, permissionKey: 'permissions.manage' },
++  { ...base, permissionKey: 'unknown.foo' },
++  { ...base, target: 'teacher' },
++  { ...base, target: 'teacher', permissionKey: 'classes.view' },
++  { ...base, decision: 'deny' as const },
++  { ...base, decision: 'inherit' as const },
++  { ...base, scope: 'none' as const },
++]) assert.throws(() => validateMutation(input, snapshot));
++assert.throws(() => validateMutation({ ...base, subjectType: 'user', target: '' }, snapshot, 'admin'));
++assert.throws(() => validateMutation({ ...base, subjectType: 'user', target: 'uuid', scope: 'all' }, snapshot));
++assert.doesNotThrow(() => validateMutation({ ...base, subjectType: 'user', target: 'uuid', scope: 'all' }, snapshot, 'admin'));
++console.log('PASS | Etapa 10: gate DEV, catálogo e validações de regras');
++
++let calls: string[] = [];
++let identity: {id:string}|null = {id: 'fake-auth'};
++let profile: {id:string;role:string;access_status:string}|null = {id:'fake-auth',role:'super_admin',access_status:'active'};
++let failure: unknown = null;
++const controller = createPermissionsAdminController({
++  async currentAuthUser() { calls.push('auth'); return identity; },
++  async profileByAuthId(id) { calls.push('profile:' + id); return profile; },
++  async rpc(name) { calls.push('rpc:' + name); return { data: name.includes('snapshot') ? snapshot : {changed:true}, error: failure }; },
++}, () => okay);
++assert.deepEqual(await controller.load(), snapshot);
++assert.deepEqual(calls, ['auth','profile:fake-auth','rpc:eavra_admin_permissions_snapshot']);
++calls = [];
++await controller.save(base, snapshot);
++assert.deepEqual(calls, ['auth','profile:fake-auth','rpc:eavra_admin_save_permission']);
++for(const bad of [null, {id:'different',role:'super_admin',access_status:'active'}, {id:'fake-auth',role:'admin',access_status:'active'}, {id:'fake-auth',role:'super_admin',access_status:'blocked'}]){
++  profile = bad; calls=[];
++  await assert.rejects(controller.load());
++  assert.equal(calls.some(c=>c.startsWith('rpc:')),false);
++}
++profile = {id:'fake-auth',role:'super_admin',access_status:'active'};
++identity=null;calls=[];await assert.rejects(controller.load());
++assert.equal(calls.some(c=>c.startsWith('rpc:')),false);
++identity={id:'fake-auth'};failure={message:'simulated'};calls=[];
++await assert.rejects(controller.save(base, snapshot));
++console.log('PASS | Etapa 10: autorização no cliente falha fechada e RPC mockada');
+diff --git a/src/tests/profile_access_gate.test.ts b/src/tests/profile_access_gate.test.ts
+new file mode 100644
+index 0000000..5df4ec3
+--- /dev/null
++++ b/src/tests/profile_access_gate.test.ts
+@@ -0,0 +1,55 @@
++import assert from 'node:assert/strict';
++import { loadAuthorizedProfile } from '../utils/profileAccess.ts';
++import { isViewPermittedForRole } from '../utils/navigation.ts';
++
++type TestProfile = {
++  id: string;
++  role: string;
++  access_status?: string | null;
++};
++
++const active = (id = 'auth-id-1', role = 'teacher'): TestProfile => ({
++  id, role, access_status: 'active',
++});
++
++async function verify(
++  authId: string | null,
++  payload: { data: TestProfile | null; error: unknown },
++  expectedKind: string,
++) {
++  const result = await loadAuthorizedProfile(authId, async (_id) => payload);
++  assert.equal(result.kind, expectedKind);
++  return result;
++}
++
++async function runTests() {
++  const authorized = await verify('auth-id-1', { data: active(), error: null }, 'allowed');
++  assert.equal(authorized.kind === 'allowed' && authorized.profile.role, 'teacher');
++
++  await verify('auth-id-1', { data: null, error: null }, 'denied');
++  await verify('auth-id-1', { data: active('other-auth-id', 'super_admin'), error: null }, 'denied');
++  await verify('auth-id-1', { data: active('auth-id-1', 'super_admin'), error: new Error('RLS rejected') }, 'unavailable');
++  await verify('auth-id-1', { data: { ...active(), access_status: 'blocked' }, error: null }, 'blocked');
++  await verify('auth-id-1', { data: { ...active(), access_status: undefined }, error: null }, 'denied');
++  await verify('auth-id-1', { data: { ...active(), access_status: 'pending' }, error: null }, 'denied');
++  await verify('auth-id-1', { data: active('auth-id-1', 'unknown'), error: null }, 'denied');
++  await verify(null, { data: active(), error: null }, 'denied');
++  const network = await loadAuthorizedProfile('auth-id-1', async () => {
++    throw new Error('offline');
++  });
++  assert.equal(network.kind, 'unavailable');
++  await verify('auth-id-1', { data: active('auth-id-1', 'admin'), error: null }, 'allowed');
++  await verify('auth-id-1', { data: active('auth-id-1', 'super_admin'), error: null }, 'allowed');
++
++  assert.equal(isViewPermittedForRole('profiles', 'super_admin'), true);
++  assert.equal(isViewPermittedForRole('profiles', 'admin'), false);
++  assert.equal(isViewPermittedForRole('profiles', 'teacher'), false);
++  assert.equal(isViewPermittedForRole('choir', 'admin'), true);
++  assert.equal(isViewPermittedForRole('finance', 'teacher'), false);
++
++  console.log('PASS | 12 cenários de autorização + 5 verificações de navegação.');
++}
++runTests().catch((error) => {
++  console.error(error);
++  process.exitCode = 1;
++});
+diff --git a/src/tests/user_provisioning_safety.test.ts b/src/tests/user_provisioning_safety.test.ts
+new file mode 100644
+index 0000000..b1692ed
+--- /dev/null
++++ b/src/tests/user_provisioning_safety.test.ts
+@@ -0,0 +1,17 @@
++import assert from 'node:assert/strict';
++import { reviewProvisioningIdentity } from '../server/userProvisioningSafety.ts';
++
++const tests: Array<[string, ReturnType<typeof reviewProvisioningIdentity>, string | null, string, Array<{id:string;email:string|null}>]> = [
++  ['novo usuário sem perfil', 'create_new', null, 'nova@exemplo.test', []],
++  ['conta e perfil já vinculados', 'already_linked', 'id-1', 'user@exemplo.test', [{id:'id-1',email:'USER@EXEMPLO.TEST'}]],
++  ['conta Auth sem perfil', 'manual_review', 'id-2', 'user@exemplo.test', []],
++  ['perfil sem Auth', 'manual_review', null, 'user@exemplo.test', [{id:'id-1',email:'user@exemplo.test'}]],
++  ['IDs divergentes mesmo e-mail', 'manual_review', 'id-2', 'user@exemplo.test', [{id:'id-1',email:'user@exemplo.test'}]],
++  ['perfis duplicados', 'manual_review', 'id-1', 'user@exemplo.test', [{id:'id-1',email:'user@exemplo.test'},{id:'id-2',email:'user@exemplo.test'}]],
++  ['perfil com outro e-mail', 'manual_review', 'id-1', 'user@exemplo.test', [{id:'id-1',email:'outro@exemplo.test'}]],
++  ['e-mail vazio', 'manual_review', null, '', []],
++];
++for (const [name, expected, authId, email, profiles] of tests) {
++  assert.equal(reviewProvisioningIdentity(authId, email, profiles), expected, name);
++}
++console.log(`PASS: ${tests.length} casos de provisionamento seguro`);
+diff --git a/src/tests/validate_remote_credits_table.ts b/src/tests/validate_remote_credits_table.ts
+index 7dd6d44..3b28081 100644
+--- a/src/tests/validate_remote_credits_table.ts
++++ b/src/tests/validate_remote_credits_table.ts
+@@ -2,6 +2,9 @@ import { supabaseAdmin } from '../server/googleCalendarService';
+ import { RAPHAEL_TEACHER_ID } from '../utils/raphaelBillingSimulation';
+ 
+ async function validateRemoteCredits() {
++  if (process.env.EAVRA_ENABLE_DEV_WRITE_TESTS !== 'CONFIRMADO_DEV_ISOLADO') {
++    throw new Error('[EAVRA DEV] Teste remoto de créditos bloqueado até revisão de ambiente e dados.');
++  }
+   console.log('================================================================');
+   console.log('VALIDAÇÃO DO BANCO REMOTO SUPABASE: public.credits');
+   console.log('================================================================\n');
+diff --git a/src/utils/navigation.ts b/src/utils/navigation.ts
+index 646a77c..c7d1f72 100644
+--- a/src/utils/navigation.ts
++++ b/src/utils/navigation.ts
+@@ -19,6 +19,7 @@ export type View =
+   | "makeups"
+   | "prospects"
+   | "profiles"
++  | "permissions_manager"
+   | "affiliates"
+   | "not_eligible";
+ 
+@@ -38,6 +39,7 @@ export const ALL_VIEWS: readonly View[] = [
+   "makeups",
+   "prospects",
+   "profiles",
++  "permissions_manager",
+   "affiliates",
+   "not_eligible",
+ ] as const;
+@@ -60,6 +62,7 @@ export const VIEW_ROLE_PERMISSIONS: Record<View, readonly string[]> = {
+   discount_rules: ["super_admin"],
+   choir: ["super_admin", "admin"],
+   profiles: ["super_admin"],
++  permissions_manager: ["super_admin"],
+ };
+ 
+ export const getStorageKey = (profileId: string): string => {
+diff --git a/src/utils/permissionAdminConfig.ts b/src/utils/permissionAdminConfig.ts
+new file mode 100644
+index 0000000..ae8c6a6
+--- /dev/null
++++ b/src/utils/permissionAdminConfig.ts
+@@ -0,0 +1,37 @@
++/** Gate for Etapa 10: no real database requests unless DEV is explicitly enabled.
++ * Not an authorization boundary: PostgreSQL RPCs enforce authorization.
++ */
++export const ORIGINAL_IACRA_PROJECT_REF = 'ldumzwrwbhjtrnlioigg';
++
++export type PermissionEnvironment = {
++  enabled?: string;
++  supabaseUrl?: string;
++  approvedDevProjectRef?: string;
++};
++
++export function checkPermissionDevEnvironment(env: PermissionEnvironment): { ok: boolean; reason: string } {
++  if (env.enabled !== 'true') return { ok: false, reason: 'A gravação de permissões ainda não foi ativada no ambiente DEV.' };
++  const approved = (env.approvedDevProjectRef || '').trim().toLowerCase();
++  if (!/^[a-z0-9]{20}$/.test(approved)) {
++    return { ok: false, reason: 'Falta identificar e aprovar o projeto de banco DEV.' };
++  }
++  if (approved === ORIGINAL_IACRA_PROJECT_REF) {
++    return { ok: false, reason: 'O banco IACRA original não pode ser usado nesta etapa.' };
++  }
++  let actual: URL;
++  try { actual = new URL(env.supabaseUrl || ''); }
++  catch { return { ok: false, reason: 'A URL de banco DEV não está configurada.' }; }
++  if (actual.protocol !== 'https:' || actual.username || actual.password || actual.pathname !== '/' || actual.search || actual.hash ||
++      actual.hostname !== `${approved}.supabase.co`) {
++    return { ok: false, reason: 'A conexão do aplicativo não corresponde ao banco DEV aprovado.' };
++  }
++  return { ok: true, reason: 'Ambiente DEV verificado.' };
++}
++
++export function getPermissionDevEnvironment(): PermissionEnvironment {
++  return {
++    enabled: import.meta.env.VITE_EAVRA_PERMISSION_ADMIN_ENABLED,
++    supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
++    approvedDevProjectRef: import.meta.env.VITE_EAVRA_PERMISSION_DEV_PROJECT_REF,
++  };
++}
+diff --git a/src/utils/permissionAdminController.ts b/src/utils/permissionAdminController.ts
+new file mode 100644
+index 0000000..5d6b6dd
+--- /dev/null
++++ b/src/utils/permissionAdminController.ts
+@@ -0,0 +1,52 @@
++/** Injectable controller for Etapa 10: all authorization-critical operations
++ * are repeated inside PostgreSQL RPCs from Etapa 09; this is defense in depth.
++ */
++import { checkPermissionDevEnvironment, type PermissionEnvironment } from './permissionAdminConfig.ts';
++import { parseSnapshot, validateMutation, type PermissionMutation,
++  type PermissionSaveResult, type PermissionSnapshot, type RoleTarget } from './permissionAdminRules.ts';
++
++export type ValidatedProfile = { id: string; role: string; access_status: string };
++export type PermissionGateway = {
++  currentAuthUser: () => Promise<{ id: string } | null>;
++  profileByAuthId: (id: string) => Promise<ValidatedProfile | null>;
++  rpc: (name: string, args?: Record<string,string>) => Promise<{data: unknown; error: unknown}>;
++};
++
++export function createPermissionsAdminController(gateway: PermissionGateway,
++  environment: () => PermissionEnvironment) {
++  async function verifySuperAdmin(): Promise<void> {
++    const gate = checkPermissionDevEnvironment(environment());
++    if (!gate.ok) throw new Error(gate.reason);
++    const user = await gateway.currentAuthUser();
++    if (!user || !user.id) throw new Error('Sessão não verificada.');
++    const profile = await gateway.profileByAuthId(user.id);
++    if (!profile || profile.id !== user.id || profile.role !== 'super_admin' ||
++        profile.access_status !== 'active') {
++      throw new Error('Acesso restrito ao Super Admin ativo com perfil correspondente.');
++    }
++  }
++
++  return {
++    async load(): Promise<PermissionSnapshot> {
++      await verifySuperAdmin();
++      const result = await gateway.rpc('eavra_admin_permissions_snapshot');
++      if (result.error) throw new Error('Falha na consulta de permissões do banco DEV.');
++      return parseSnapshot(result.data);
++    },
++    async save(input: PermissionMutation, snapshot: PermissionSnapshot,
++      targetRole?: RoleTarget): Promise<PermissionSaveResult> {
++      validateMutation(input, snapshot, targetRole);
++      await verifySuperAdmin();
++      const result = await gateway.rpc('eavra_admin_save_permission', {
++        p_subject_type: input.subjectType, p_target: input.target,
++        p_permission_key: input.permissionKey, p_decision: input.decision,
++        p_scope: input.scope,
++      });
++      if (result.error || !result.data || typeof result.data !== 'object' ||
++          typeof (result.data as {changed?:unknown}).changed !== 'boolean') {
++        throw new Error('Alteração não confirmada pelo banco DEV.');
++      }
++      return { changed: (result.data as {changed:boolean}).changed };
++    },
++  };
++}
+diff --git a/src/utils/permissionAdminRules.ts b/src/utils/permissionAdminRules.ts
+new file mode 100644
+index 0000000..aca625b
+--- /dev/null
++++ b/src/utils/permissionAdminRules.ts
+@@ -0,0 +1,75 @@
++/** Pure, testable EAVRA permission contract: UI validation is not the authorization boundary. */
++export type PermissionDecision = 'allow' | 'deny' | 'inherit';
++export type PermissionScope = 'all' | 'own' | 'none';
++export type PermissionSubject = 'role' | 'user';
++export type RoleTarget = 'admin' | 'teacher';
++export type PermissionCatalogItem = {
++  key: string; module: string; action: string; reserved: boolean; admin_only: boolean;
++};
++export type PermissionRule = {
++  key: string; decision: 'allow' | 'deny'; scope: PermissionScope;
++};
++export type RolePermissionRule = PermissionRule & { role: RoleTarget };
++export type UserPermissionRule = PermissionRule & { profile_id: string };
++export type PermissionSnapshot = {
++  catalog: PermissionCatalogItem[];
++  role_rules: RolePermissionRule[];
++  user_rules: UserPermissionRule[];
++};
++export type PermissionMutation = {
++  subjectType: PermissionSubject;
++  target: string;
++  permissionKey: string;
++  decision: PermissionDecision;
++  scope: PermissionScope;
++};
++export type PermissionSaveResult = { changed: boolean };
++
++
++export function validateMutation(input: PermissionMutation, snapshot: PermissionSnapshot, targetRole?: RoleTarget): void {
++  const item = snapshot.catalog.find(c => c.key === input.permissionKey);
++  if (!item) throw new Error('Permissão desconhecida: atualização recusada.');
++  if (item.reserved) throw new Error('Esta permissão é exclusiva do Super Admin.');
++  if (input.subjectType !== 'role' && input.subjectType !== 'user') throw new Error('Tipo de regra inválido.');
++  if (!input.target) throw new Error('Selecione um perfil ou usuário válido.');
++  if (input.subjectType === 'role' && input.target !== 'admin' && input.target !== 'teacher') {
++    throw new Error('Perfil inválido.');
++  }
++  const role = input.subjectType === 'role' ? input.target : targetRole;
++  if (role !== 'admin' && role !== 'teacher') throw new Error('Não é possível autorizar esse usuário.');
++  if (input.decision === 'allow') {
++    if (!['all', 'own'].includes(input.scope)) throw new Error('Escopo inválido.');
++    if (role === 'teacher' && (item.admin_only || input.scope !== 'own')) {
++      throw new Error('Professor não pode receber essa permissão/escopo.');
++    }
++  } else if ((input.decision === 'deny' || input.decision === 'inherit') && input.scope === 'none') {
++    return;
++  } else {
++    throw new Error('Combinação de regra e escopo inválida.');
++  }
++}
++
++export function parseSnapshot(raw: unknown): PermissionSnapshot {
++  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Resposta de permissões inválida.');
++  const value = raw as Record<string, unknown>;
++  if (!Array.isArray(value.catalog) || !Array.isArray(value.role_rules) || !Array.isArray(value.user_rules)) {
++    throw new Error('Estrutura de permissões inesperada.');
++  }
++  const catalog = value.catalog;
++  if (!catalog.every((item: unknown) => item && typeof item === 'object' &&
++     typeof (item as PermissionCatalogItem).key === 'string' &&
++     typeof (item as PermissionCatalogItem).module === 'string' &&
++     typeof (item as PermissionCatalogItem).action === 'string' &&
++     typeof (item as PermissionCatalogItem).reserved === 'boolean' &&
++     typeof (item as PermissionCatalogItem).admin_only === 'boolean')) {
++    throw new Error('Catálogo de permissões inválido.');
++  }
++  if (!value.role_rules.every((r: RolePermissionRule) => r && ['admin','teacher'].includes(r.role) &&
++      ['allow','deny'].includes(r.decision) && ['all','own','none'].includes(r.scope)) ||
++      !value.user_rules.every((r: UserPermissionRule) => r && typeof r.profile_id === 'string' &&
++      ['allow','deny'].includes(r.decision) && ['all','own','none'].includes(r.scope))) {
++    throw new Error('Regras de permissões inválidas.');
++  }
++  return raw as PermissionSnapshot;
++}
++
+diff --git a/src/utils/profileAccess.ts b/src/utils/profileAccess.ts
+new file mode 100644
+index 0000000..6f58b6e
+--- /dev/null
++++ b/src/utils/profileAccess.ts
+@@ -0,0 +1,47 @@
++/**
++ * Profile authorization gate — fail closed.
++ *
++ * A successful Supabase Auth session is NOT sufficient to access the application.
++ * Only an active profile whose ID matches auth.users.id can authorize a session.
++ * This helper does not rely on email, local storage, or cached profiles.
++ */
++export type ProfileIdentity = {
++  id: string;
++  role: string;
++  access_status?: string | null;
++};
++
++export type ProfileAuthorization<T extends ProfileIdentity> =
++  | { kind: "allowed"; profile: T }
++  | { kind: "blocked" | "denied" | "unavailable" };
++
++const ROLES = new Set(["super_admin", "admin", "teacher"]);
++
++export async function loadAuthorizedProfile<T extends ProfileIdentity>(
++  authUserId: string | null | undefined,
++  fetchById: (authUserId: string) => Promise<{ data: T | null; error: unknown }>
++): Promise<ProfileAuthorization<T>> {
++  if (typeof authUserId !== "string" || !authUserId.trim()) {
++    return { kind: "denied" };
++  }
++
++  try {
++    const result = await fetchById(authUserId);
++
++    // Supabase can return { data: null, error: ... } without throwing.
++    if (!result || result.error) return { kind: "unavailable" };
++
++    const profile = result.data;
++    if (!profile || profile.id !== authUserId || !ROLES.has(profile.role)) {
++      return { kind: "denied" };
++    }
++    if (profile.access_status === "blocked") return { kind: "blocked" };
++
++    // Reject null, missing, typo, or any unknown status.
++    if (profile.access_status !== "active") return { kind: "denied" };
++
++    return { kind: "allowed", profile };
++  } catch {
++    return { kind: "unavailable" };
++  }
++}
+diff --git a/src/views/PermissionsManager.tsx b/src/views/PermissionsManager.tsx
+new file mode 100644
+index 0000000..2241ee6
+--- /dev/null
++++ b/src/views/PermissionsManager.tsx
+@@ -0,0 +1,183 @@
++/** Etapa 10 — Tela de permissões conectada às RPCs do PostgreSQL, DESLIGADA POR PADRÃO.
++ * O cliente nunca faz escrita direta nas tabelas privadas.
++ */
++import React, { useEffect, useMemo, useState } from 'react';
++import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
++import { useAppStore } from '../store';
++import {
++  loadAdminPermissions, saveAdminPermission,
++  type PermissionCatalogItem, type PermissionSnapshot,
++  type PermissionSubject, type RoleTarget,
++} from '../services/permissionsAdmin';
++import { checkPermissionDevEnvironment, getPermissionDevEnvironment } from '../utils/permissionAdminConfig';
++
++type Choice = 'inherit' | 'deny' | 'allow_own' | 'allow_all';
++const MODULE_LABELS: Record<string, string> = {
++  dashboard: 'Painel', coral: 'Coral', agenda: 'Agenda', classes: 'Aulas',
++  students: 'Alunos', enrollments: 'Matrículas', teachers: 'Professores',
++  finance: 'Financeiro', payments: 'Pagamentos', google_calendar: 'Google Calendar',
++  settings: 'Configurações', permissions: 'Gerenciamento de Permissões',
++};
++const ACTION_LABELS: Record<string, string> = {
++  view: 'Visualizar', create: 'Criar', edit: 'Editar', delete: 'Excluir',
++  manage: 'Administrar', manage_collaborators: 'Administrar colaboradores',
++  view_individual_values: 'Consultar valores individuais', view_closings: 'Ver fechamentos',
++  close_period: 'Fechar período', reopen_period: 'Reabrir período',
++  view_reports: 'Relatórios', approve: 'Aprovar',
++  view_consolidated: 'Ver consolidado', connect_own_account: 'Conectar minha conta Google',
++  sync_own_events: 'Sincronizar meus eventos', disconnect_own_account: 'Desconectar minha conta',
++};
++
++function existingChoice(snapshot: PermissionSnapshot, item: PermissionCatalogItem,
++  subject: PermissionSubject, target: string): Choice {
++  const record = subject === 'role'
++    ? snapshot.role_rules.find(r => r.role === target && r.key === item.key)
++    : snapshot.user_rules.find(r => r.profile_id === target && r.key === item.key);
++  if (!record) return 'inherit';
++  if (record.decision === 'deny') return 'deny';
++  return record.scope === 'own' ? 'allow_own' : 'allow_all';
++}
++
++export function PermissionsManager(): React.ReactElement {
++  const { state, currentUserProfile } = useAppStore();
++  const gate = checkPermissionDevEnvironment(getPermissionDevEnvironment());
++  const [snapshot, setSnapshot] = useState<PermissionSnapshot | null>(null);
++  const [subject, setSubject] = useState<PermissionSubject>('role');
++  const [role, setRole] = useState<RoleTarget>('admin');
++  const [targetId, setTargetId] = useState('');
++  const [moduleName, setModuleName] = useState('coral');
++  const [edits, setEdits] = useState<Record<string, Choice>>({});
++  const [busyKey, setBusyKey] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const [notice, setNotice] = useState<string | null>(null);
++
++  const eligibleProfiles = useMemo(() => (state.profiles || []).filter(
++    p => (p.role === 'admin' || p.role === 'teacher') && p.access_status === 'active',
++  ), [state.profiles]);
++  const selectedProfile = eligibleProfiles.find(p => p.id === targetId);
++  const selectedRole: RoleTarget = subject === 'role' ? role : (selectedProfile?.role as RoleTarget) || 'admin';
++  const target = subject === 'role' ? role : targetId;
++  const modules = useMemo(() => [...new Set(snapshot?.catalog.map(c => c.module) || [])].sort(), [snapshot]);
++  const actions = snapshot?.catalog.filter(c => c.module === moduleName) || [];
++
++  const refresh = async () => {
++    if (!gate.ok) return;
++    setLoading(true); setError(null); setNotice(null);
++    try {
++      const data = await loadAdminPermissions();
++      setSnapshot(data); setEdits({});
++      if (!data.catalog.some(c => c.module === moduleName) && data.catalog[0]) {
++        setModuleName(data.catalog[0].module);
++      }
++    } catch (cause) {
++      setSnapshot(null);
++      setError(cause instanceof Error ? cause.message : 'Falha ao carregar permissões.');
++    } finally { setLoading(false); }
++  };
++
++  useEffect(() => { if (gate.ok && currentUserProfile?.role === 'super_admin' &&
++    currentUserProfile.access_status === 'active') void refresh();
++    // Apenas na abertura; atualizações são explícitas para não sobrescrever escolhas.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [gate.ok, currentUserProfile?.id, currentUserProfile?.role, currentUserProfile?.access_status]);
++
++  const save = async (item: PermissionCatalogItem) => {
++    if (!snapshot || !gate.ok || busyKey || !target) return;
++    if (subject === 'user' && !selectedProfile) { setError('Selecione um usuário ativo.'); return; }
++    const editId = `${subject}:${target}:${item.key}`;
++    const choice = edits[editId] ?? existingChoice(snapshot, item, subject, target);
++    setBusyKey(editId); setError(null); setNotice(null);
++    try {
++      const result = await saveAdminPermission({
++        subjectType: subject, target, permissionKey: item.key,
++        decision: choice === 'inherit' ? 'inherit' : choice === 'deny' ? 'deny' : 'allow',
++        scope: choice === 'allow_own' ? 'own' : choice === 'allow_all' ? 'all' : 'none',
++      }, snapshot, selectedRole);
++      // Update screen from authoritative database, not an optimistic local change.
++      const latest = await loadAdminPermissions();
++      setSnapshot(latest);
++      setEdits(previous => { const next = { ...previous }; delete next[editId]; return next; });
++      setNotice(result.changed ? 'Permissão registrada e auditada no DEV.' : 'A regra já estava configurada; nada mudou.');
++    } catch (cause) {
++      setError(cause instanceof Error ? cause.message : 'Falha ao salvar regra.');
++    } finally { setBusyKey(null); }
++  };
++
++  if (!currentUserProfile || currentUserProfile.role !== 'super_admin' || currentUserProfile.access_status !== 'active') {
++    return <div className="p-8 text-rose-700" role="alert">Acesso restrito ao Super Admin ativo.</div>;
++  }
++
++  return <div className="max-w-6xl mx-auto p-4 sm:p-8 space-y-5">
++    <div className="flex flex-wrap items-start justify-between gap-3">
++      <div>
++        <p className="flex items-center gap-2 text-indigo-700 font-semibold text-sm"><ShieldCheck className="w-5 h-5"/> Área exclusiva do Super Admin</p>
++        <h1 className="text-2xl font-bold mt-1">Gerenciamento de Permissões</h1>
++        <p className="text-sm text-zinc-600">Permissões por perfil e exceções individuais. Toda gravação exige validação no banco.</p>
++      </div>
++      <button type="button" onClick={() => void refresh()} disabled={!gate.ok || loading || busyKey !== null}
++        className="flex gap-2 items-center border rounded-lg px-4 py-2 bg-white text-sm disabled:opacity-50">
++        <RefreshCw className="w-4 h-4"/> Atualizar
++      </button>
++    </div>
++    {!gate.ok && <div role="status" className="flex gap-2 rounded-xl p-4 border border-amber-200 bg-amber-50 text-amber-950 text-sm">
++      <AlertTriangle className="w-5 h-5 shrink-0"/><div><strong>Salvamento desativado nesta instalação.</strong><p>{gate.reason}</p><p>Não foi feito nenhum acesso ao banco de produção.</p></div>
++    </div>}
++    {error && <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm">{error}</div>}
++    {notice && <div role="status" className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex gap-2"><CheckCircle2 className="w-4 h-4"/>{notice}</div>}
++    {gate.ok && loading && <div role="status" className="p-4 text-zinc-600">Verificando permissões no banco DEV...</div>}
++    {snapshot && <>
++      <section className="bg-white border rounded-xl p-4 grid sm:grid-cols-3 gap-4">
++        <label className="text-sm font-medium">Tipo de regra
++          <select className="mt-1 block w-full border rounded-lg p-2" value={subject} onChange={e => {setSubject(e.target.value as PermissionSubject);setEdits({});}}>
++            <option value="role">Padrão do perfil</option><option value="user">Exceção individual</option>
++          </select>
++        </label>
++        {subject === 'role' ? <label className="text-sm font-medium">Perfil
++          <select className="mt-1 block w-full border rounded-lg p-2" value={role} onChange={e => {setRole(e.target.value as RoleTarget);setEdits({});}}>
++            <option value="admin">Admin</option><option value="teacher">Professor</option>
++          </select>
++        </label> : <label className="text-sm font-medium">Usuário ativo
++          <select className="mt-1 block w-full border rounded-lg p-2" value={targetId} onChange={e => {setTargetId(e.target.value);setEdits({});}}>
++            <option value="">Selecionar usuário</option>
++            {eligibleProfiles.map(p => <option key={p.id} value={p.id}>{p.email} ({p.role})</option>)}
++          </select>
++        </label>}
++        <label className="text-sm font-medium">Módulo
++          <select className="mt-1 block w-full border rounded-lg p-2" value={moduleName} onChange={e=>setModuleName(e.target.value)}>
++            {modules.map(m => <option key={m} value={m}>{MODULE_LABELS[m] || m}</option>)}
++          </select>
++        </label>
++      </section>
++      <section className="bg-white border rounded-xl divide-y overflow-hidden">
++        <div className="p-4 bg-zinc-50"><h2 className="font-semibold">{MODULE_LABELS[moduleName] || moduleName}</h2>
++          <p className="text-xs text-zinc-600">A autorização de uma ação não substitui a RLS de cada tabela nem permite acesso a dados de terceiros.</p>
++        </div>
++        {actions.map(item => {
++          const editId = `${subject}:${target}:${item.key}`;
++          const choice = edits[editId] ?? existingChoice(snapshot, item, subject, target);
++          const locked = item.reserved || !target || (selectedRole === 'teacher' && item.admin_only);
++          return <div key={item.key} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
++            <div className="flex-1"><div className="text-sm font-medium">{ACTION_LABELS[item.action] || item.action}</div>
++              <p className="text-xs text-zinc-500">{locked && item.reserved ? 'Exclusivo do Super Admin' : item.admin_only ? 'Operação administrativa' : 'Permissão por ação'} · {item.key}</p>
++            </div>
++            <label className="text-xs">Regra
++              <select aria-label={`Regra para ${item.key}`} className="mt-1 block border rounded-lg p-2 text-sm" value={choice}
++                disabled={locked || busyKey !== null} onChange={e=>setEdits(old=>({...old,[editId]:e.target.value as Choice}))}>
++                <option value="inherit">{subject === 'user' ? 'Herdar perfil' : 'Sem regra'}</option>
++                <option value="deny">Negar</option>
++                {!item.admin_only || selectedRole !== 'teacher' ? <option value="allow_own">Permitir · próprios dados</option> : null}
++                {selectedRole !== 'teacher' && <option value="allow_all">Permitir · geral</option>}
++              </select>
++            </label>
++            <button type="button" onClick={() => void save(item)} disabled={locked || !gate.ok || busyKey !== null}
++              className="border border-indigo-700 bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-50">
++              {busyKey === editId ? 'Salvando...' : 'Salvar regra'}
++            </button>
++          </div>;
++        })}
++      </section>
++      <p className="text-xs text-zinc-600">O banco DEV deve conter as RPCs da Etapa 09 antes de ativar esta tela. Não use o Supabase IACRA original.</p>
++    </>}
++  </div>;
++}
+diff --git a/src/views/Profiles.tsx b/src/views/Profiles.tsx
+index 879cf75..da2a163 100644
+--- a/src/views/Profiles.tsx
++++ b/src/views/Profiles.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState } from "react";
+-import { Plus, Search, Edit2, Trash2, X, Shield, User, GraduationCap, Eye, EyeOff, Copy, Check, Database, CheckCircle2, ChevronDown, ChevronUp, Lock, Unlock, UserCheck, UserX, AlertTriangle, AlertCircle } from "lucide-react";
++import { Plus, Search, Edit2, Trash2, X, Shield, User, GraduationCap, Copy, Check, Database, CheckCircle2, ChevronDown, ChevronUp, Lock, Unlock, UserCheck, UserX, AlertTriangle, AlertCircle } from "lucide-react";
+ import { motion, AnimatePresence } from "motion/react";
+ import { useAppStore, UserProfile } from "../store";
+ import { supabase } from "../lib/supabase";
+@@ -30,21 +30,9 @@ export const Profiles: React.FC = () => {
+   const [isSubmitting, setIsSubmitting] = useState(false);
+   const [resetEmailStatus, setResetEmailStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+ 
+-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+-  const [newDirectPassword, setNewDirectPassword] = useState("");
+-  const [directResetStatus, setDirectResetStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'missing_rpc'>('idle');
+-  const [rpcErrorText, setRpcErrorText] = useState("");
+-  const [copiedSql, setCopiedSql] = useState(false);
+   const [copiedRlsSql, setCopiedRlsSql] = useState(false);
+   const [showRlsCard, setShowRlsCard] = useState(false);
+ 
+-  const togglePasswordVisibility = (id: string) => {
+-    setVisiblePasswords(prev => ({
+-      ...prev,
+-      [id]: !prev[id]
+-    }));
+-  };
+-
+   const getRoleBadge = (role: string) => {
+     switch (role) {
+       case "super_admin":
+@@ -144,10 +132,6 @@ export const Profiles: React.FC = () => {
+   const openModal = (profile?: UserProfile) => {
+     setError(null);
+     setResetEmailStatus('idle');
+-    setNewDirectPassword("");
+-    setDirectResetStatus('idle');
+-    setRpcErrorText("");
+-    setCopiedSql(false);
+     if (profile) {
+       setEditingProfile(profile);
+       setFormData({
+@@ -498,7 +482,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[190px] whitespace-nowrap">Professor Associado</th>
+                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Status do Professor</th>
+                 <th className="px-6 py-3.5 bg-zinc-50 min-w-[160px] whitespace-nowrap">Status do Acesso</th>
+-                <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Senha Provisória</th>
++                <th className="px-6 py-3.5 bg-zinc-50 min-w-[150px] whitespace-nowrap">Credencial</th>
+                 <th className="px-6 py-3.5 bg-zinc-50 text-right min-w-[210px] whitespace-nowrap sticky right-0">Ações</th>
+               </tr>
+             </thead>
+@@ -595,26 +579,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+                       </td>
+ 
+                       <td className="px-6 py-4">
+-                        {p.temp_password ? (
+-                          <div className="flex items-center space-x-2">
+-                            <span className="font-mono text-xs bg-zinc-100 px-2 py-1 rounded select-all">
+-                              {visiblePasswords[p.id] ? p.temp_password : "••••••"}
+-                            </span>
+-                            <button
+-                              onClick={() => togglePasswordVisibility(p.id)}
+-                              className="p-1 hover:bg-zinc-200 rounded text-zinc-500 transition-colors"
+-                              title={visiblePasswords[p.id] ? "Ocultar" : "Mostrar"}
+-                            >
+-                              {visiblePasswords[p.id] ? (
+-                                <EyeOff className="w-3.5 h-3.5" />
+-                              ) : (
+-                                <Eye className="w-3.5 h-3.5" />
+-                              )}
+-                            </button>
+-                          </div>
+-                        ) : (
+-                          <span className="text-zinc-400 text-xs italic">Não registrada</span>
+-                        )}
++                        <span className="text-zinc-500 text-xs">Gerenciada no Supabase Auth</span>
+                       </td>
+                       <td className="px-6 py-4 text-right whitespace-nowrap min-w-[210px]">
+                         <div className="flex items-center justify-end space-x-2">
+@@ -755,264 +720,11 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+                     />
+                   </div>
+                 ) : (
+-                  <div className="space-y-4 border border-zinc-150 rounded-2xl p-4 bg-zinc-50/50">
+-                    <div className="flex items-center space-x-2 text-indigo-600 font-semibold text-sm">
+-                      <Shield className="w-4 h-4" />
+-                      <span>Gerenciamento de Senha</span>
+-                    </div>
+-
+-                    <div className="border-t border-zinc-100 pt-3 space-y-3">
+-                      {/* Option 1: Direct update */}
+-                      <div>
+-                        <label className="block text-xs font-semibold text-zinc-600 mb-1">
+-                          Definir Nova Senha Direto (Instante)
+-                        </label>
+-                        <div className="flex space-x-2">
+-                          <input
+-                            type="text"
+-                            placeholder="Nova senha (mín. 6 caracteres)"
+-                            value={newDirectPassword}
+-                            onChange={(e) => setNewDirectPassword(e.target.value)}
+-                            disabled={directResetStatus === 'loading'}
+-                            className="flex-1 px-3 py-1.5 border border-zinc-200 rounded-lg text-xs outline-none bg-white focus:ring-1 focus:ring-indigo-500"
+-                          />
+-                          <button
+-                            type="button"
+-                            disabled={newDirectPassword.length < 6 || directResetStatus === 'loading'}
+-                            onClick={async () => {
+-                              if (newDirectPassword.length < 6) return;
+-                              setDirectResetStatus('loading');
+-                              setRpcErrorText("");
+-                              try {
+-                                // 1. Attempt to call RPC
+-                                const { data, error: rpcErr } = await supabase.rpc('admin_reset_user_password', {
+-                                  target_user_id: editingProfile.id,
+-                                  new_password: newDirectPassword
+-                                });
+-
+-                                if (rpcErr) {
+-                                  setDirectResetStatus('missing_rpc');
+-                                  setRpcErrorText(rpcErr.message);
+-                                  return;
+-                                }
+-
+-                                const response = data as any;
+-                                if (response && response.success === false) {
+-                                  throw new Error(response.message || 'Erro na redefinição.');
+-                                }
+-
+-                                // 2. Update the local state & profiles table
+-                                await updateProfile(editingProfile.id, { temp_password: newDirectPassword });
+-                                setDirectResetStatus('success');
+-                                setNewDirectPassword("");
+-                              } catch (err: any) {
+-                                console.error('Error in direct password reset:', err);
+-                                setDirectResetStatus('error');
+-                                setRpcErrorText(err.message || 'Erro desconhecido ao tentar alterar senha.');
+-                              }
+-                            }}
+-                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition-colors shadow-sm disabled:opacity-40"
+-                          >
+-                            {directResetStatus === 'loading' ? 'Alterando...' : 'Alterar Agora'}
+-                          </button>
+-                        </div>
+-                        
+-                        {directResetStatus === 'success' && (
+-                          <p className="text-xs text-emerald-600 font-semibold mt-1">
+-                            ✅ Senha alterada e anotada com sucesso!
+-                          </p>
+-                        )}
+-                        {directResetStatus === 'error' && (
+-                          <p className="text-xs text-rose-600 font-medium mt-1">
+-                            ❌ {rpcErrorText}
+-                          </p>
+-                        )}
+-                        
+-                        {/* Missing RPC Instructions */}
+-                        {directResetStatus === 'missing_rpc' && (
+-                          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2 text-zinc-700">
+-                            <div className="flex items-center space-x-1.5 font-bold text-amber-800 text-xs">
+-                              <span>⚠️ Executar Script SQL no Supabase</span>
+-                            </div>
+-                            <p className="text-[11px] leading-relaxed text-zinc-600">
+-                              Para o Super Admin alterar senhas diretamente no banco Supabase (sem depender de confirmações de e-mail), execute a função abaixo no <strong>SQL Editor</strong> do seu projeto Supabase:
+-                            </p>
+-                            
+-                            <button
+-                              type="button"
+-                              onClick={async () => {
+-                                setDirectResetStatus('loading');
+-                                try {
+-                                  // Just update the profile annotation
+-                                  await updateProfile(editingProfile.id, { temp_password: newDirectPassword });
+-                                  setDirectResetStatus('success');
+-                                  setNewDirectPassword("");
+-                                } catch (err: any) {
+-                                  setDirectResetStatus('error');
+-                                  setRpcErrorText(err.message || 'Erro ao anotar.');
+-                                }
+-                              }}
+-                              className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm"
+-                            >
+-                              Salvar como "Anotação de Senha" no Perfil
+-                            </button>
+-
+-                            <div className="mt-2 space-y-2 text-left">
+-                              <p className="text-[10px] font-semibold text-zinc-600">
+-                                Script SQL para rodar no Supabase SQL Editor:
+-                              </p>
+-                              <div className="relative">
+-                                <pre className="bg-zinc-900 text-zinc-100 p-2.5 rounded-lg font-mono text-[9px] overflow-x-auto max-h-40 leading-relaxed">
+-                                  {`ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password text;
+-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+-
+-CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
+-  target_user_id text,
+-  new_password text
+-)
+-RETURNS jsonb
+-LANGUAGE plpgsql
+-SECURITY DEFINER
+-SET search_path = public, auth, extensions
+-AS $$
+-DECLARE
+-  caller_role text;
+-  uuid_target uuid;
+-  hashed_pwd text;
+-BEGIN
+-  SELECT role INTO caller_role FROM public.profiles WHERE id = auth.uid()::text;
+-  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
+-    RETURN jsonb_build_object('success', false, 'message', 'Apenas Super Admins podem redefinir senhas.');
+-  END IF;
+-
+-  BEGIN
+-    uuid_target := target_user_id::uuid;
+-  EXCEPTION WHEN OTHERS THEN
+-    RETURN jsonb_build_object('success', false, 'message', 'ID de usuário inválido.');
+-  END;
+-
+-  BEGIN
+-    hashed_pwd := extensions.crypt(new_password, extensions.gen_salt('bf', 10));
+-  EXCEPTION WHEN OTHERS THEN
+-    BEGIN
+-      hashed_pwd := crypt(new_password, gen_salt('bf', 10));
+-    EXCEPTION WHEN OTHERS THEN
+-      RETURN jsonb_build_object('success', false, 'message', 'Extensão pgcrypto ausente no Supabase.');
+-    END;
+-  END;
+-
+-  UPDATE auth.users 
+-  SET encrypted_password = hashed_pwd,
+-      email_confirmed_at = COALESCE(email_confirmed_at, now()),
+-      updated_at = now()
+-  WHERE id = uuid_target;
+-
+-  BEGIN
+-    UPDATE public.profiles 
+-    SET temp_password = new_password 
+-    WHERE id = target_user_id;
+-  EXCEPTION WHEN OTHERS THEN
+-    -- Ignorar caso a coluna temp_password ainda não exista
+-    NULL;
+-  END;
+-
+-  RETURN jsonb_build_object('success', true, 'message', 'Senha alterada com sucesso.');
+-EXCEPTION WHEN OTHERS THEN
+-  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+-END;
+-$$;
+-
+-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO authenticated;
+-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO service_role;`}
+-                                </pre>
+-                                <button
+-                                  type="button"
+-                                  onClick={() => {
+-                                    navigator.clipboard.writeText(`ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password text;
+-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+-
+-CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
+-  target_user_id text,
+-  new_password text
+-)
+-RETURNS jsonb
+-LANGUAGE plpgsql
+-SECURITY DEFINER
+-SET search_path = public, auth, extensions
+-AS $$
+-DECLARE
+-  caller_role text;
+-  uuid_target uuid;
+-  hashed_pwd text;
+-BEGIN
+-  SELECT role INTO caller_role FROM public.profiles WHERE id = auth.uid()::text;
+-  IF caller_role IS NULL OR caller_role != 'super_admin' THEN
+-    RETURN jsonb_build_object('success', false, 'message', 'Apenas Super Admins podem redefinir senhas.');
+-  END IF;
+-
+-  BEGIN
+-    uuid_target := target_user_id::uuid;
+-  EXCEPTION WHEN OTHERS THEN
+-    RETURN jsonb_build_object('success', false, 'message', 'ID de usuário inválido.');
+-  END;
+-
+-  BEGIN
+-    hashed_pwd := extensions.crypt(new_password, extensions.gen_salt('bf', 10));
+-  EXCEPTION WHEN OTHERS THEN
+-    BEGIN
+-      hashed_pwd := crypt(new_password, gen_salt('bf', 10));
+-    EXCEPTION WHEN OTHERS THEN
+-      RETURN jsonb_build_object('success', false, 'message', 'Extensão pgcrypto ausente no Supabase.');
+-    END;
+-  END;
+-
+-  UPDATE auth.users 
+-  SET encrypted_password = hashed_pwd,
+-      email_confirmed_at = COALESCE(email_confirmed_at, now()),
+-      updated_at = now()
+-  WHERE id = uuid_target;
+-
+-  BEGIN
+-    UPDATE public.profiles 
+-    SET temp_password = new_password 
+-    WHERE id = target_user_id;
+-  EXCEPTION WHEN OTHERS THEN
+-    -- Ignorar caso a coluna temp_password ainda não exista
+-    NULL;
+-  END;
+-
+-  RETURN jsonb_build_object('success', true, 'message', 'Senha alterada com sucesso.');
+-EXCEPTION WHEN OTHERS THEN
+-  RETURN jsonb_build_object('success', false, 'message', SQLERRM);
+-END;
+-$$;
+-
+-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO authenticated;
+-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(text, text) TO service_role;`);
+-                                    setCopiedSql(true);
+-                                    setTimeout(() => setCopiedSql(false), 2000);
+-                                  }}
+-                                  className="absolute right-2 top-2 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded text-[10px] flex items-center space-x-1 shadow transition-colors"
+-                                  title="Copiar código SQL"
+-                                >
+-                                  {copiedSql ? (
+-                                    <>
+-                                      <Check className="w-3 h-3 text-emerald-300" />
+-                                      <span>Copiado!</span>
+-                                    </>
+-                                  ) : (
+-                                    <>
+-                                      <Copy className="w-3 h-3" />
+-                                      <span>Copiar SQL</span>
+-                                    </>
+-                                  )}
+-                                </button>
+-                              </div>
+-                            </div>
+-                          </div>
+-                        )}
+-                      </div>
+-                    </div>
++                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
++                    Senhas não podem ser exibidas, anotadas no perfil ou redefinidas
++                    por SQL incorporado à interface. A redefinição administrativa
++                    segura será implementada em uma etapa separada, após validar
++                    a identidade da conta e as permissões no servidor.
+                   </div>
+                 )}
+ 
+diff --git a/vite.config.ts b/vite.config.ts
+index 1042a75..9b26838 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -1,16 +1,11 @@
+ import tailwindcss from '@tailwindcss/vite';
+ import react from '@vitejs/plugin-react';
+ import path from 'path';
+-import {defineConfig, loadEnv} from 'vite';
++import {defineConfig} from 'vite';
+ 
+ export default defineConfig(({mode}) => {
+-  const env = loadEnv(mode, '.', '');
+   return {
+     plugins: [react(), tailwindcss()],
+-    define: {
+-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+-      'process.env.SUPABASE_KEY': JSON.stringify(env.SUPABASE_KEY),
+-    },
+     resolve: {
+       alias: {
+         '@': path.resolve(__dirname, '.'),
