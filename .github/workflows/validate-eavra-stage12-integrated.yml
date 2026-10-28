@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/validate-eavra-stage12-integrated.yml'
       - 'review/eavra-package11-build/patch-consolidado11.diff'
+      - 'review/eavra-package11-build/fix-*.diff'
   workflow_dispatch:
 
 permissions:
@@ -55,6 +56,11 @@ jobs:
           test -f src/views/PermissionsManager.tsx
           test -f src/services/permissionsAdmin.ts
           test -f src/shared/approvedDevSupabase.ts
+
+      - name: Aplicar correção de TypeScript identificada no CI
+        run: |
+          git apply --check review/eavra-package11-build/fix-01-types-adminRoutes.diff
+          git apply review/eavra-package11-build/fix-01-types-adminRoutes.diff
 
       - name: Instalar dependencias travadas no package-lock
         run: npm ci --ignore-scripts --no-audit --fund=false
