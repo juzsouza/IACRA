@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,9 +13,20 @@
     <meta property="og:image" content="https://bolt.new/static/og_default.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://bolt.new/static/og_default.png">
+  <style>
+    /* Aviso fixo, exclusivo da branch de testes; nunca publicar em producao. */
+    #eavra-dev-notice {
+      position: fixed; left: 12px; bottom: 12px; z-index: 99999;
+      border: 1px solid #f59e0b; background: #fffbeb; color: #92400e;
+      border-radius: 10px; padding: 7px 12px; font: 700 12px/1.4 system-ui, sans-serif;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08); pointer-events: none;
+      max-width: calc(100vw - 24px);
+    }
+  </style>
 </head>
   <body>
     <div id="root"></div>
+    <div id="eavra-dev-notice" role="status" aria-label="Ambiente de testes IACRA-DEV">AMBIENTE DE TESTES · IACRA-DEV · SEM DADOS REAIS</div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
