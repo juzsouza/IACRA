@@ -1,0 +1,212 @@
+-- EAVRA ETAPA 09: SOMENTE TESTE POSTGRESQL DESCARTAVEL.
+-- NAO INSTALAR NO SUPABASE, BOLT DATABASE OU PRODUCAO.
+-- Requer schema-dev-v9 e eavra-e08 (modelos de review).
+-- RPCs de acesso somente ao Super Admin ATIVO, resolvido por auth.uid().
+-- Sem service_role no frontend. O protocolo HTTP deve validar o JWT.
+CREATE OR REPLACE FUNCTION public.eavra_admin_permissions_snapshot()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $eavra$
+DECLARE
+  v_actor text := auth.uid()::text;
+  v_snapshot jsonb;
+BEGIN
+  IF v_actor IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = v_actor AND p.role = 'super_admin' AND p.access_status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'permission_denied' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT jsonb_build_object(
+    'catalog', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'key', c.permission_key,
+        'module', c.module,
+        'action', c.action,
+        'reserved', c.reserved_super_admin,
+        'admin_only', c.admin_only
+      ) ORDER BY c.permission_key)
+      FROM app_private.eavra_permission_catalog c
+    ), '[]'::jsonb),
+    'role_rules', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'role', r.role, 'key', r.permission_key, 'decision', r.decision,
+        'scope', r.scope
+      ) ORDER BY r.role, r.permission_key)
+      FROM app_private.eavra_role_permissions r
+    ), '[]'::jsonb),
+    'user_rules', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'profile_id', u.profile_id, 'key', u.permission_key,
+        'decision', u.decision, 'scope', u.scope
+      ) ORDER BY u.profile_id, u.permission_key)
+      FROM app_private.eavra_user_permission_overrides u
+    ), '[]'::jsonb)
+  ) INTO v_snapshot;
+
+  RETURN v_snapshot;
+END;
+$eavra$;
+
+CREATE OR REPLACE FUNCTION public.eavra_admin_save_permission(
+  p_subject_type text,
+  p_target text,
+  p_permission_key text,
+  p_decision text,
+  p_scope text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $eavra$
+DECLARE
+  v_actor text := auth.uid()::text;
+  v_reserved boolean;
+  v_admin_only boolean;
+  v_target_role text;
+  v_previous jsonb;
+  v_next jsonb;
+  v_old_decision text;
+  v_old_scope text;
+  v_changed boolean := false;
+BEGIN
+  IF v_actor IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = v_actor AND p.role = 'super_admin' AND p.access_status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'permission_denied' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_subject_type NOT IN ('role', 'user')
+     OR p_subject_type IS NULL
+     OR p_target IS NULL OR length(trim(p_target)) = 0
+     OR p_permission_key IS NULL OR length(trim(p_permission_key)) = 0
+     OR p_decision NOT IN ('allow', 'deny', 'inherit') OR p_decision IS NULL
+     OR p_scope NOT IN ('all', 'own', 'none') OR p_scope IS NULL
+     OR (p_decision = 'allow' AND p_scope = 'none')
+     OR (p_decision <> 'allow' AND p_scope <> 'none')
+  THEN
+    RAISE EXCEPTION 'invalid_permission_request' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT c.reserved_super_admin, c.admin_only
+    INTO v_reserved, v_admin_only
+  FROM app_private.eavra_permission_catalog c
+  WHERE c.permission_key = p_permission_key;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'unknown_permission' USING ERRCODE = '22023';
+  END IF;
+  IF v_reserved THEN
+    RAISE EXCEPTION 'reserved_super_admin_permission' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_subject_type = 'role' THEN
+    IF p_target NOT IN ('admin', 'teacher') THEN
+      RAISE EXCEPTION 'invalid_target_role' USING ERRCODE = '22023';
+    END IF;
+    v_target_role := p_target;
+  ELSE
+    SELECT p.role INTO v_target_role
+    FROM public.profiles p
+    WHERE p.id = p_target
+      AND p.access_status = 'active'
+      AND p.role IN ('admin', 'teacher')
+      AND EXISTS (SELECT 1 FROM auth.users a WHERE a.id::text = p.id);
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'invalid_or_unlinked_user_target' USING ERRCODE = '22023';
+    END IF;
+  END IF;
+
+  IF p_decision = 'allow' AND v_target_role = 'teacher'
+     AND (v_admin_only OR p_scope <> 'own') THEN
+    RAISE EXCEPTION 'teacher_permission_out_of_scope' USING ERRCODE = '42501';
+  END IF;
+
+  -- Serializa alterações concorrentes ao mesmo objeto/regra,
+  -- incluindo quando a regra ainda não existe.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('eavra09:' || p_subject_type || ':' || p_target),
+    pg_catalog.hashtext(p_permission_key)
+  );
+
+  IF p_subject_type = 'role' THEN
+    SELECT r.decision, r.scope INTO v_old_decision, v_old_scope
+    FROM app_private.eavra_role_permissions r
+    WHERE r.role = p_target AND r.permission_key = p_permission_key
+    FOR UPDATE;
+  ELSE
+    SELECT u.decision, u.scope INTO v_old_decision, v_old_scope
+    FROM app_private.eavra_user_permission_overrides u
+    WHERE u.profile_id = p_target AND u.permission_key = p_permission_key
+    FOR UPDATE;
+  END IF;
+  IF FOUND THEN
+    v_previous := jsonb_build_object('decision', v_old_decision, 'scope', v_old_scope);
+  ELSE
+    v_previous := NULL;
+  END IF;
+
+  IF p_decision = 'inherit' THEN
+    v_next := NULL;
+  ELSE
+    v_next := jsonb_build_object('decision', p_decision, 'scope', p_scope);
+  END IF;
+  v_changed := v_previous IS DISTINCT FROM v_next;
+
+  IF NOT v_changed THEN
+    RETURN jsonb_build_object('changed', false, 'subject_type', p_subject_type,
+      'target', p_target, 'permission_key', p_permission_key, 'rule', v_next);
+  END IF;
+
+  IF p_subject_type = 'role' THEN
+    IF p_decision = 'inherit' THEN
+      DELETE FROM app_private.eavra_role_permissions
+      WHERE role = p_target AND permission_key = p_permission_key;
+    ELSE
+      INSERT INTO app_private.eavra_role_permissions
+        (role, permission_key, decision, scope, updated_at)
+      VALUES (p_target, p_permission_key, p_decision, p_scope, now())
+      ON CONFLICT (role, permission_key) DO UPDATE
+      SET decision = EXCLUDED.decision, scope = EXCLUDED.scope,
+          updated_at = now();
+    END IF;
+  ELSE
+    IF p_decision = 'inherit' THEN
+      DELETE FROM app_private.eavra_user_permission_overrides
+      WHERE profile_id = p_target AND permission_key = p_permission_key;
+    ELSE
+      INSERT INTO app_private.eavra_user_permission_overrides
+        (profile_id, permission_key, decision, scope, changed_by, updated_at)
+      VALUES (p_target, p_permission_key, p_decision, p_scope, v_actor, now())
+      ON CONFLICT (profile_id, permission_key) DO UPDATE
+      SET decision = EXCLUDED.decision, scope = EXCLUDED.scope,
+          changed_by = EXCLUDED.changed_by, updated_at = now();
+    END IF;
+  END IF;
+
+  INSERT INTO app_private.eavra_permission_audit_log (
+    actor_auth_id, target_profile_id, permission_key, change_type,
+    before_state, after_state
+  ) VALUES (
+    v_actor, CASE WHEN p_subject_type = 'user' THEN p_target ELSE NULL END,
+    p_permission_key, p_subject_type || '_rule',
+    v_previous, v_next
+  );
+
+  RETURN jsonb_build_object('changed', true, 'subject_type', p_subject_type,
+    'target', p_target, 'permission_key', p_permission_key, 'rule', v_next);
+END;
+$eavra$;
+
+REVOKE ALL ON FUNCTION public.eavra_admin_permissions_snapshot() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.eavra_admin_save_permission(text,text,text,text,text)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.eavra_admin_permissions_snapshot() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.eavra_admin_save_permission(text,text,text,text,text)
+  TO authenticated;
