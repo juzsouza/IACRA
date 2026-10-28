@@ -1,0 +1,165 @@
+\set ON_ERROR_STOP on
+-- EAVRA e09. Todos os IDs e dominios de e08 sao ficticios.
+-- Executar APENAS apos v9, e08 e seus testes no PostgreSQL descartavel.
+DO $test$
+BEGIN
+ IF has_function_privilege('anon','public.eavra_admin_permissions_snapshot()','EXECUTE')
+ OR has_function_privilege('anon','public.eavra_admin_save_permission(text,text,text,text,text)','EXECUTE')
+ OR has_table_privilege('authenticated','app_private.eavra_permission_audit_log','SELECT') THEN
+   RAISE EXCEPTION 'RPC ou auditoria expostas sem autenticacao';
+ END IF;
+END $test$;
+
+SET ROLE authenticated;
+DO $test$
+DECLARE
+  snap jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
+  snap := public.eavra_admin_permissions_snapshot();
+  IF jsonb_typeof(snap->'catalog') IS DISTINCT FROM 'array'
+    OR jsonb_typeof(snap->'role_rules') IS DISTINCT FROM 'array'
+    OR jsonb_typeof(snap->'user_rules') IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'Snapshot do Super Admin invalido';
+  END IF;
+END $test$;
+DO $test$
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+  BEGIN
+    PERFORM public.eavra_admin_permissions_snapshot();
+    RAISE EXCEPTION 'Admin conseguiu consultar snapshot restrito';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','admin','coral.manage_collaborators','allow','all');
+    RAISE EXCEPTION 'Admin conseguiu conceder acesso';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+  BEGIN
+    PERFORM public.eavra_admin_permissions_snapshot();
+    RAISE EXCEPTION 'Professor conseguiu consultar snapshot restrito';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000104',true);
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','admin','coral.manage_collaborators','allow','all');
+    RAISE EXCEPTION 'Admin bloqueado conseguiu alterar permissoes';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000105',true);
+  BEGIN
+    PERFORM public.eavra_admin_permissions_snapshot();
+    RAISE EXCEPTION 'Perfil com ID divergente consultou snapshot';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  BEGIN
+    PERFORM public.eavra_admin_permissions_snapshot();
+    RAISE EXCEPTION 'Sem JWT valido consultou snapshot';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+END $test$;
+RESET ROLE;
+
+-- Catalogo de outra operacao sem privilegios administrativos.
+INSERT INTO app_private.eavra_permission_catalog
+  (permission_key,module,action,reserved_super_admin,admin_only)
+VALUES ('classes.view','classes','view',false,false);
+
+SET ROLE authenticated;
+DO $test$
+DECLARE
+  result jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
+  -- Depois da e08, admin herda permitir all, mas override individual = deny.
+  IF app_private.eavra_permission_scope('coral.manage_collaborators') <> 'all' THEN
+     RAISE EXCEPTION 'Super Admin inesperadamente bloqueado'; END IF;
+
+  -- Revoga o grant do papel: validacao no backend/RLS deve negar.
+  result := public.eavra_admin_save_permission('role','admin','coral.manage_collaborators','deny','none');
+  IF result->>'changed' <> 'true' THEN RAISE EXCEPTION 'Alteracao role nao salva'; END IF;
+
+  -- Idempotencia: repetir a regra nao deve criar evento adicional.
+  result := public.eavra_admin_save_permission('role','admin','coral.manage_collaborators','deny','none');
+  IF result->>'changed' <> 'false' THEN RAISE EXCEPTION 'Falta idempotencia'; END IF;
+
+  -- Volta a permitir; negação individual ainda prevalece.
+  PERFORM public.eavra_admin_save_permission('role','admin','coral.manage_collaborators','allow','all');
+
+  -- Remover excecao individual corresponde a herdar a regra do perfil.
+  PERFORM public.eavra_admin_save_permission('user','00000000-0000-0000-0000-000000000102',
+    'coral.manage_collaborators','inherit','none');
+
+  -- Negrar agora via excecao especifica.
+  PERFORM public.eavra_admin_save_permission('user','00000000-0000-0000-0000-000000000102',
+    'coral.manage_collaborators','deny','none');
+
+  -- Professor: sempre escopo own, mesmo se a regra nao e administrativa.
+  PERFORM public.eavra_admin_save_permission('role','teacher','classes.view','allow','own');
+
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','teacher','coral.manage_collaborators','allow','own');
+    RAISE EXCEPTION 'Professor recebeu administracao do Coral';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','teacher','classes.view','allow','all');
+    RAISE EXCEPTION 'Professor recebeu scope all';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','admin','permissions.manage','allow','all');
+    RAISE EXCEPTION 'Permissao reservada foi delegada';
+  EXCEPTION WHEN SQLSTATE '42501' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('user','00000000-0000-0000-0000-000000000104',
+      'classes.view','allow','own');
+    RAISE EXCEPTION 'Usuario bloqueado recebeu regra';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('user','00000000-0000-0000-0000-000000000999',
+      'classes.view','allow','own');
+    RAISE EXCEPTION 'Perfil sem auth recebeu regra';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','admin','unknown.permission','allow','all');
+    RAISE EXCEPTION 'Permissao inexistente cadastrada';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','admin','classes.view','deny','all');
+    RAISE EXCEPTION 'Regra inconsistente aceita';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
+  BEGIN
+    PERFORM public.eavra_admin_save_permission('role','super_admin','classes.view','deny','none');
+    RAISE EXCEPTION 'Regra super_admin modificada';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
+END $test$;
+RESET ROLE;
+
+SET ROLE authenticated;
+DO $test$
+DECLARE
+  rows_count int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+  SELECT count(*) INTO rows_count FROM public.choir_collaborators;
+  IF rows_count <> 0 THEN RAISE EXCEPTION 'Override deny ignorado no Coral'; END IF;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+  IF app_private.eavra_permission_scope('classes.view') <> 'own' THEN
+    RAISE EXCEPTION 'Professor nao possui scope own';
+  END IF;
+END $test$;
+RESET ROLE;
+
+DO $test$
+DECLARE
+  expected_audits int;
+  rule_count int;
+BEGIN
+  SELECT count(*) INTO expected_audits
+  FROM app_private.eavra_permission_audit_log;
+  IF expected_audits <> 6 THEN RAISE EXCEPTION 'Audit log esperado 6, recebido %', expected_audits; END IF;
+  SELECT count(*) INTO rule_count
+  FROM app_private.eavra_user_permission_overrides
+  WHERE profile_id='00000000-0000-0000-0000-000000000102'
+   AND permission_key='coral.manage_collaborators'
+   AND decision='deny';
+  IF rule_count <> 1 THEN RAISE EXCEPTION 'Override final ausente'; END IF;
+END $test$;
+
+SELECT 'PASS | Etapa 09: salvar, herdar, negar, auditoria e seguranca de RPC' AS resultado;
