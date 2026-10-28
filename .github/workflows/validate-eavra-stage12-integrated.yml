@@ -1,0 +1,91 @@
+name: EAVRA-12 Compilar pacote 11 isolado
+
+on:
+  push:
+    branches:
+      - eavra-pacote11-build-isolado
+    paths:
+      - '.github/workflows/validate-eavra-stage12-integrated.yml'
+      - 'review/eavra-package11-build/patch-consolidado11.diff'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-integrated-package:
+    name: TypeScript, build e regressao (sem deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_EAVRA_PERMISSION_ADMIN_ENABLED: 'false'
+      CI: 'true'
+    steps:
+      - name: Obter branch descartavel
+        uses: actions/checkout@v4
+
+      - name: Garantir teste somente na branch temporaria
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "eavra-pacote11-build-isolado"
+          test ! -f .env
+          test ! -f .env.local
+          test ! -f .env.production
+          test "${VITE_EAVRA_PERMISSION_ADMIN_ENABLED}" = "false"
+
+      - name: Node.js 22 com cache npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Conferir integridade do pacote 11
+        shell: bash
+        run: |
+          printf '%s  %s\n' \
+            '0bbf1314942fde6e4429a8cc3c11309c1af4d84a2e082ac4e71e336ed5d57a77' \
+            'review/eavra-package11-build/patch-consolidado11.diff' | sha256sum --check
+          test "$(grep -c '^diff --git ' review/eavra-package11-build/patch-consolidado11.diff)" -eq 33
+          git apply --check review/eavra-package11-build/patch-consolidado11.diff
+
+      - name: Aplicar pacote 11 somente no executor descartavel
+        run: |
+          git apply review/eavra-package11-build/patch-consolidado11.diff
+          git status --short
+          test -f src/views/PermissionsManager.tsx
+          test -f src/services/permissionsAdmin.ts
+          test -f src/shared/approvedDevSupabase.ts
+
+      - name: Instalar dependencias travadas no package-lock
+        run: npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Executar verificacao TypeScript completa
+        run: npm run lint
+
+      - name: Compilar frontend Vite e backend esbuild
+        run: npm run build
+
+      - name: Testes de seguranca e permissoes do pacote
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in \
+            src/tests/profile_access_gate.test.ts \
+            src/tests/admin_authorization_gate.test.ts \
+            src/tests/admin_identity_regression.test.ts \
+            src/tests/dev_environment_preflight.test.ts \
+            src/tests/dev_supabase_isolation.test.ts \
+            src/tests/user_provisioning_safety.test.ts \
+            src/tests/permissions_admin_stage10.test.ts \
+            src/tests/auth_profile_resolution_security.test.ts
+          do
+            echo "TESTE: $test"
+            node --experimental-strip-types "$test"
+          done
+          echo 'PASS: todos os testes do pacote 11'
+
+      - name: Informar que nenhuma implantacao foi executada
+        if: success()
+        run: |
+          echo 'Compilacao e testes concluidos em executor efemero.'
+          echo 'Nenhum SQL, deploy ou alteracao de Supabase/Bolt foi executado.'
