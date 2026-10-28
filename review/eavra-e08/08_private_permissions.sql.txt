@@ -1,0 +1,95 @@
+-- EAVRA e08 -- APENAS PostgreSQL descartável; não executar no Supabase.
+CREATE SCHEMA IF NOT EXISTS app_private;
+REVOKE ALL ON SCHEMA app_private FROM PUBLIC, anon;
+
+CREATE TABLE IF NOT EXISTS app_private.eavra_permission_catalog (
+  permission_key text PRIMARY KEY,
+  module text NOT NULL,
+  action text NOT NULL,
+  reserved_super_admin boolean NOT NULL DEFAULT false,
+  admin_only boolean NOT NULL DEFAULT false,
+  CONSTRAINT permission_key_valid CHECK (permission_key = module || '.' || action),
+  CONSTRAINT permission_action_unique UNIQUE (module, action)
+);
+CREATE TABLE IF NOT EXISTS app_private.eavra_role_permissions (
+  role text NOT NULL CHECK (role IN ('admin','teacher')),
+  permission_key text NOT NULL REFERENCES app_private.eavra_permission_catalog(permission_key),
+  decision text NOT NULL CHECK (decision IN ('allow','deny')),
+  scope text NOT NULL CHECK (scope IN ('all','own','none')),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (role,permission_key),
+  CONSTRAINT role_scope_valid CHECK ((decision='deny' AND scope='none') OR (decision='allow' AND scope IN ('all','own')))
+);
+CREATE TABLE IF NOT EXISTS app_private.eavra_user_permission_overrides (
+  profile_id text NOT NULL REFERENCES public.profiles(id),
+  permission_key text NOT NULL REFERENCES app_private.eavra_permission_catalog(permission_key),
+  decision text NOT NULL CHECK (decision IN ('allow','deny')),
+  scope text NOT NULL CHECK (scope IN ('all','own','none')),
+  changed_by text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(profile_id,permission_key),
+  CONSTRAINT override_scope_valid CHECK ((decision='deny' AND scope='none') OR (decision='allow' AND scope IN ('all','own')))
+);
+CREATE TABLE IF NOT EXISTS app_private.eavra_permission_audit_log (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  actor_auth_id text NOT NULL,
+  target_profile_id text,
+  permission_key text,
+  change_type text NOT NULL,
+  before_state jsonb,
+  after_state jsonb,
+  occurred_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE app_private.eavra_permission_catalog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_private.eavra_role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_private.eavra_user_permission_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_private.eavra_permission_audit_log ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON ALL TABLES IN SCHEMA app_private FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_private FROM PUBLIC, anon, authenticated;
+GRANT USAGE ON SCHEMA app_private TO authenticated, service_role;
+GRANT SELECT ON TABLE app_private.eavra_permission_catalog,
+ app_private.eavra_role_permissions, app_private.eavra_user_permission_overrides TO service_role;
+GRANT INSERT,UPDATE,DELETE ON TABLE app_private.eavra_role_permissions,
+ app_private.eavra_user_permission_overrides TO service_role;
+GRANT SELECT,INSERT ON TABLE app_private.eavra_permission_audit_log TO service_role;
+GRANT USAGE ON SEQUENCE app_private.eavra_permission_audit_log_id_seq TO service_role;
+CREATE OR REPLACE FUNCTION app_private.eavra_permission_scope(p_permission_key text)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, app_private, public, auth, pg_temp
+AS $fn$
+DECLARE
+ v_auth_id text;
+ v_role text;
+ v_reserved boolean;
+ v_admin_only boolean;
+ v_decision text;
+ v_scope text;
+BEGIN
+ v_auth_id := auth.uid()::text;
+ IF v_auth_id IS NULL OR length(v_auth_id) = 0 THEN RETURN 'none'; END IF;
+ SELECT p.role INTO v_role FROM public.profiles p
+ WHERE p.id = v_auth_id AND p.access_status = 'active';
+ IF NOT FOUND OR v_role NOT IN ('super_admin','admin','teacher') THEN RETURN 'none'; END IF;
+ SELECT c.reserved_super_admin,c.admin_only INTO v_reserved,v_admin_only
+ FROM app_private.eavra_permission_catalog c WHERE c.permission_key = p_permission_key;
+ IF NOT FOUND THEN RETURN 'none'; END IF;
+ IF v_role = 'super_admin' THEN RETURN 'all'; END IF;
+ IF v_reserved OR (v_role = 'teacher' AND v_admin_only) THEN RETURN 'none'; END IF;
+ SELECT o.decision,o.scope INTO v_decision,v_scope
+ FROM app_private.eavra_user_permission_overrides o
+ WHERE o.profile_id = v_auth_id AND o.permission_key = p_permission_key;
+ IF NOT FOUND THEN
+   SELECT r.decision,r.scope INTO v_decision,v_scope
+   FROM app_private.eavra_role_permissions r
+   WHERE r.role = v_role AND r.permission_key = p_permission_key;
+ END IF;
+ IF v_decision IS DISTINCT FROM 'allow' OR v_scope NOT IN ('all','own') THEN RETURN 'none'; END IF;
+ IF v_role = 'teacher' THEN RETURN 'own'; END IF;
+ RETURN v_scope;
+END;
+$fn$;
+REVOKE ALL ON FUNCTION app_private.eavra_permission_scope(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.eavra_permission_scope(text) TO authenticated,service_role;
