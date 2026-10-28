@@ -32,6 +32,7 @@ export function getPermissionDevEnvironment(): PermissionEnvironment {
   return {
     enabled: import.meta.env.VITE_EAVRA_PERMISSION_ADMIN_ENABLED,
     supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
-    approvedDevProjectRef: import.meta.env.VITE_EAVRA_PERMISSION_DEV_PROJECT_REF,
+    // A mesma referência autoriza login e tela: nunca duas referências independentes.
+    approvedDevProjectRef: import.meta.env.VITE_EAVRA_DEV_PROJECT_REF,
   };
 }
