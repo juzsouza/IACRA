@@ -15,7 +15,7 @@ const steps: Record<DemoStage, string> = {
 };
 
 export function EnrollmentTermsPreview(): React.ReactElement {
-  const { currentUserProfile } = useAppStore();
+  const { state, currentUserProfile } = useAppStore();
   const gate = checkPermissionDevEnvironment(getPermissionDevEnvironment());
   const [modelId, setModelId] = useState<TermModelId>(TERM_MODELS[0].id);
   const [stage, setStage] = useState<DemoStage>('draft');
@@ -25,12 +25,27 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [requests, setRequests] = useState<DemoRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState('');
   const [offerId, setOfferId] = useState('');
-  const [teacherName, setTeacherName] = useState('Professor Exemplo');
-  const [planName, setPlanName] = useState('Plano Mensal Exemplo');
-  const [groupName, setGroupName] = useState('Turma Exemplo');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const availableTeachers = state.teachers.filter(t => t.status === 'active');
+  const availablePlans = state.financialPlans.filter(p => p.is_active);
+  const availableGroups = state.groups.filter(g => g.status !== 'inactive');
+  const plan = availablePlans.find(p => p.id === selectedPlanId);
+  const group = isGroupModel(modelId) ? availableGroups.find(g => g.id === selectedGroupId) : undefined;
+  const forcedTeacherId = group?.teacher_id || plan?.exclusive_teacher_id || '';
+  const resolvedTeacherId = forcedTeacherId || selectedTeacherId;
+  const teacher = availableTeachers.find(t => t.id === resolvedTeacherId);
+  const enrollmentConflict = Boolean(
+    group?.teacher_id && plan?.exclusive_teacher_id && group.teacher_id !== plan.exclusive_teacher_id
+  );
+  const clearGeneratedOffer = () => {
+    setOfferId('');
+    setOfferMessage('');
+    setLinkCopied('');
+  };
   const [startDate, setStartDate] = useState('2026-11-02');
   const [enrollmentDate, setEnrollmentDate] = useState('2026-10-29');
-  const [monthlyAmount, setMonthlyAmount] = useState('350');
   const [dueDay, setDueDay] = useState('10');
   const [offerMessage, setOfferMessage] = useState('');
   const refreshRequests = () => {
@@ -49,9 +64,19 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   };
   const getLink = () => offerId ? demoLink(window.location.origin,offerId) : '';
   const createOffer = () => {
+    if (enrollmentConflict) {
+      setOfferMessage('O professor do grupo não corresponde ao professor exclusivo do plano.');
+      return;
+    }
+    if (!plan || !teacher || (isGroupModel(modelId) && !group)) {
+      setOfferMessage('Selecione um plano ativo, professor ativo e, quando necessário, um grupo ativo.');
+      return;
+    }
     const input: DemoOfferInput = {
-      modelId, teacherName, planName, groupName: isGroupModel(modelId) ? groupName : '',
-      startDate, enrollmentDate, monthlyAmount: Number(monthlyAmount), dueDay: Number(dueDay),
+      modelId, teacherName: teacher.name, teacherId: teacher.id,
+      planName: plan.name, planId: plan.id,
+      groupName: group?.name || '', groupId: group?.id,
+      startDate, enrollmentDate, monthlyAmount: plan.base_price, dueDay: Number(dueDay),
       term: (() => {
         try { return readSavedTermDraft(localStorage.getItem(termDraftStorageKey(modelId))) ?? draft; }
         catch { return draft; }
@@ -129,7 +154,7 @@ export function EnrollmentTermsPreview(): React.ReactElement {
       </div>
       <section className="bg-white border rounded-xl p-5 space-y-3">
         <label className="block text-sm font-semibold" htmlFor="dev-term-model">Modelo do termo</label>
-        <select id="dev-term-model" className="w-full border rounded-lg p-3 bg-white" value={modelId} onChange={e => { setModelId(e.target.value as TermModelId); reset(); setFeedback(''); }}>
+        <select id="dev-term-model" className="w-full border rounded-lg p-3 bg-white" value={modelId} onChange={e => { setModelId(e.target.value as TermModelId); setSelectedGroupId(''); clearGeneratedOffer(); reset(); setFeedback(''); }}>
           {TERM_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
         <p className="text-sm text-zinc-600">{TERM_MODELS.find(m => m.id === modelId)?.description}</p>
@@ -139,15 +164,44 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         <h2 className="text-lg font-semibold">Preparar matrícula de teste — Secretaria</h2>
         <p className="text-sm">Abra no mesmo navegador e origem, em outra aba. Não compartilhe com alunos reais. A caixa DEV só registra modelo e situação fictícia, nunca nomes ou contatos.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="text-sm">Professor<input className="block w-full border rounded-lg p-2" value={teacherName} onChange={e=>setTeacherName(e.target.value)}/></label>
-          <label className="text-sm">Plano financeiro<input className="block w-full border rounded-lg p-2" value={planName} onChange={e=>setPlanName(e.target.value)}/></label>
-          {isGroupModel(modelId) && <label className="text-sm">Grupo / Turma<input className="block w-full border rounded-lg p-2" value={groupName} onChange={e=>setGroupName(e.target.value)}/></label>}
-          <label className="text-sm">Início das aulas<input type="date" className="block w-full border rounded-lg p-2" value={startDate} onChange={e=>setStartDate(e.target.value)}/></label>
-          <label className="text-sm">Data da matrícula<input type="date" className="block w-full border rounded-lg p-2" value={enrollmentDate} onChange={e=>setEnrollmentDate(e.target.value)}/></label>
-          <label className="text-sm">Mensalidade fictícia (R$)<input type="number" min="1" step="0.01" className="block w-full border rounded-lg p-2" value={monthlyAmount} onChange={e=>setMonthlyAmount(e.target.value)}/></label>
-          <label className="text-sm">Dia de vencimento<input type="number" min="1" max="31" className="block w-full border rounded-lg p-2" value={dueDay} onChange={e=>setDueDay(e.target.value)}/></label>
+          <label className="text-sm">Plano financeiro cadastrado
+            <select className="block w-full border rounded-lg p-2 bg-white" value={selectedPlanId} onChange={e => {setSelectedPlanId(e.target.value); clearGeneratedOffer();}}>
+              <option value="">Selecione um plano ativo</option>
+              {availablePlans.map(p => <option key={p.id} value={p.id}>{p.name} — R$ {p.base_price.toFixed(2)}</option>)}
+            </select>
+          </label>
+          {isGroupModel(modelId) && <label className="text-sm">Grupo / Turma cadastrada
+            <select className="block w-full border rounded-lg p-2 bg-white" value={selectedGroupId} onChange={e => {setSelectedGroupId(e.target.value); clearGeneratedOffer();}}>
+              <option value="">Selecione um grupo ativo</option>
+              {availableGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </label>}
+          <label className="text-sm">Professor cadastrado
+            <select className="block w-full border rounded-lg p-2 bg-white disabled:bg-zinc-100" value={resolvedTeacherId} disabled={Boolean(forcedTeacherId)} onChange={e => {setSelectedTeacherId(e.target.value); clearGeneratedOffer();}}>
+              <option value="">Selecione um professor ativo</option>
+              {availableTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+          <label className="text-sm">Mensalidade do plano (R$)
+            <input className="block w-full border rounded-lg p-2 bg-zinc-100" readOnly value={plan ? plan.base_price.toLocaleString('pt-BR', {style:'currency',currency:'BRL'}) : 'Selecione um plano'} />
+          </label>
+          <label className="text-sm">Início das aulas
+            <input type="date" className="block w-full border rounded-lg p-2" value={startDate} onChange={e=>{setStartDate(e.target.value);clearGeneratedOffer();}}/>
+          </label>
+          <label className="text-sm">Data da matrícula
+            <input type="date" className="block w-full border rounded-lg p-2" value={enrollmentDate} onChange={e=>{setEnrollmentDate(e.target.value);clearGeneratedOffer();}}/>
+          </label>
+          <label className="text-sm">Dia de vencimento
+            <input type="number" min="1" max="31" className="block w-full border rounded-lg p-2" value={dueDay} onChange={e=>{setDueDay(e.target.value);clearGeneratedOffer();}}/>
+          </label>
         </div>
-        <button type="button" className="px-4 py-2 rounded-lg bg-indigo-700 text-white" onClick={createOffer}>Gerar convite fictício</button>
+        {availablePlans.length === 0 && <p role="status" className="text-sm text-amber-800">Nenhum plano financeiro ativo foi encontrado no IACRA-DEV. Cadastre um plano de teste em Planos antes de gerar o convite.</p>}
+        {availableTeachers.length === 0 && <p role="status" className="text-sm text-amber-800">Nenhum professor ativo disponível no DEV.</p>}
+        {isGroupModel(modelId) && availableGroups.length === 0 && <p role="status" className="text-sm text-amber-800">Nenhum grupo ativo cadastrado no DEV.</p>}
+        {forcedTeacherId && <p className="text-sm text-zinc-600">Professor vinculado automaticamente pelo {group?.teacher_id ? 'grupo' : 'plano exclusivo'}.</p>}
+        {enrollmentConflict && <p role="alert" className="text-sm text-red-700">O professor do grupo é diferente do professor exclusivo do plano. Escolha uma combinação compatível.</p>}
+        <p className="text-xs text-zinc-600">Os dados são lidos dos cadastros existentes. Nenhum professor, plano ou grupo será criado por este teste.</p>
+        <button type="button" className="px-4 py-2 rounded-lg bg-indigo-700 text-white disabled:opacity-50" onClick={createOffer} disabled={!teacher || !plan || (isGroupModel(modelId) && !group) || enrollmentConflict} >Gerar convite fictício</button>
         {offerMessage && <p role="status" className="text-sm">{offerMessage}</p>}
         {offerId && <div className="flex flex-wrap gap-2">
           <a href={getLink()} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg bg-indigo-700 text-white">Abrir formulário fictício</a>
