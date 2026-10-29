@@ -16,6 +16,7 @@ on:
       - 'src/tests/eavra_dev_data_isolation.test.ts'
       - 'src/views/EnrollmentTermsPreview.tsx'
       - 'src/views/EnrollmentStudentTest.tsx'
+      - 'src/utils/enrollmentDevInbox.ts'
       - 'src/tests/enrollment_student_test.test.ts'
       - 'src/utils/enrollmentTermsDemo.ts'
       - 'src/utils/enrollmentTermsDraft.ts'
