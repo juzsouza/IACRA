@@ -22,6 +22,7 @@ import { Makeups } from "./views/Makeups";
 import { Prospects } from "./views/Prospects";
 import { Profiles } from "./views/Profiles";
 import { PermissionsManager } from "./views/PermissionsManager";
+import { EnrollmentTermsPreview } from "./views/EnrollmentTermsPreview";
 import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
@@ -266,6 +267,9 @@ function AppContent() {
         return <Prospects />;
       case "profiles":
         return <Profiles />;
+      case "enrollment_terms_demo":
+        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
+          ? <EnrollmentTermsPreview /> : <div role="alert">Acesso restrito.</div>;
       case "permissions_manager":
         return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
           ? <PermissionsManager /> : <div role="alert">Acesso restrito.</div>;
