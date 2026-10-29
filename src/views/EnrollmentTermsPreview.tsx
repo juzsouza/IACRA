@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { splitBoldSegments, toggleBoldSelection } from '../utils/termBoldMarkup';
 import { originalTermDraft, readSavedTermDraft, termDraftStorageKey, validateTermDraft, TERM_TITLE_MAX_LENGTH, TERM_BODY_MAX_LENGTH, type TermDraft } from '../utils/enrollmentTermsDraft';
 import { FileText, ShieldCheck, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../store';
@@ -20,12 +21,23 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [agreed, setAgreed] = useState(false);
   const [drafts, setDrafts] = useState<Partial<Record<TermModelId, TermDraft>>>({});
   const [feedback, setFeedback] = useState('');
+  const termEditorRef = useRef<HTMLTextAreaElement>(null);
   const draft = drafts[modelId] ?? originalTermDraft(modelId);
   const updateDraft = (changes: Partial<TermDraft>) => {
     setDrafts(prev => ({ ...prev, [modelId]: { ...(prev[modelId] ?? originalTermDraft(modelId)), ...changes } }));
     setFeedback('Alterações ainda não salvas.');
     setStage('draft');
     setAgreed(false);
+  };
+  const formatBold = () => {
+    const editor = termEditorRef.current;
+    if (!editor || stage !== 'draft') return;
+    const formatted = toggleBoldSelection(draft.body, editor.selectionStart, editor.selectionEnd);
+    updateDraft({ body: formatted.text });
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(formatted.start, formatted.end);
+    });
   };
   const saveDraft = () => {
     if (!validateTermDraft(draft)) { setFeedback('Informe um título e conteúdo válidos antes de salvar.'); return; }
@@ -85,7 +97,16 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         <label htmlFor="dev-term-title" className="block text-sm font-medium">Título do termo</label>
         <input id="dev-term-title" className="w-full border rounded-lg p-3" maxLength={TERM_TITLE_MAX_LENGTH} value={draft.title} onChange={e => updateDraft({ title: e.target.value })} disabled={stage !== 'draft'} />
         <label htmlFor="dev-term-body" className="block text-sm font-medium">Conteúdo do termo</label>
-        <textarea id="dev-term-body" rows={12} maxLength={TERM_BODY_MAX_LENGTH} className="w-full border rounded-lg p-3 leading-6" value={draft.body} onChange={e => updateDraft({ body: e.target.value })} disabled={stage !== 'draft'} />
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={formatBold} disabled={stage !== 'draft'} className="border rounded-lg px-4 py-2 font-bold disabled:opacity-40" aria-label="Aplicar negrito ao texto selecionado">B — Negrito</button>
+          <span className="text-xs text-zinc-600">Selecione um trecho e clique em Negrito. Use novamente para desfazer.</span>
+        </div>
+        <textarea ref={termEditorRef} onKeyDown={e => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            formatBold();
+          }
+        }} id="dev-term-body" rows={12} maxLength={TERM_BODY_MAX_LENGTH} className="w-full border rounded-lg p-3 leading-6" value={draft.body} onChange={e => updateDraft({ body: e.target.value })} disabled={stage !== 'draft'} />
         <p className="text-xs text-zinc-500">{draft.body.length}/{TERM_BODY_MAX_LENGTH} caracteres. Não insira dados pessoais reais nesta simulação.</p>
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={saveDraft} disabled={stage !== 'draft' || !validateTermDraft(draft)} className="bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-40">Salvar rascunho no navegador</button>
@@ -96,7 +117,12 @@ export function EnrollmentTermsPreview(): React.ReactElement {
       </section>
       <section className="bg-white border rounded-xl p-5 space-y-4">
         <h2 className="text-lg font-semibold">Visualização do termo fictício</h2>
-        <pre className="whitespace-pre-wrap font-sans text-sm leading-7 border rounded-lg p-4 bg-zinc-50 text-zinc-800">{`DOCUMENTO DE TESTE — SEM VALIDADE CONTRATUAL\n\n${draft.title}\n\n${draft.body}`}</pre>
+        <div className="whitespace-pre-wrap break-words font-sans text-sm leading-7 border rounded-lg p-4 bg-zinc-50 text-zinc-800">
+          <strong>DOCUMENTO DE TESTE — SEM VALIDADE CONTRATUAL</strong>{'\n\n'}<strong>{draft.title}</strong>{'\n\n'}
+          {splitBoldSegments(draft.body).map((segment, index) =>
+            segment.bold ? <strong key={index}>{segment.text}</strong> : <React.Fragment key={index}>{segment.text}</React.Fragment>
+          )}
+        </div>
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={() => move('issue')} disabled={stage !== 'draft' || !validateTermDraft(draft)} className="bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-40">Simular emissão</button>
           <button type="button" onClick={reset} className="border rounded-lg px-4 py-2 text-sm flex items-center gap-2"><RotateCcw size={16}/> Reiniciar teste</button>
