@@ -1,5 +1,6 @@
 import { TERM_MODELS, type TermModelId } from './enrollmentTermsDemo';
 import { validateTermDraft, type TermDraft } from './enrollmentTermsDraft';
+import { isValidDevMonthlyAmount } from './enrollmentDevMoney';
 
 /** Apenas homologação visual, sem dados de alunos ou persistência no Supabase. */
 export const DEV_INBOX_KEY = 'iacra_dev_visual_matricula_pendencias_v1';
@@ -47,8 +48,7 @@ export function validateDemoOffer(input: DemoOfferInput): string | null {
   if (typeof input.groupName !== 'string' || input.groupName.length > 120) return 'Grupo inválido.';
   if (!isDate(input.startDate)) return 'Informe uma data válida de início das aulas.';
   if (!isDate(input.enrollmentDate)) return 'Informe uma data válida de matrícula.';
-  if (typeof input.monthlyAmount !== 'number' || !Number.isFinite(input.monthlyAmount) ||
-      input.monthlyAmount <= 0 || input.monthlyAmount > 100000) return 'Informe um valor de mensalidade válido.';
+  if (!isValidDevMonthlyAmount(input.monthlyAmount)) return 'Informe um valor de mensalidade válido.';
   if (!Number.isInteger(input.dueDay) || input.dueDay < 1 || input.dueDay > 31) return 'Informe o dia de vencimento (1 a 31).';
   if (!validateTermDraft(input.term)) return 'O termo selecionado precisa ter título e conteúdo válidos.';
   return null;
