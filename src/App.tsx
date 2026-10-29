@@ -23,6 +23,7 @@ import { Prospects } from "./views/Prospects";
 import { Profiles } from "./views/Profiles";
 import { PermissionsManager } from "./views/PermissionsManager";
 import { EnrollmentTermsPreview } from "./views/EnrollmentTermsPreview";
+import { EnrollmentStudentTest } from "./views/EnrollmentStudentTest";
 import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
@@ -317,6 +318,12 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  if (pathname === '/matricula-teste' || pathname === '/matricula-teste/') {
+    return import.meta.env.VITE_EAVRA_DEV_PROJECT_REF === 'xuyimfugcdkqovqelrfz'
+      ? <EnrollmentStudentTest />
+      : <div role="alert">Simulação indisponível fora do IACRA-DEV.</div>;
+  }
 
   // ROTA PÚBLICA: /politica-de-privacidade (e /privacy) funciona sem login e sem redirecionamento
   if (
