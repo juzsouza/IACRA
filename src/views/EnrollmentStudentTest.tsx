@@ -1,56 +1,71 @@
 import React, { useState } from 'react';
-import { TERM_MODELS, type TermModelId } from '../utils/enrollmentTermsDemo';
 import { splitBoldSegments } from '../utils/termBoldMarkup';
-import { readSavedTermDraft, originalTermDraft, termDraftStorageKey } from '../utils/enrollmentTermsDraft';
-import { saveDemoRequest, isValidModel } from '../utils/enrollmentDevInbox';
+import { getDemoOffer, saveDemoRequest } from '../utils/enrollmentDevInbox';
 
 export function EnrollmentStudentTest(): React.ReactElement {
-  const [nome, setNome] = useState('Aluno Exemplo');
-  const [responsavel, setResponsavel] = useState('Responsável Exemplo');
-  const [menor, setMenor] = useState(false);
-  const [aceite, setAceite] = useState(false);
-  const [enviado, setEnviado] = useState(false);
-  const [modelo, setModelo] = useState<TermModelId>(() => {
-    const param = new URLSearchParams(window.location.search).get('modelo');
-    return isValidModel(param) ? param : TERM_MODELS[0].id;
-  });
-  const [erro, setErro] = useState('');
-  const saved = (() => {
-    try { return readSavedTermDraft(localStorage.getItem(termDraftStorageKey(modelo))); }
+  const [offer] = useState(() => {
+    try { return getDemoOffer(localStorage, new URLSearchParams(window.location.search).get('convite')); }
     catch { return null; }
-  })();
-  const termo = saved ?? originalTermDraft(modelo);
+  });
+  const [name,setName] = useState('Aluno Exemplo');
+  const [email,setEmail] = useState('aluno@example.com');
+  const [phone,setPhone] = useState('11999999999');
+  const [cpf,setCpf] = useState('00000000000');
+  const [birth,setBirth] = useState('2000-01-01');
+  const [instrument,setInstrument] = useState('Canto');
+  const [minor,setMinor] = useState(false);
+  const [guardian,setGuardian] = useState('Responsável Exemplo');
+  const [accepted,setAccepted] = useState(false);
+  const [sent,setSent] = useState(false);
+  const [error,setError] = useState('');
 
+  if (!offer) return <main className="max-w-2xl mx-auto p-6"><h1 className="text-xl font-bold">Convite DEV não encontrado</h1><p>Gere um convite fictício em Termos (DEV) no mesmo navegador. Nenhuma matrícula foi criada.</p></main>;
+  const onSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!accepted || name.trim().length < 3 || (minor && guardian.trim().length < 3) ||
+      cpf.replace(/\D/g,'').length !== 11 || !birth || !instrument.trim() || !email.includes('@') ||
+      phone.replace(/\D/g,'').length < 10) {
+      setError('Revise os campos obrigatórios e confirme o aceite fictício.');
+      return;
+    }
+    try { saveDemoRequest(localStorage,offer.id); setSent(true); }
+    catch { setError('Não foi possível registrar o teste neste navegador.'); }
+  };
   return <main className="max-w-2xl mx-auto p-6 space-y-5">
     <h1 className="text-2xl font-bold">Matrícula — simulação DEV</h1>
-    <p className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm">Use somente informações inventadas. Somente dados fictícios. Apenas o modelo e a situação da solicitação são salvos neste navegador; nomes não são guardados. Nada é enviado ao banco ou assinado.</p>
-    {enviado ? <div role="status" className="p-4 rounded-lg bg-green-50">Teste concluído. Solicitação fictícia enviada à caixa DEV deste navegador; nenhuma matrícula real foi criada.</div> :
-      <form onSubmit={e => {
-        e.preventDefault();
-        if (!aceite || nome.trim().length < 3 || (menor && responsavel.trim().length < 3)) return;
-        try { saveDemoRequest(localStorage, modelo); setEnviado(true); setErro(''); }
-        catch { setErro('Não foi possível guardar a solicitação fictícia neste navegador.'); }
-      }} className="space-y-4">
-        <label className="block">Modelo de termo
-          <select value={modelo} onChange={e => {setModelo(e.target.value as TermModelId);setAceite(false);}} className="block w-full p-3 border rounded-lg">{TERM_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
-        </label>
-        <label className="block">Nome fictício do aluno
-          <input className="block w-full p-3 border rounded-lg" value={nome} onChange={e => setNome(e.target.value)} required />
-        </label>
-        <label className="block"><input type="checkbox" checked={menor} onChange={e => setMenor(e.target.checked)} /> Simular aluno menor de idade</label>
-        {menor && <label className="block">Responsável fictício
-          <input className="block w-full p-3 border rounded-lg" value={responsavel} onChange={e => setResponsavel(e.target.value)} required />
-        </label>}
-        <div className="p-4 border rounded-lg space-y-3">
-          <p className="font-bold text-amber-800">DOCUMENTO FICTÍCIO — SEM VALIDADE CONTRATUAL</p>
-          <p className="font-semibold">{termo.title}</p>
-          <div className="whitespace-pre-wrap break-words text-sm max-h-64 overflow-y-auto">
-            {splitBoldSegments(termo.body).map((item,index) => item.bold ? <strong key={index}>{item.text}</strong> : <React.Fragment key={index}>{item.text}</React.Fragment>)}
-          </div>
-        </div>
-        {erro && <p role="alert" className="text-red-700">{erro}</p>}
-        <label className="block"><input type="checkbox" checked={aceite} onChange={e => setAceite(e.target.checked)} /> Simular aceite do termo fictício</label>
-        <button disabled={!aceite} className="bg-indigo-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Simular envio</button>
-      </form>}
+    <p className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm">Somente dados fictícios. Nome, CPF, e-mail e telefone não serão armazenados nem enviados ao banco. Apenas o convite e a situação são mantidos neste navegador.</p>
+    {sent ? <div role="status" className="p-4 rounded-lg bg-green-50">Teste concluído. Solicitação fictícia enviada à caixa DEV; nenhuma matrícula real foi criada.</div> :
+    <form onSubmit={onSubmit} className="space-y-5">
+      <section className="border rounded-xl p-4 space-y-2 bg-zinc-50">
+        <h2 className="font-bold text-lg">Informações definidas pela secretaria</h2>
+        <p>Professor: <strong>{offer.teacherName}</strong></p>
+        <p>Plano: <strong>{offer.planName}</strong></p>
+        {offer.groupName && <p>Grupo/Turma: <strong>{offer.groupName}</strong></p>}
+        <p>Início das aulas: <strong>{offer.startDate}</strong></p>
+        <p>Data de matrícula: <strong>{offer.enrollmentDate}</strong></p>
+        <p>Mensalidade: <strong>{offer.monthlyAmount.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</strong></p>
+        <p>Vencimento: <strong>dia {offer.dueDay}</strong></p>
+        <p className="text-xs text-zinc-500">Essas condições são somente leitura.</p>
+      </section>
+      <section className="border rounded-xl p-4 space-y-3">
+        <h2 className="font-bold">Dados obrigatórios do aluno — fictícios</h2>
+        <label className="block">Nome completo<input required className="block w-full border p-2 rounded-lg" value={name} onChange={e=>setName(e.target.value)}/></label>
+        <label className="block">E-mail<input required type="email" className="block w-full border p-2 rounded-lg" value={email} onChange={e=>setEmail(e.target.value)}/></label>
+        <label className="block">Telefone (E.164 no cadastro definitivo)<input required className="block w-full border p-2 rounded-lg" value={phone} onChange={e=>setPhone(e.target.value)}/></label>
+        <label className="block">Instrumento principal<input required className="block w-full border p-2 rounded-lg" value={instrument} onChange={e=>setInstrument(e.target.value)}/></label>
+        <label className="block">CPF fictício<input required inputMode="numeric" className="block w-full border p-2 rounded-lg" value={cpf} onChange={e=>setCpf(e.target.value)}/></label>
+        <label className="block">Data de nascimento<input required type="date" className="block w-full border p-2 rounded-lg" value={birth} onChange={e=>setBirth(e.target.value)}/></label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={minor} onChange={e=>setMinor(e.target.checked)}/> Aluno menor de idade</label>
+        {minor && <label className="block">Nome fictício do responsável<input required className="block w-full border p-2 rounded-lg" value={guardian} onChange={e=>setGuardian(e.target.value)}/></label>}
+      </section>
+      <section className="border rounded-xl p-4 space-y-3">
+        <h2 className="font-semibold">{offer.term.title}</h2>
+        <p className="text-xs text-amber-900">DOCUMENTO FICTÍCIO — SEM VALIDADE CONTRATUAL</p>
+        <div className="whitespace-pre-wrap break-words max-h-64 overflow-auto text-sm">{splitBoldSegments(offer.term.body).map((segment,i)=>segment.bold?<strong key={i}>{segment.text}</strong>:<React.Fragment key={i}>{segment.text}</React.Fragment>)}</div>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> Simular aceite do termo</label>
+        {error && <p role="alert" className="text-red-700">{error}</p>}
+        <button type="submit" disabled={!accepted} className="px-4 py-2 rounded-lg bg-indigo-700 text-white disabled:opacity-50">Simular envio</button>
+      </section>
+    </form>}
   </main>;
 }
