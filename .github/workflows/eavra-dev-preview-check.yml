@@ -12,6 +12,8 @@ on:
       - 'src/lib/devSupabaseConfig.ts'
       - 'src/utils/permissionAdminConfig.ts'
       - 'src/tests/eavra_dev_visual_gate.test.ts'
+      - 'src/store.tsx'
+      - 'src/tests/eavra_dev_data_isolation.test.ts'
   workflow_dispatch:
 
 permissions:
@@ -59,6 +61,7 @@ jobs:
       - name: Testar travas da pre-visualizacao
         run: |
           node --experimental-strip-types src/tests/eavra_dev_visual_gate.test.ts
+          node --experimental-strip-types src/tests/eavra_dev_data_isolation.test.ts
           node --experimental-strip-types src/tests/permissions_admin_stage10.test.ts
           node --experimental-strip-types src/tests/dev_environment_preflight.test.ts
       - name: Compilar frontend e servidor
