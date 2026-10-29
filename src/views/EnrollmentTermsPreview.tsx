@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { originalTermDraft, readSavedTermDraft, termDraftStorageKey, validateTermDraft, TERM_TITLE_MAX_LENGTH, TERM_BODY_MAX_LENGTH, type TermDraft } from '../utils/enrollmentTermsDraft';
 import { FileText, ShieldCheck, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { getPermissionDevEnvironment, checkPermissionDevEnvironment } from '../utils/permissionAdminConfig';
@@ -17,6 +18,36 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [modelId, setModelId] = useState<TermModelId>(TERM_MODELS[0].id);
   const [stage, setStage] = useState<DemoStage>('draft');
   const [agreed, setAgreed] = useState(false);
+  const [drafts, setDrafts] = useState<Partial<Record<TermModelId, TermDraft>>>({});
+  const [feedback, setFeedback] = useState('');
+  const draft = drafts[modelId] ?? originalTermDraft(modelId);
+  const updateDraft = (changes: Partial<TermDraft>) => {
+    setDrafts(prev => ({ ...prev, [modelId]: { ...(prev[modelId] ?? originalTermDraft(modelId)), ...changes } }));
+    setFeedback('Alterações ainda não salvas.');
+    setStage('draft');
+    setAgreed(false);
+  };
+  const saveDraft = () => {
+    if (!validateTermDraft(draft)) { setFeedback('Informe um título e conteúdo válidos antes de salvar.'); return; }
+    try {
+      localStorage.setItem(termDraftStorageKey(modelId), JSON.stringify(draft));
+      setFeedback('Rascunho salvo somente neste navegador, sem envio ao banco.');
+    } catch { setFeedback('Não foi possível salvar no navegador. Copie seu texto antes de sair.'); }
+  };
+  const loadDraft = () => {
+    try {
+      const stored = readSavedTermDraft(localStorage.getItem(termDraftStorageKey(modelId)));
+      if (!stored) { setFeedback('Nenhum rascunho local válido encontrado para este modelo.'); return; }
+      setDrafts(prev => ({ ...prev, [modelId]: stored }));
+      setFeedback('Rascunho carregado deste navegador.');
+      setStage('draft'); setAgreed(false);
+    } catch { setFeedback('Não foi possível acessar o armazenamento local.'); }
+  };
+  const restoreDraft = () => {
+    setDrafts(prev => ({ ...prev, [modelId]: originalTermDraft(modelId) }));
+    setFeedback('Texto original restaurado na tela. Clique em Salvar rascunho para substituir a cópia local.');
+    setStage('draft'); setAgreed(false);
+  };
 
   if (!gate.ok || currentUserProfile?.role !== 'super_admin' || currentUserProfile.access_status !== 'active') {
     return <div className="p-8 text-rose-700" role="alert">Prévia indisponível: somente Super Admin ativo no ambiente IACRA-DEV autorizado.</div>;
@@ -38,21 +69,36 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         <p className="text-zinc-600 text-sm">Prévia do fluxo de matrícula digital com os quatro modelos previstos. Todos os dados são fictícios.</p>
       </div>
       <div className="border border-amber-300 rounded-xl bg-amber-50 p-4 text-amber-950 text-sm" role="status">
-        <strong>Simulação sem validade contratual.</strong> Não gera link público, assinatura, termo jurídico, aceite real, matrícula ou cobrança. Nada é salvo no Supabase ou no navegador; ao atualizar a página, a simulação é reiniciada.
+        <strong>Simulação sem validade contratual.</strong> Não gera link público, assinatura, termo jurídico, aceite real, matrícula ou cobrança. Os rascunhos podem ser salvos apenas neste navegador; nada é enviado ao Supabase. Ao atualizar a página, o fluxo de simulação é reiniciado.
       </div>
       <section className="bg-white border rounded-xl p-5 space-y-3">
         <label className="block text-sm font-semibold" htmlFor="dev-term-model">Modelo do termo</label>
-        <select id="dev-term-model" className="w-full border rounded-lg p-3 bg-white" value={modelId} onChange={e => { setModelId(e.target.value as TermModelId); reset(); }}>
+        <select id="dev-term-model" className="w-full border rounded-lg p-3 bg-white" value={modelId} onChange={e => { setModelId(e.target.value as TermModelId); reset(); setFeedback(''); }}>
           {TERM_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
         <p className="text-sm text-zinc-600">{TERM_MODELS.find(m => m.id === modelId)?.description}</p>
         <p className="text-xs text-indigo-800 font-semibold">Estado: {steps[stage]}</p>
       </section>
       <section className="bg-white border rounded-xl p-5 space-y-4">
-        <h2 className="text-lg font-semibold">Visualização do termo fictício</h2>
-        <pre className="whitespace-pre-wrap font-sans text-sm leading-7 border rounded-lg p-4 bg-zinc-50 text-zinc-800">{demoTermBody(modelId)}</pre>
+        <h2 className="text-lg font-semibold">Editar termo fictício</h2>
+        <p className="text-sm text-zinc-600">Faça alterações no título e conteúdo do modelo selecionado. O texto será exibido na prévia logo abaixo.</p>
+        <label htmlFor="dev-term-title" className="block text-sm font-medium">Título do termo</label>
+        <input id="dev-term-title" className="w-full border rounded-lg p-3" maxLength={TERM_TITLE_MAX_LENGTH} value={draft.title} onChange={e => updateDraft({ title: e.target.value })} disabled={stage !== 'draft'} />
+        <label htmlFor="dev-term-body" className="block text-sm font-medium">Conteúdo do termo</label>
+        <textarea id="dev-term-body" rows={12} maxLength={TERM_BODY_MAX_LENGTH} className="w-full border rounded-lg p-3 leading-6" value={draft.body} onChange={e => updateDraft({ body: e.target.value })} disabled={stage !== 'draft'} />
+        <p className="text-xs text-zinc-500">{draft.body.length}/{TERM_BODY_MAX_LENGTH} caracteres. Não insira dados pessoais reais nesta simulação.</p>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={() => move('issue')} disabled={stage !== 'draft'} className="bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-40">Simular emissão</button>
+          <button type="button" onClick={saveDraft} disabled={stage !== 'draft' || !validateTermDraft(draft)} className="bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-40">Salvar rascunho no navegador</button>
+          <button type="button" onClick={loadDraft} disabled={stage !== 'draft'} className="border rounded-lg px-4 py-2 text-sm disabled:opacity-40">Carregar rascunho</button>
+          <button type="button" onClick={restoreDraft} disabled={stage !== 'draft'} className="border rounded-lg px-4 py-2 text-sm disabled:opacity-40">Restaurar texto original</button>
+        </div>
+        {feedback && <p role="status" className="text-sm text-indigo-800">{feedback}</p>}
+      </section>
+      <section className="bg-white border rounded-xl p-5 space-y-4">
+        <h2 className="text-lg font-semibold">Visualização do termo fictício</h2>
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-7 border rounded-lg p-4 bg-zinc-50 text-zinc-800">{`DOCUMENTO DE TESTE — SEM VALIDADE CONTRATUAL\n\n${draft.title}\n\n${draft.body}`}</pre>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => move('issue')} disabled={stage !== 'draft' || !validateTermDraft(draft)} className="bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm disabled:opacity-40">Simular emissão</button>
           <button type="button" onClick={reset} className="border rounded-lg px-4 py-2 text-sm flex items-center gap-2"><RotateCcw size={16}/> Reiniciar teste</button>
         </div>
       </section>
