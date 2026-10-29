@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const view=readFileSync(new URL('../views/EnrollmentStudentTest.tsx',import.meta.url),'utf8');
+const app=readFileSync(new URL('../App.tsx',import.meta.url),'utf8');
+assert.match(app,/matricula-teste/);
+assert.match(app,/VITE_EAVRA_DEV_PROJECT_REF/);
+assert.match(view,/Aluno Exemplo/);
+assert.match(view,/Nenhuma matrícula foi criada/);
+assert.doesNotMatch(view,/fetch\(|\.from\(|\.rpc\(|localStorage|sessionStorage/);
+console.log('PASS: formulario ficticio sem persistencia');
