@@ -10,8 +10,11 @@ export type DemoStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export type DemoOfferInput = {
   modelId: TermModelId;
   teacherName: string;
+  teacherId?: string;
   planName: string;
+  planId?: string;
   groupName: string;
+  groupId?: string;
   startDate: string;
   enrollmentDate: string;
   monthlyAmount: number;
