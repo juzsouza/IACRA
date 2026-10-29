@@ -5,7 +5,7 @@ const app=readFileSync(new URL('../App.tsx',import.meta.url),'utf8');
 assert.match(app,/matricula-teste/);
 assert.match(app,/VITE_EAVRA_DEV_PROJECT_REF/);
 assert.match(view,/Aluno Exemplo/);
-assert.match(view,/Nenhuma matrícula foi criada/);
+assert.match(view,/nenhuma matrícula real foi criada/);
 assert.doesNotMatch(view,/fetch\(|\.from\(|\.rpc\(|sessionStorage/);
 assert.match(view,/saveDemoRequest/);
 const inbox=readFileSync(new URL('../utils/enrollmentDevInbox.ts',import.meta.url),'utf8');
