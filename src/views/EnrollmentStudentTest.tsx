@@ -48,7 +48,7 @@ export function EnrollmentStudentTest(): React.ReactElement {
             {splitBoldSegments(termo.body).map((item,index) => item.bold ? <strong key={index}>{item.text}</strong> : <React.Fragment key={index}>{item.text}</React.Fragment>)}
           </div>
         </div>
-        {erro && <p role="alert" className="text-red-700">{erro}</p>
+        {erro && <p role="alert" className="text-red-700">{erro}</p>}
         <label className="block"><input type="checkbox" checked={aceite} onChange={e => setAceite(e.target.checked)} /> Simular aceite do termo fictício</label>
         <button disabled={!aceite} className="bg-indigo-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Simular envio</button>
       </form>}
