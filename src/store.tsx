@@ -1728,7 +1728,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       competenceBillings: [],
       globalError: null,
     };
-    const saved = localStorage.getItem("music_school_state");
+    const saved = localStorage.getItem("music_school_state_iacra_dev");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -1895,7 +1895,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("music_school_state", JSON.stringify(state));
+    localStorage.setItem("music_school_state_iacra_dev", JSON.stringify(state));
   }, [state]);
 
   const setGlobalError = (error: string | null) => {
@@ -1921,7 +1921,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   // Persistent pending queue for class changes that await Supabase confirmation
   const getStoredPendingSyncs = (): Record<string, PendingClassSync> => {
     try {
-      const raw = localStorage.getItem("pending_class_syncs_v1");
+      const raw = localStorage.getItem("pending_class_syncs_v1_iacra_dev");
       return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
@@ -1930,7 +1930,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const saveStoredPendingSyncs = (map: Record<string, PendingClassSync>) => {
     try {
-      localStorage.setItem("pending_class_syncs_v1", JSON.stringify(map));
+      localStorage.setItem("pending_class_syncs_v1_iacra_dev", JSON.stringify(map));
     } catch (e) {
       console.warn("Error persisting pending class syncs:", e);
     }
@@ -3444,180 +3444,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         const newCreditsToAutoPersist: any[] = [];
 
         setState(s => {
-          // Sync local data to Supabase if it exists locally but not in Supabase, sequentially to honor foreign keys
-          const syncToSupabase = async () => {
-            if (syncTriggeredRef.current) return;
-            syncTriggeredRef.current = true;
+          // IACRA-DEV isolado: não importar automaticamente dados locais para o banco.
 
-            try {
-              // 1. Students
-              if (s.students.length > 0 && (!students || students.length === 0)) {
-                const studentsToInsert = s.students.map(({ not_eligible, ineligibility_reason, ...rest }) => {
-                  let dbInstrument = rest.instrument || "";
-                  if (not_eligible && ineligibility_reason) {
-                    dbInstrument = `${rest.instrument} // INELIGIBLE: ${ineligibility_reason}`;
-                  }
-                  return {
-                    ...rest,
-                    instrument: dbInstrument,
-                  };
-                });
-                const { error } = await supabase.from('students').insert(studentsToInsert);
-                if (error) console.error('Error syncing students:', error);
-                else console.log('Successfully synced students');
-              }
-
-              // 2. Teachers
-              if (s.teachers.length > 0 && (!teachers || teachers.length === 0)) {
-                const { error } = await supabase.from('teachers').insert(s.teachers);
-                if (error) console.error('Error syncing teachers:', error);
-                else console.log('Successfully synced teachers');
-              }
-
-              // 3. Financial Plans
-              if (s.financialPlans.length > 0 && (!financialPlans || financialPlans.length === 0)) {
-                const { error } = await supabase.from('financial_plans').insert(s.financialPlans);
-                if (error) console.error('Error syncing financial_plans:', error);
-                else console.log('Successfully synced financial plans');
-              }
-
-              // 4. Groups
-              if (s.groups.length > 0 && (!groups || groups.length === 0)) {
-                const groupsToInsert = s.groups.map(({ payment_type, schedule, price, frequency, ...rest }) => {
-                  let dbSchedule = schedule || "";
-                  if (payment_type) {
-                    dbSchedule = `${dbSchedule} // PAYMENT: ${payment_type}`;
-                  }
-                  if (price !== undefined) {
-                    dbSchedule = `${dbSchedule} // PRICE: ${price}`;
-                  }
-                  if (frequency) {
-                    dbSchedule = `${dbSchedule} // FREQ: ${frequency}`;
-                  }
-                  return {
-                    ...rest,
-                    schedule: dbSchedule,
-                  };
-                });
-                const { error } = await supabase.from('groups').insert(groupsToInsert);
-                if (error) console.error('Error syncing groups:', error);
-                else console.log('Successfully synced groups');
-              }
-
-              // 5. Enrollments (Matrículas) - Sync when local exists but Supabase is empty!
-              if (s.enrollments.length > 0 && (!enrollments || enrollments.length === 0)) {
-                const enrollmentsToInsert = s.enrollments.map((e) =>
-                  sanitizeEnrollmentInsertPayload(e, e.id || generateId()).dbPayload
-                );
-                const { error } = await supabase.from('enrollments').insert(enrollmentsToInsert);
-                if (error) console.error('Error syncing enrollments:', error);
-                else console.log('Successfully synced enrollments');
-              }
-
-              // 6. Discount Rules
-              if (s.discountRules.length > 0 && (!discountRules || discountRules.length === 0)) {
-                const { error } = await supabase.from('financial_discount_rules').insert(s.discountRules);
-                if (error) console.error('Error syncing financial_discount_rules:', error);
-                else console.log('Successfully synced discount rules');
-              }
-
-              // 7. Choir Voice Types
-              if (s.choirVoiceTypes.length > 0 && (!choirVoiceTypes || choirVoiceTypes.length === 0)) {
-                const { error } = await supabase.from('choir_voice_types').insert(s.choirVoiceTypes);
-                if (error) console.error('Error syncing choir_voice_types:', error);
-                else console.log('Successfully synced choir voice types');
-              }
-
-              // 8. Choir Registrations
-              if (s.choirRegistrations.length > 0 && (!choirRegistrations || choirRegistrations.length === 0)) {
-                const regsToInsert = s.choirRegistrations.map((r: any) => {
-                  const isInactive = r.status === 'inactive' || r.active === false;
-                  return {
-                    id: r.id,
-                    student_id: r.student_id,
-                    voice_type_id: r.voice_type_id,
-                    monthly_fee: r.monthly_fee,
-                    is_internal_student: r.is_internal_student,
-                    status: isInactive ? 'rejected' : (r.status === 'approved' ? 'approved' : 'pending'),
-                  };
-                });
-                const { error } = await supabase.from('choir_registrations').insert(regsToInsert);
-                if (error) console.error('Error syncing choir_registrations:', error);
-                else console.log('Successfully synced choir registrations');
-              }
-
-              // 9. Classes & Class Students
-              if (s.classes.length > 0 && (!classes || classes.length === 0)) {
-                const classesToInsert = s.classes.map(({ student_ids, attendance, ...rest }) => {
-                  let dbReport = rest.report || "";
-                  if (attendance && Object.keys(attendance).length > 0) {
-                    dbReport = `${dbReport} // ATTENDANCE: ${JSON.stringify(attendance)}`;
-                  }
-                  return {
-                    ...rest,
-                    report: dbReport
-                  };
-                });
-                const { error: classesError } = await supabase.from('classes').insert(classesToInsert);
-                if (classesError) console.error('Error syncing classes:', classesError);
-                else {
-                  console.log('Successfully synced classes');
-                  const classStudentsToInsert = s.classes.flatMap(c => 
-                    (c.student_ids || []).map(student_id => ({ class_id: c.id, student_id }))
-                  );
-                  if (classStudentsToInsert.length > 0) {
-                    const { error: csError } = await supabase.from('class_students').insert(classStudentsToInsert);
-                    if (csError) console.error('Error syncing class_students:', csError);
-                    else console.log('Successfully synced class_students');
-                  }
-                }
-              }
-
-              // 10. Transactions
-              if (s.transactions.length > 0 && (!transactions || transactions.length === 0)) {
-                const { error } = await supabase.from('transactions').insert(s.transactions);
-                if (error) console.error('Error syncing transactions:', error);
-                else console.log('Successfully synced transactions');
-              }
-
-              // 11. Prospects
-              if (s.prospects.length > 0 && (!prospects || prospects.length === 0)) {
-                const prospectsToInsert = s.prospects.map(({ not_eligible, ineligibility_reason, ...rest }) => {
-                  let dbInstrument = rest.instrument || "";
-                  if (not_eligible && ineligibility_reason) {
-                    dbInstrument = `${rest.instrument} // INELIGIBLE: ${ineligibility_reason}`;
-                  }
-                  const dbNotes = encodeProspectNotes(rest.notes, rest.lead_status, rest.message_history, rest.term_signed, rest.approved);
-                  return {
-                    ...rest,
-                    instrument: dbInstrument,
-                    notes: dbNotes,
-                    lead_status: rest.lead_status || "",
-                    message_history: rest.message_history ? JSON.stringify(rest.message_history) : null,
-                  };
-                });
-                let { error } = await supabase.from('prospects').insert(prospectsToInsert);
-                if (error) {
-                  // Fallback without direct lead_status columns if table doesn't have them
-                  const fallbackProspects = prospectsToInsert.map(({ lead_status, message_history, ...r }) => r);
-                  const retry = await supabase.from('prospects').insert(fallbackProspects);
-                  if (retry.error) console.error('Error syncing prospects:', retry.error);
-                  else console.log('Successfully synced prospects (fallback)');
-                } else console.log('Successfully synced prospects');
-              }
-
-              // 12. Choir Collaborators
-              if (s.choirCollaborators && s.choirCollaborators.length > 0) {
-                await syncCollaboratorsToSupabase(s.choirCollaborators);
-              }
-            } catch (err) {
-              console.error('Unexpected error during syncToSupabase:', err);
-            }
-          };
-          
-          syncToSupabase();
-
-          const rawStudents = students && students.length > 0 ? students : s.students;
+          const rawStudents = students ?? [];
           const parsedStudentsList = rawStudents.map((st: any) => {
             let not_eligible = false;
             let ineligibility_reason = "";
@@ -4069,41 +3898,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             syncCollaboratorsToSupabase(deduplicatedCollabs);
           }
 
-          const parsedTeachers = teachers && teachers.length > 0
-            ? teachers.map(normalizeTeacher)
-            : s.teachers.map(normalizeTeacher);
-
-          // Ensure RAPHAEL AUGUSTO PINTO teacher record exists and has correct email
-          let raphaelTeacher = (parsedTeachers || []).find((t: any) =>
-            (t.email && t.email.trim().toLowerCase() === 'raphael.augustop@gmail.com') ||
-            (t.name && t.name.toUpperCase().includes('RAPHAEL AUGUSTO'))
-          );
-          if (!raphaelTeacher) {
-            raphaelTeacher = normalizeTeacher({
-              id: 'dada085e-c187-43d2-9ab0-a9e0539df450',
-              name: 'RAPHAEL AUGUSTO PINTO',
-              email: 'raphael.augustop@gmail.com',
-              phone: '',
-              cpf: '',
-              specialties: ['Música'],
-              schedule: [],
-              status: 'active'
-            });
-            parsedTeachers.push(raphaelTeacher);
-          } else {
-            if (!raphaelTeacher.status) {
-              raphaelTeacher.status = 'active';
-            }
-            if (!raphaelTeacher.name || !raphaelTeacher.name.toUpperCase().includes('RAPHAEL AUGUSTO PINTO')) {
-              raphaelTeacher.name = 'RAPHAEL AUGUSTO PINTO';
-            }
-            if (!raphaelTeacher.email || raphaelTeacher.email.trim().toLowerCase() !== 'raphael.augustop@gmail.com') {
-              raphaelTeacher.email = 'raphael.augustop@gmail.com';
-            }
-          }
+          const parsedTeachers = (teachers ?? []).map(normalizeTeacher);
 
           // Dados legados podem conter temp_password. Jamais trazer esse campo à interface.
-          const baseProfiles = (profiles.length > 0 ? profiles : s.profiles).map((p: any) => {
+          const baseProfiles = (profiles ?? []).map((p: any) => {
             const { temp_password: _discardPassword, ...safeProfile } = p;
             return safeProfile;
           });
