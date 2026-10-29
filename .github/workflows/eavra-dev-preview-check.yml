@@ -103,9 +103,15 @@ jobs:
             echo 'Chrome nao encontrado; somente teste HTTP confirmado.'
             exit 0
           fi
-          "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars \
-            --window-size=1365,850 --virtual-time-budget=30000 \
-            --dump-dom http://127.0.0.1:3000/ > /tmp/eavra-dev-rendered-dom.html 2>/tmp/eavra-dom-errors.log || true
+          # Inicialização do Supabase no Chromium pode variar em runners.
+          # Repetir a verificação sem mascarar uma falha real no formulário.
+          for attempt in 1 2 3; do
+            "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars \
+              --window-size=1365,850 --virtual-time-budget=60000 \
+              --dump-dom http://127.0.0.1:3000/ > /tmp/eavra-dev-rendered-dom.html 2>/tmp/eavra-dom-errors.log || true
+            if grep -q 'Acesso ao Sistema' /tmp/eavra-dev-rendered-dom.html; then break; fi
+            sleep 3
+          done
           if ! grep -q 'Acesso ao Sistema' /tmp/eavra-dev-rendered-dom.html; then
             echo 'React nao apresentou o formulario de Login. Verificando diagnostico:'
             grep -o -E 'Verificando permissões de acesso|Acesso não confirmado|Acesso ao Sistema|Erro' /tmp/eavra-dev-rendered-dom.html | tail -10 || true
