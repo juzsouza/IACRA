@@ -16,7 +16,7 @@ assert.throws(() => nextDemoStage('reviewed', 'issue'));
 const view = readFileSync(new URL('../views/EnrollmentTermsPreview.tsx', import.meta.url), 'utf8');
 assert.match(view, /checkPermissionDevEnvironment/);
 assert.match(view, /super_admin/);
-assert.doesNotMatch(view, /fetch\\(|supabase\\.|sessionStorage|axios|\\.rpc\\(/);
+assert.doesNotMatch(view, /fetch\s*\(|supabase\s*\.|sessionStorage|axios|\.rpc\s*\(/);
 const draftUtil = readFileSync(new URL('../utils/enrollmentTermsDraft.ts', import.meta.url), 'utf8');
 assert.match(draftUtil, /iacra_dev_only_enrollment_terms_draft_v1_/);
 assert.match(view, /Salvar rascunho no navegador/);
