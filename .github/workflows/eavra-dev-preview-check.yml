@@ -15,6 +15,8 @@ on:
       - 'src/store.tsx'
       - 'src/tests/eavra_dev_data_isolation.test.ts'
       - 'src/views/EnrollmentTermsPreview.tsx'
+      - 'src/views/EnrollmentStudentTest.tsx'
+      - 'src/tests/enrollment_student_test.test.ts'
       - 'src/utils/enrollmentTermsDemo.ts'
       - 'src/utils/enrollmentTermsDraft.ts'
       - 'src/utils/termBoldMarkup.ts'
@@ -71,6 +73,7 @@ jobs:
           node --experimental-strip-types src/tests/eavra_dev_visual_gate.test.ts
           node --experimental-strip-types src/tests/eavra_dev_data_isolation.test.ts
           node --experimental-strip-types src/tests/enrollment_terms_preview_dev.test.ts
+          node --experimental-strip-types src/tests/enrollment_student_test.test.ts
           node --experimental-strip-types src/tests/permissions_admin_stage10.test.ts
           node --experimental-strip-types src/tests/dev_environment_preflight.test.ts
       - name: Compilar frontend e servidor
