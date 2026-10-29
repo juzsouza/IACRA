@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { changeDemoRequestStatus, createDemoOffer, demoLink, DEV_INBOX_KEY, readDemoRequests, getDemoOffer, isGroupModel, validateDemoOffer, type DemoOfferInput, type DemoRequest } from '../utils/enrollmentDevInbox';
 import { splitBoldSegments, toggleBoldSelection } from '../utils/termBoldMarkup';
+import { parseDevMonthlyAmount } from '../utils/enrollmentDevMoney';
 import { originalTermDraft, readSavedTermDraft, termDraftStorageKey, validateTermDraft, TERM_TITLE_MAX_LENGTH, TERM_BODY_MAX_LENGTH, type TermDraft } from '../utils/enrollmentTermsDraft';
 import { FileText, ShieldCheck, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '../store';
@@ -27,6 +28,7 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [offerId, setOfferId] = useState('');
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [customMonthlyAmount, setCustomMonthlyAmount] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const availableTeachers = state.teachers.filter(t => t.status === 'active');
   const availablePlans = state.financialPlans.filter(p => p.is_active);
@@ -72,11 +74,13 @@ export function EnrollmentTermsPreview(): React.ReactElement {
       setOfferMessage('Selecione um plano ativo, professor ativo e, quando necessário, um grupo ativo.');
       return;
     }
+    const value = parseDevMonthlyAmount(customMonthlyAmount ?? String(plan.base_price));
+    if (value === null) { setOfferMessage('Informe uma mensalidade válida (zero é permitido; não use valor negativo).'); return; }
     const input: DemoOfferInput = {
       modelId, teacherName: teacher.name, teacherId: teacher.id,
       planName: plan.name, planId: plan.id,
       groupName: group?.name || '', groupId: group?.id,
-      startDate, enrollmentDate, monthlyAmount: plan.base_price, dueDay: Number(dueDay),
+      startDate, enrollmentDate, monthlyAmount: value, dueDay: Number(dueDay),
       term: (() => {
         try { return readSavedTermDraft(localStorage.getItem(termDraftStorageKey(modelId))) ?? draft; }
         catch { return draft; }
@@ -165,7 +169,7 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         <p className="text-sm">Abra no mesmo navegador e origem, em outra aba. Não compartilhe com alunos reais. A caixa DEV só registra modelo e situação fictícia, nunca nomes ou contatos.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-sm">Plano financeiro cadastrado
-            <select className="block w-full border rounded-lg p-2 bg-white" value={selectedPlanId} onChange={e => {setSelectedPlanId(e.target.value); clearGeneratedOffer();}}>
+            <select className="block w-full border rounded-lg p-2 bg-white" value={selectedPlanId} onChange={e => {setSelectedPlanId(e.target.value); setCustomMonthlyAmount(null); clearGeneratedOffer();}}>
               <option value="">Selecione um plano ativo</option>
               {availablePlans.map(p => <option key={p.id} value={p.id}>{p.name} — R$ {p.base_price.toFixed(2)}</option>)}
             </select>
@@ -182,8 +186,9 @@ export function EnrollmentTermsPreview(): React.ReactElement {
               {availableTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
-          <label className="text-sm">Mensalidade do plano (R$)
-            <input className="block w-full border rounded-lg p-2 bg-zinc-100" readOnly value={plan ? plan.base_price.toLocaleString('pt-BR', {style:'currency',currency:'BRL'}) : 'Selecione um plano'} />
+          <label className="text-sm">Mensalidade desta matrícula (R$)
+            <input type="number" min="0" max="100000" step="0.01" inputMode="decimal" className="block w-full border rounded-lg p-2" disabled={!plan} value={customMonthlyAmount ?? (plan ? String(plan.base_price) : '')} onChange={e=>{setCustomMonthlyAmount(e.target.value); clearGeneratedOffer();}} />
+            <span className="text-xs text-zinc-600">Valor inicial do plano: {plan ? plan.base_price.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : 'Selecione um plano'}. Pode ajustar, inclusive para R$ 0,00.</span>
           </label>
           <label className="text-sm">Início das aulas
             <input type="date" className="block w-full border rounded-lg p-2" value={startDate} onChange={e=>{setStartDate(e.target.value);clearGeneratedOffer();}}/>
