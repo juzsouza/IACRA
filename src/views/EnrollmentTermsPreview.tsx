@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { changeDemoRequestStatus, demoLink, DEV_INBOX_KEY, readDemoRequests, type DemoRequest } from '../utils/enrollmentDevInbox';
+import { changeDemoRequestStatus, createDemoOffer, demoLink, DEV_INBOX_KEY, readDemoRequests, getDemoOffer, isGroupModel, validateDemoOffer, type DemoOfferInput, type DemoRequest } from '../utils/enrollmentDevInbox';
 import { splitBoldSegments, toggleBoldSelection } from '../utils/termBoldMarkup';
 import { originalTermDraft, readSavedTermDraft, termDraftStorageKey, validateTermDraft, TERM_TITLE_MAX_LENGTH, TERM_BODY_MAX_LENGTH, type TermDraft } from '../utils/enrollmentTermsDraft';
 import { FileText, ShieldCheck, RotateCcw, CheckCircle2 } from 'lucide-react';
@@ -24,6 +24,15 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [feedback, setFeedback] = useState('');
   const [requests, setRequests] = useState<DemoRequest[]>([]);
   const [linkCopied, setLinkCopied] = useState('');
+  const [offerId, setOfferId] = useState('');
+  const [teacherName, setTeacherName] = useState('Professor Exemplo');
+  const [planName, setPlanName] = useState('Plano Mensal Exemplo');
+  const [groupName, setGroupName] = useState('Turma Exemplo');
+  const [startDate, setStartDate] = useState('2026-11-02');
+  const [enrollmentDate, setEnrollmentDate] = useState('2026-10-29');
+  const [monthlyAmount, setMonthlyAmount] = useState('350');
+  const [dueDay, setDueDay] = useState('10');
+  const [offerMessage, setOfferMessage] = useState('');
   const refreshRequests = () => {
     try { setRequests(readDemoRequests(localStorage.getItem(DEV_INBOX_KEY))); }
     catch { setRequests([]); }
@@ -38,7 +47,24 @@ export function EnrollmentTermsPreview(): React.ReactElement {
     try { setRequests(changeDemoRequestStatus(localStorage,id,status)); }
     catch { setFeedback('Não foi possível alterar a solicitação fictícia.'); }
   };
-  const getLink = () => demoLink(window.location.origin, modelId);
+  const getLink = () => offerId ? demoLink(window.location.origin,offerId) : '';
+  const createOffer = () => {
+    const input: DemoOfferInput = {
+      modelId, teacherName, planName, groupName: isGroupModel(modelId) ? groupName : '',
+      startDate, enrollmentDate, monthlyAmount: Number(monthlyAmount), dueDay: Number(dueDay),
+      term: (() => {
+        try { return readSavedTermDraft(localStorage.getItem(termDraftStorageKey(modelId))) ?? draft; }
+        catch { return draft; }
+      })(),
+    };
+    const error = validateDemoOffer(input);
+    if (error) {setOfferMessage(error);return;}
+    try {
+      const offer = createDemoOffer(localStorage,input);
+      setOfferId(offer.id);
+      setOfferMessage('Convite fictício criado. Abra no mesmo navegador.');
+    } catch {setOfferMessage('Não foi possível criar o convite fictício.');}
+  };
   const termEditorRef = useRef<HTMLTextAreaElement>(null);
   const draft = drafts[modelId] ?? originalTermDraft(modelId);
   const updateDraft = (changes: Partial<TermDraft>) => {
@@ -110,15 +136,26 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         <p className="text-xs text-indigo-800 font-semibold">Estado: {steps[stage]}</p>
       </section>
       <section className="bg-white border rounded-xl p-5 space-y-4">
-        <h2 className="text-lg font-semibold">Link da matrícula de teste</h2>
+        <h2 className="text-lg font-semibold">Preparar matrícula de teste — Secretaria</h2>
         <p className="text-sm">Abra no mesmo navegador e origem, em outra aba. Não compartilhe com alunos reais. A caixa DEV só registra modelo e situação fictícia, nunca nomes ou contatos.</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="text-sm">Professor<input className="block w-full border rounded-lg p-2" value={teacherName} onChange={e=>setTeacherName(e.target.value)}/></label>
+          <label className="text-sm">Plano financeiro<input className="block w-full border rounded-lg p-2" value={planName} onChange={e=>setPlanName(e.target.value)}/></label>
+          {isGroupModel(modelId) && <label className="text-sm">Grupo / Turma<input className="block w-full border rounded-lg p-2" value={groupName} onChange={e=>setGroupName(e.target.value)}/></label>}
+          <label className="text-sm">Início das aulas<input type="date" className="block w-full border rounded-lg p-2" value={startDate} onChange={e=>setStartDate(e.target.value)}/></label>
+          <label className="text-sm">Data da matrícula<input type="date" className="block w-full border rounded-lg p-2" value={enrollmentDate} onChange={e=>setEnrollmentDate(e.target.value)}/></label>
+          <label className="text-sm">Mensalidade fictícia (R$)<input type="number" min="1" step="0.01" className="block w-full border rounded-lg p-2" value={monthlyAmount} onChange={e=>setMonthlyAmount(e.target.value)}/></label>
+          <label className="text-sm">Dia de vencimento<input type="number" min="1" max="31" className="block w-full border rounded-lg p-2" value={dueDay} onChange={e=>setDueDay(e.target.value)}/></label>
+        </div>
+        <button type="button" className="px-4 py-2 rounded-lg bg-indigo-700 text-white" onClick={createOffer}>Gerar convite fictício</button>
+        {offerMessage && <p role="status" className="text-sm">{offerMessage}</p>}
+        {offerId && <div className="flex flex-wrap gap-2">
           <a href={getLink()} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg bg-indigo-700 text-white">Abrir formulário fictício</a>
           <button type="button" className="px-4 py-2 border rounded-lg" onClick={() => {
             void navigator.clipboard.writeText(getLink()).then(() => setLinkCopied('Link copiado.')).catch(() => setLinkCopied('Copie o endereço da aba aberta.'));
           }}>Copiar link DEV</button>
-        </div>
-        {linkCopied && <p className="text-sm" role="status">{linkCopied}</p>}
+        </div>}
+        {offerId && linkCopied && <p className="text-sm" role="status">{linkCopied}</p>}
       </section>
       <section className="bg-white border rounded-xl p-5 space-y-4">
         <div className="flex justify-between items-center gap-2">
@@ -129,6 +166,10 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         {requests.length === 0 ? <p className="text-sm">Nenhuma solicitação fictícia recebida neste navegador.</p> : requests.map(item =>
           <div key={item.id} className="border rounded-lg p-3 space-y-2">
             <p className="font-medium">{TERM_MODELS.find(model => model.id === item.modelId)?.label}</p>
+            {item.offerId && (() => {
+              const offer = getDemoOffer(localStorage,item.offerId);
+              return offer ? <p className="text-sm">Professor: {offer.teacherName} · Plano: {offer.planName} · Grupo: {offer.groupName || 'Individual'} · Início: {offer.startDate} · R$ {offer.monthlyAmount.toFixed(2)}</p> : null;
+            })()}
             <p className="text-xs text-zinc-500">Código: {item.id.slice(0,8)} · Situação: {item.status === 'pending' ? 'Pendente' : item.status === 'approved' ? 'Aprovado (simulação)' : 'Correção solicitada (simulação)'}</p>
             {item.status === 'pending' && <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => updateRequest(item.id,'approved')} className="bg-indigo-700 text-white rounded-lg px-3 py-2 text-sm">Simular aprovação</button>
