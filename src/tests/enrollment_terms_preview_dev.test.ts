@@ -24,3 +24,10 @@ assert.match(view, /Carregar rascunho/);
 assert.match(view, /Restaurar texto original/);
 assert.match(view, /validateTermDraft/);
 console.log('PASS | 4 modelos, estados válidos, gate DEV e simulação sem rede/persistência');
+
+const boldSource = readFileSync(new URL('../utils/termBoldMarkup.ts', import.meta.url), 'utf8');
+assert.match(boldSource, /splitBoldSegments/);
+assert.match(boldSource, /toggleBoldSelection/);
+assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
+assert.match(view, /Aplicar negrito ao texto selecionado/);
+console.log('PASS | editor de negrito na prévia, sem renderização HTML insegura');
