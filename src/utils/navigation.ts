@@ -20,6 +20,7 @@ export type View =
   | "prospects"
   | "profiles"
   | "permissions_manager"
+  | "enrollment_terms_demo"
   | "affiliates"
   | "not_eligible";
 
@@ -40,6 +41,7 @@ export const ALL_VIEWS: readonly View[] = [
   "prospects",
   "profiles",
   "permissions_manager",
+  "enrollment_terms_demo",
   "affiliates",
   "not_eligible",
 ] as const;
@@ -63,6 +65,7 @@ export const VIEW_ROLE_PERMISSIONS: Record<View, readonly string[]> = {
   choir: ["super_admin", "admin"],
   profiles: ["super_admin"],
   permissions_manager: ["super_admin"],
+  enrollment_terms_demo: ["super_admin"],
 };
 
 export const getStorageKey = (profileId: string): string => {
