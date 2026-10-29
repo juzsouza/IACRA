@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { changeDemoRequestStatus, demoLink, DEV_INBOX_KEY, readDemoRequests, type DemoRequest } from '../utils/enrollmentDevInbox';
 import { splitBoldSegments, toggleBoldSelection } from '../utils/termBoldMarkup';
 import { originalTermDraft, readSavedTermDraft, termDraftStorageKey, validateTermDraft, TERM_TITLE_MAX_LENGTH, TERM_BODY_MAX_LENGTH, type TermDraft } from '../utils/enrollmentTermsDraft';
 import { FileText, ShieldCheck, RotateCcw, CheckCircle2 } from 'lucide-react';
@@ -21,6 +22,23 @@ export function EnrollmentTermsPreview(): React.ReactElement {
   const [agreed, setAgreed] = useState(false);
   const [drafts, setDrafts] = useState<Partial<Record<TermModelId, TermDraft>>>({});
   const [feedback, setFeedback] = useState('');
+  const [requests, setRequests] = useState<DemoRequest[]>([]);
+  const [linkCopied, setLinkCopied] = useState('');
+  const refreshRequests = () => {
+    try { setRequests(readDemoRequests(localStorage.getItem(DEV_INBOX_KEY))); }
+    catch { setRequests([]); }
+  };
+  useEffect(() => {
+    refreshRequests();
+    const onStorage = (event: StorageEvent) => { if (event.key === DEV_INBOX_KEY) refreshRequests(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  const updateRequest = (id: string, status: 'approved' | 'changes_requested') => {
+    try { setRequests(changeDemoRequestStatus(localStorage,id,status)); }
+    catch { setFeedback('Não foi possível alterar a solicitação fictícia.'); }
+  };
+  const getLink = () => demoLink(window.location.origin, modelId);
   const termEditorRef = useRef<HTMLTextAreaElement>(null);
   const draft = drafts[modelId] ?? originalTermDraft(modelId);
   const updateDraft = (changes: Partial<TermDraft>) => {
@@ -90,6 +108,34 @@ export function EnrollmentTermsPreview(): React.ReactElement {
         </select>
         <p className="text-sm text-zinc-600">{TERM_MODELS.find(m => m.id === modelId)?.description}</p>
         <p className="text-xs text-indigo-800 font-semibold">Estado: {steps[stage]}</p>
+      </section>
+      <section className="bg-white border rounded-xl p-5 space-y-4">
+        <h2 className="text-lg font-semibold">Link da matrícula de teste</h2>
+        <p className="text-sm">Abra no mesmo navegador e origem, em outra aba. Não compartilhe com alunos reais. A caixa DEV só registra modelo e situação fictícia, nunca nomes ou contatos.</p>
+        <div className="flex flex-wrap gap-2">
+          <a href={getLink()} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-lg bg-indigo-700 text-white">Abrir formulário fictício</a>
+          <button type="button" className="px-4 py-2 border rounded-lg" onClick={() => {
+            void navigator.clipboard.writeText(getLink()).then(() => setLinkCopied('Link copiado.')).catch(() => setLinkCopied('Copie o endereço da aba aberta.'));
+          }}>Copiar link DEV</button>
+        </div>
+        {linkCopied && <p className="text-sm" role="status">{linkCopied}</p>}
+      </section>
+      <section className="bg-white border rounded-xl p-5 space-y-4">
+        <div className="flex justify-between items-center gap-2">
+          <h2 className="text-lg font-semibold">Solicitações fictícias da secretaria</h2>
+          <button type="button" className="border rounded-lg px-3 py-2 text-sm" onClick={refreshRequests}>Atualizar lista</button>
+        </div>
+        <p className="text-sm text-zinc-600">Registros somente neste navegador. Aprovar aqui não gera aluno ou matrícula.</p>
+        {requests.length === 0 ? <p className="text-sm">Nenhuma solicitação fictícia recebida neste navegador.</p> : requests.map(item =>
+          <div key={item.id} className="border rounded-lg p-3 space-y-2">
+            <p className="font-medium">{TERM_MODELS.find(model => model.id === item.modelId)?.label}</p>
+            <p className="text-xs text-zinc-500">Código: {item.id.slice(0,8)} · Situação: {item.status === 'pending' ? 'Pendente' : item.status === 'approved' ? 'Aprovado (simulação)' : 'Correção solicitada (simulação)'}</p>
+            {item.status === 'pending' && <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => updateRequest(item.id,'approved')} className="bg-indigo-700 text-white rounded-lg px-3 py-2 text-sm">Simular aprovação</button>
+              <button type="button" onClick={() => updateRequest(item.id,'changes_requested')} className="border rounded-lg px-3 py-2 text-sm">Simular pedido de correção</button>
+            </div>}
+          </div>
+        )}
       </section>
       <section className="bg-white border rounded-xl p-5 space-y-4">
         <h2 className="text-lg font-semibold">Editar termo fictício</h2>
