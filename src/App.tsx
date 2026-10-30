@@ -271,7 +271,7 @@ function AppContent() {
       case "profiles":
         return <Profiles />;
       case "enrollment_dev_real":
-        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RealEnrollmentDev /> : <div role="alert">Acesso restrito.</div>;
+        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RealEnrollmentDev onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
       case "enrollment_terms_demo":
         return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
           ? <EnrollmentTermsPreview /> : <div role="alert">Acesso restrito.</div>;
