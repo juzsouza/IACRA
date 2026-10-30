@@ -4,8 +4,9 @@ import {TERM_MODELS,type TermModelId} from '../utils/enrollmentTermsDemo';
 import {originalTermDraft,readSavedTermDraft,termDraftStorageKey} from '../utils/enrollmentTermsDraft';
 import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,type RealDevRequest} from '../services/enrollmentDevReal';
 import {isGroupModel} from '../utils/enrollmentDevInbox';
+import {EnrollmentDevSuccess} from '../components/EnrollmentDevSuccess';
 
-export function RealEnrollmentDev():React.ReactElement{
+export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
  const [model,setModel]=useState<TermModelId>('individual_instruments_vocal');
  const [planId,setPlanId]=useState('');
@@ -19,6 +20,7 @@ export function RealEnrollmentDev():React.ReactElement{
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<RealDevRequest[]>([]);
  const [busy,setBusy]=useState(false);
+ const [recentApprovedId,setRecentApprovedId]=useState<string|null>(null);
  const plans=state.financialPlans.filter(p=>p.is_active);
  const teachers=state.teachers.filter(t=>t.status==='active');
  const groups=state.groups.filter(g=>g.status!=='inactive');
@@ -45,7 +47,7 @@ export function RealEnrollmentDev():React.ReactElement{
  };
  const approve=async(id:string)=>{
    if(!window.confirm('Criar aluno e matrícula fictícios no banco IACRA-DEV? A operação poderá acionar rotinas de cadastro do sistema.'))return;
-   setBusy(true);try{const result=await approveRealDevRequest(id);setNotice('Gravado no DEV: aluno '+result.student_id+' / matrícula '+result.enrollment_id);await refresh();}
+   setBusy(true);try{const result=await approveRealDevRequest(id);setNotice('Gravação confirmada no banco DEV.');setRecentApprovedId(id);await refresh();}
    catch(e){setNotice(e instanceof Error?e.message:'Falha ao aprovar');}finally{setBusy(false)}
  };
  return <div className="max-w-5xl mx-auto p-6 space-y-5">
@@ -64,6 +66,7 @@ export function RealEnrollmentDev():React.ReactElement{
    <button type="button" disabled={busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link no DEV</button>
    {url&&<div className="space-y-2"><p className="text-xs">O token é confidencial: não compartilhe o link fora da homologação.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir matrícula fictícia</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link de teste</button></div>}
   </section>
+  {recentApprovedId&&records.find(r=>r.id===recentApprovedId)&&<EnrollmentDevSuccess request={records.find(r=>r.id===recentApprovedId)!} onNavigate={onNavigate}/>}
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas no DEV</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
    {records.length===0&&<p>Sem solicitações.</p>}
