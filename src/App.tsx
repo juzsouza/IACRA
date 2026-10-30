@@ -24,6 +24,8 @@ import { Profiles } from "./views/Profiles";
 import { PermissionsManager } from "./views/PermissionsManager";
 import { EnrollmentTermsPreview } from "./views/EnrollmentTermsPreview";
 import { EnrollmentStudentTest } from "./views/EnrollmentStudentTest";
+import { PublicEnrollmentDev } from "./views/PublicEnrollmentDev";
+import { RealEnrollmentDev } from "./views/RealEnrollmentDev";
 import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
@@ -268,6 +270,8 @@ function AppContent() {
         return <Prospects />;
       case "profiles":
         return <Profiles />;
+      case "enrollment_dev_real":
+        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RealEnrollmentDev /> : <div role="alert">Acesso restrito.</div>;
       case "enrollment_terms_demo":
         return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active"
           ? <EnrollmentTermsPreview /> : <div role="alert">Acesso restrito.</div>;
@@ -319,6 +323,9 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  if (pathname === '/matricula-dev' || pathname === '/matricula-dev/') {
+    return import.meta.env.VITE_EAVRA_DEV_PROJECT_REF === 'xuyimfugcdkqovqelrfz' ? <PublicEnrollmentDev /> : <div role="alert">Indisponível fora do DEV.</div>;
+  }
   if (pathname === '/matricula-teste' || pathname === '/matricula-teste/') {
     return import.meta.env.VITE_EAVRA_DEV_PROJECT_REF === 'xuyimfugcdkqovqelrfz'
       ? <EnrollmentStudentTest />
