@@ -21,6 +21,8 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  const [records,setRecords]=useState<RealDevRequest[]>([]);
  const [busy,setBusy]=useState(false);
  const [recentApprovedId,setRecentApprovedId]=useState<string|null>(null);
+ const approvedRequest = records.find(r => r.id === recentApprovedId && r.status === 'approved' && r.student_id && r.enrollment_id)
+   ?? records.find(r => r.status === 'approved' && r.student_id && r.enrollment_id);
  const plans=state.financialPlans.filter(p=>p.is_active);
  const teachers=state.teachers.filter(t=>t.status==='active');
  const groups=state.groups.filter(g=>g.status!=='inactive');
@@ -53,6 +55,11 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  return <div className="max-w-5xl mx-auto p-6 space-y-5">
   <h1 className="text-2xl font-bold">Matrícula digital — banco DEV</h1>
   <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg text-sm">Homologação com escrita no banco IACRA-DEV. Use exclusivamente dados inventados. Os convites duram sete dias e são usados uma única vez. Não envie para alunos reais.</div>
+  {approvedRequest && (
+    <div id="dev-enrollment-confirmation">
+      <EnrollmentDevSuccess request={approvedRequest} onNavigate={onNavigate}/>
+    </div>
+  )}
   <section className="bg-white border rounded-xl p-5 space-y-3">
    <h2 className="font-bold text-lg">Preparar convite</h2>
    <label className="block">Termo<select className="block w-full border p-2" value={model} onChange={e=>{setModel(e.target.value as TermModelId);setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
@@ -66,7 +73,6 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
    <button type="button" disabled={busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link no DEV</button>
    {url&&<div className="space-y-2"><p className="text-xs">O token é confidencial: não compartilhe o link fora da homologação.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir matrícula fictícia</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link de teste</button></div>}
   </section>
-  {recentApprovedId&&records.find(r=>r.id===recentApprovedId)&&<EnrollmentDevSuccess request={records.find(r=>r.id===recentApprovedId)!} onNavigate={onNavigate}/>}
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas no DEV</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
    {records.length===0&&<p>Sem solicitações.</p>}
@@ -74,6 +80,10 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
      <p className="text-sm">Situação: {r.status} · CPF fictício: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
      {r.status==='pending'&&<button disabled={busy} onClick={()=>void approve(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Aprovar e gravar aluno + matrícula no DEV</button>}
+     {r.status==='approved'&&r.student_id&&r.enrollment_id&&<button type="button" onClick={()=>{
+       setRecentApprovedId(r.id);
+       document.getElementById('dev-enrollment-confirmation')?.scrollIntoView({behavior:'smooth',block:'start'});
+     }} className="rounded-lg border border-indigo-200 text-indigo-800 px-3 py-2 hover:bg-indigo-50">Ver confirmação da matrícula</button>}
    </div>)}
   </section>
   {notice&&<p role="status" className="border rounded-lg p-3">{notice}</p>}
