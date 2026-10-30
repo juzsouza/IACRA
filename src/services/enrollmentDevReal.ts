@@ -56,3 +56,16 @@ export async function approveRealDevRequest(id:string):Promise<{student_id:strin
  if(!data?.approved)throw new Error('Aprovação não confirmada');
  return {student_id:data.student_id,enrollment_id:data.enrollment_id};
 }
+
+export type RealDevTermAudit = {
+ status:string; term_title:string; term_body:string; accepted_at:string;
+ reviewed_at:string|null; reviewed_by:string|null;
+ student_id:string|null; enrollment_id:string|null;
+};
+export async function readRealDevTermAudit(id:string):Promise<RealDevTermAudit>{
+ requireDev();
+ const {data,error}=await supabase.rpc('eavra_dev_admin_read_term',{p_submission_id:id});
+ if(error)throw error;
+ if(!data||typeof data.term_body!=='string')throw new Error('Histórico indisponível no banco DEV');
+ return data as RealDevTermAudit;
+}
