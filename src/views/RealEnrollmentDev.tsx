@@ -2,9 +2,10 @@ import React,{useEffect,useState} from 'react';
 import {useAppStore} from '../store';
 import {TERM_MODELS,type TermModelId} from '../utils/enrollmentTermsDemo';
 import {originalTermDraft,readSavedTermDraft,termDraftStorageKey} from '../utils/enrollmentTermsDraft';
-import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,type RealDevRequest} from '../services/enrollmentDevReal';
+import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,readRealDevTermAudit,type RealDevTermAudit,type RealDevRequest} from '../services/enrollmentDevReal';
 import {isGroupModel} from '../utils/enrollmentDevInbox';
 import {EnrollmentDevSuccess} from '../components/EnrollmentDevSuccess';
+import {splitBoldSegments} from '../utils/termBoldMarkup';
 
 export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
@@ -20,6 +21,9 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<RealDevRequest[]>([]);
  const [busy,setBusy]=useState(false);
+ const [audit,setAudit]=useState<RealDevTermAudit|null>(null);
+ const [auditId,setAuditId]=useState<string|null>(null);
+ const [auditBusy,setAuditBusy]=useState(false);
  const [recentApprovedId,setRecentApprovedId]=useState<string|null>(null);
  const approvedRequest = records.find(r => r.id === recentApprovedId && r.status === 'approved' && r.student_id && r.enrollment_id)
    ?? records.find(r => r.status === 'approved' && r.student_id && r.enrollment_id);
@@ -46,6 +50,12 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
        startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term});
      setUrl(result);setNotice('Convite de homologação criado no banco DEV. Use somente dados inventados.');
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao criar convite');}finally{setBusy(false)}
+ };
+ const viewAudit=async(id:string)=>{
+   setAudit(null);setAuditId(id);setAuditBusy(true);setNotice('');
+   try{setAudit(await readRealDevTermAudit(id));}
+   catch(e){setNotice(e instanceof Error?e.message:'Não foi possível consultar o termo');setAuditId(null)}
+   finally{setAuditBusy(false)}
  };
  const approve=async(id:string)=>{
    if(!window.confirm('Criar aluno e matrícula fictícios no banco IACRA-DEV? A operação poderá acionar rotinas de cadastro do sistema.'))return;
@@ -79,6 +89,7 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
    {records.map(r=><div key={r.id} className="border rounded-lg p-4 space-y-2">
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
      <p className="text-sm">Situação: {r.status} · CPF fictício: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
+     <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
      {r.status==='pending'&&<button disabled={busy} onClick={()=>void approve(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Aprovar e gravar aluno + matrícula no DEV</button>}
      {r.status==='approved'&&r.student_id&&r.enrollment_id&&<button type="button" onClick={()=>{
        setRecentApprovedId(r.id);
@@ -86,6 +97,26 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
      }} className="rounded-lg border border-indigo-200 text-indigo-800 px-3 py-2 hover:bg-indigo-50">Ver confirmação da matrícula</button>}
    </div>)}
   </section>
+  {auditId&&<section className="fixed inset-0 z-50 bg-black/50 p-3 sm:p-8 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Termo e histórico da matrícula">
+    <div className="bg-white rounded-xl w-full max-w-3xl max-h-full overflow-y-auto p-5 sm:p-7 space-y-4">
+      <div className="flex justify-between items-start gap-3"><h2 className="text-xl font-bold">Termo e histórico da matrícula (DEV)</h2><button type="button" className="border rounded-lg px-3 py-1" onClick={()=>{setAuditId(null);setAudit(null)}}>Fechar</button></div>
+      {auditBusy&&<p>Carregando termo do banco DEV…</p>}
+      {audit&&<>
+        <p className="text-sm text-zinc-600">Situação: {audit.status==='approved'?'Aprovada':audit.status==='pending'?'Pendente':audit.status}</p>
+        <div className="rounded-lg bg-indigo-50 p-4 space-y-2 text-sm">
+          <p><strong>Aceite:</strong> {audit.accepted_at?new Date(audit.accepted_at).toLocaleString('pt-BR'):'Não localizado'}</p>
+          <p><strong>Aprovação:</strong> {audit.reviewed_at?new Date(audit.reviewed_at).toLocaleString('pt-BR'):'Ainda não aprovada'}</p>
+          <p><strong>Responsável pela aprovação (identificador):</strong> {audit.reviewed_by||'Não registrado'}</p>
+          <p><strong>Vínculo da matrícula:</strong> {audit.enrollment_id||'Aguardando aprovação'}</p>
+        </div>
+        <div className="border rounded-lg p-4">
+          <h3 className="font-bold text-lg mb-3">{audit.term_title}</h3>
+          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{splitBoldSegments(audit.term_body).map((seg,i)=>seg.bold?<strong key={i}>{seg.text}</strong>:<React.Fragment key={i}>{seg.text}</React.Fragment>)}</div>
+        </div>
+        <p className="text-xs text-zinc-500">Cópia preservada no banco de testes. O registro de aceite não é um certificado de assinatura digital.</p>
+      </>}
+    </div>
+  </section>}
   {notice&&<p role="status" className="border rounded-lg p-3">{notice}</p>}
  </div>
 }
