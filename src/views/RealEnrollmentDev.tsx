@@ -6,6 +6,7 @@ import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,readRealDevTer
 import {isGroupModel} from '../utils/enrollmentDevInbox';
 import {EnrollmentDevSuccess} from '../components/EnrollmentDevSuccess';
 import {splitBoldSegments} from '../utils/termBoldMarkup';
+import {openDevEnrollmentReceipt} from '../utils/enrollmentDevReceipt';
 
 export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
@@ -113,6 +114,7 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
           <h3 className="font-bold text-lg mb-3">{audit.term_title}</h3>
           <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{splitBoldSegments(audit.term_body).map((seg,i)=>seg.bold?<strong key={i}>{seg.text}</strong>:<React.Fragment key={i}>{seg.text}</React.Fragment>)}</div>
         </div>
+        {audit.status==='approved'&&records.find(r=>r.id===auditId)?.enrollment_id&&<button type="button" className="bg-indigo-700 text-white rounded-lg px-4 py-2" onClick={()=>{try{const record=records.find(r=>r.id===auditId);if(record)openDevEnrollmentReceipt(record,audit)}catch(e){setNotice(e instanceof Error?e.message:'Erro ao emitir comprovante')}}}>Emitir comprovante em PDF (DEV)</button>}
         <p className="text-xs text-zinc-500">Cópia preservada no banco de testes. O registro de aceite não é um certificado de assinatura digital.</p>
       </>}
     </div>
