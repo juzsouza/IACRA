@@ -26,6 +26,7 @@ import { EnrollmentTermsPreview } from "./views/EnrollmentTermsPreview";
 import { EnrollmentStudentTest } from "./views/EnrollmentStudentTest";
 import { PublicEnrollmentDev } from "./views/PublicEnrollmentDev";
 import { RealEnrollmentDev } from "./views/RealEnrollmentDev";
+import { RoomsDev } from "./views/RoomsDev";
 import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
@@ -270,6 +271,8 @@ function AppContent() {
         return <Prospects />;
       case "profiles":
         return <Profiles />;
+      case "rooms_dev":
+        return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RoomsDev /> : <div role="alert">Acesso restrito.</div>;
       case "enrollment_dev_real":
         return currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RealEnrollmentDev onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
       case "enrollment_terms_demo":
