@@ -15,6 +15,7 @@ export type RealDevRequest = {
  id:string; status:'pending'|'approved'|'changes_requested'; student:Record<string,string>;
  plan_name:string;teacher_name:string;group_name:string|null;monthly_amount:number;
  accepted_at:string;enrollment_id:string|null; student_id:string|null;
+ start_date?:string; enrollment_date?:string; due_day?:number;
 };
 export async function createRealDevOffer(input:{
  modelId:TermModelId;teacherId:string;planId:string;groupId:string|null;startDate:string;
