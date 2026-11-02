@@ -64,6 +64,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "permissions_manager", label: "Permissões (DEV)", icon: ShieldCheck, roles: ["super_admin"] },
     { id: "enrollment_terms_demo", label: "Termos (DEV · Simulação)", icon: FileText, roles: ["super_admin"] },
     { id: "enrollment_dev_real", label: "Matrícula (Banco DEV)", icon: FileText, roles: ["super_admin"] },
+    { id: "rooms_dev", label: "Salas (Banco DEV)", icon: CalendarDays, roles: ["super_admin"] },
   ] as const;
 
   const userRole = currentUserProfile?.role;
