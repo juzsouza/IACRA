@@ -12,7 +12,7 @@ function formatTimestamp(value: string | null | undefined): string {
     date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 }
 function formatDate(value: string | null | undefined): string {
-  if (!value || !/^\\d{4}-\\d{2}-\\d{2}/.test(value)) return 'Não registrada';
+  if (!value || !/^\d{4}-\d{2}-\d{2}/.test(value)) return 'Não registrada';
   const [year, month, day] = value.slice(0, 10).split('-');
   return `${day}/${month}/${year}`;
 }
