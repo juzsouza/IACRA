@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import { DoorOpen, CalendarDays, Clock3, CheckCircle2, AlertCircle, RefreshCw, ShieldCheck, Save, Trash2, Music2, UserRound } from 'lucide-react';
 import {supabase} from '../lib/supabase';
 import {useAppStore} from '../store';
 import {checkPermissionDevEnvironment,getPermissionDevEnvironment} from '../utils/permissionAdminConfig';
@@ -31,6 +32,8 @@ export function RoomsDev():React.ReactElement{
  const teacher=state.teachers.find(t=>t.id===chosenClass?.teacher_id);
  const availableRooms=overview.rooms.filter(r=>!r.raphael_only||/raphael/i.test(teacher?.name||''));
  const assignmentsByClass=new Map(overview.assignments.map(a=>[a.class_id,a]));
+ const activeReservations=overview.assignments.filter(a=>a.status!=='cancelled');
+ const reservedRoomsCount=new Set(activeReservations.map(a=>a.room_slug)).size;
  const overlaps=overview.assignments.filter(a=>chosenClass&&a.room_slug===roomSlug&&a.class_id!==classId&&a.status!=='cancelled'&&a.start_time<chosenClass.end_time&&a.end_time>chosenClass.start_time);
  const save=async()=>{
   if(!authorized||!chosenClass||!chosenRoom||!activity)return;
@@ -48,28 +51,127 @@ export function RoomsDev():React.ReactElement{
   try{const {error}=await supabase.rpc('eavra_dev_room_unassign',{p_class_id:classId});if(error)throw error;await load();setMessage('Sala liberada no DEV.');}
   catch(e){setMessage(e instanceof Error?e.message:'Falha ao liberar sala')}finally{setBusy(false)}
  };
- if(!authorized)return <p role="alert">Área exclusiva do Super Admin no IACRA-DEV.</p>;
- return <div className="max-w-6xl mx-auto p-6 space-y-5">
-  <h1 className="text-2xl font-bold">Salas de atendimento — DEV</h1>
-  <p className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">Ambiente de testes. Os vínculos são armazenados separadamente da agenda original. Apenas aulas já sincronizadas podem receber sala.</p>
-  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-   {overview.rooms.map(r=><div key={r.slug} className="bg-white rounded-xl border p-4"><h2 className="font-bold">{r.name}</h2><p className="text-sm text-zinc-600 mt-1">{r.activities.length?r.activities.join(' · '):r.note}</p></div>)}
+
+ if(!authorized)return <div className="bg-white border border-zinc-200 rounded-2xl p-6 text-sm text-rose-700" role="alert">Área exclusiva do Super Admin no IACRA-DEV.</div>;
+ return <div className="space-y-6">
+  <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+   <div>
+    <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Salas de atendimento</h1>
+    <p className="text-sm text-zinc-500 mt-1">Organize os ambientes e acompanhe a ocupação das aulas.</p>
+   </div>
+   <button type="button" disabled={busy} onClick={()=>void load()} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-indigo-700 bg-white border border-indigo-200 rounded-xl shadow-sm hover:bg-indigo-50 transition-colors disabled:opacity-40">
+    <RefreshCw className="w-4 h-4"/> Atualizar salas
+   </button>
+  </header>
+
+  <div className="flex items-start gap-2.5 px-4 py-3.5 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl">
+   <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5"/>
+   <p><strong>Ambiente de testes.</strong> Os vínculos são salvos separadamente da agenda original. Apenas aulas já sincronizadas podem receber sala.</p>
   </div>
-  <section className="bg-white border rounded-xl p-5 space-y-3">
-   <h2 className="text-lg font-bold">Vincular sala à aula</h2>
-   <label className="block text-sm">Data<input className="block border p-2 rounded-lg" type="date" value={day} onChange={e=>{setDay(e.target.value);setClassId('');setRoomSlug('');setActivity('')}}/></label>
-   <label className="block text-sm">Aula<select className="block w-full border p-2 rounded-lg" value={classId} onChange={e=>{const id=e.target.value;setClassId(id);const a=assignmentsByClass.get(id);setRoomSlug(a?.room_slug||'');setActivity(a?.activity||'')}}><option value="">Selecione a aula</option>{classes.map(c=><option key={c.id} value={c.id}>{fmt(c.start_time)}–{fmt(c.end_time)} · {c.title} · {state.teachers.find(t=>t.id===c.teacher_id)?.name||'Professor'}</option>)}</select></label>
-   <label className="block text-sm">Sala<select disabled={!classId} className="block w-full border p-2 rounded-lg disabled:bg-zinc-100" value={roomSlug} onChange={e=>{setRoomSlug(e.target.value);setActivity('')}}><option value="">Selecione a sala</option>{availableRooms.map(r=><option key={r.slug} value={r.slug}>{r.name}</option>)}</select></label>
-   <label className="block text-sm">Atividade{chosenRoom&&chosenRoom.activities.length?
-    <select className="block w-full border p-2 rounded-lg" value={activity} onChange={e=>setActivity(e.target.value)}><option value="">Selecione a atividade</option>{chosenRoom.activities.map(a=><option key={a} value={a}>{a}</option>)}</select>:
-    <input className="block w-full border p-2 rounded-lg" value={activity} onChange={e=>setActivity(e.target.value)} placeholder="Atividade da aula" disabled={!chosenRoom}/>}</label>
-   {overlaps.length>0&&<p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">Sala ocupada nesse horário: {overlaps.map(a=>a.title+' ('+fmt(a.start_time)+'–'+fmt(a.end_time)+')').join(', ')}</p>}
-   <div className="flex flex-wrap gap-2"><button type="button" disabled={busy||!classId||!roomSlug||!activity||overlaps.length>0} onClick={()=>void save()} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Salvar vínculo da sala</button>
-   {classId&&assignmentsByClass.has(classId)&&<button type="button" disabled={busy} onClick={()=>void release()} className="border rounded-lg px-4 py-2 disabled:opacity-40">Liberar sala</button>}</div>
-   {message&&<p role="status" className="text-sm border rounded-lg p-3">{message}</p>}
+
+  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 py-4 flex items-center gap-3">
+    <div className="h-11 w-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><DoorOpen className="w-5 h-5"/></div>
+    <div><p className="text-xs text-zinc-500 font-medium">Salas cadastradas</p><p className="text-2xl font-bold text-zinc-900">{overview.rooms.length}</p></div>
+   </div>
+   <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 py-4 flex items-center gap-3">
+    <div className="h-11 w-11 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0"><CalendarDays className="w-5 h-5"/></div>
+    <div><p className="text-xs text-zinc-500 font-medium">Aulas na data</p><p className="text-2xl font-bold text-zinc-900">{classes.length}</p></div>
+   </div>
+   <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm px-4 py-4 flex items-center gap-3">
+    <div className="h-11 w-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0"><CheckCircle2 className="w-5 h-5"/></div>
+    <div><p className="text-xs text-zinc-500 font-medium">Salas com reservas</p><p className="text-2xl font-bold text-zinc-900">{reservedRoomsCount}</p></div>
+   </div>
+  </div>
+
+  <section className="space-y-3">
+   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2">
+    <div>
+     <h2 className="text-lg font-semibold text-zinc-900">Ambientes disponíveis</h2>
+     <p className="text-sm text-zinc-500 mt-1">Conheça as salas e as atividades disponíveis em cada uma.</p>
+    </div>
+    <p className="text-xs text-zinc-500">Reservas para {day.split('-').reverse().join('/')}</p>
+   </div>
+   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    {overview.rooms.map(room=>{
+     const count=activeReservations.filter(a=>a.room_slug===room.slug).length;
+     return <article key={room.slug} className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 hover:border-indigo-200 hover:shadow-md transition-all">
+      <div className="flex items-start gap-3">
+       <div className="h-11 w-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><DoorOpen className="w-5 h-5"/></div>
+       <div className="min-w-0 flex-1">
+        <h3 className="font-semibold text-zinc-900">{room.name}</h3>
+        <span className={count?'inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100':'inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100'}>
+         <span className={count?'w-1.5 h-1.5 bg-indigo-500 rounded-full':'w-1.5 h-1.5 bg-emerald-500 rounded-full'}/>
+         {count?count+' reserva(s) no dia':'Sem reservas no dia'}
+        </span>
+       </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-zinc-100 min-h-12 flex flex-wrap items-start gap-1.5">
+       {room.activities.length?room.activities.map(a=><span key={a} className="px-2.5 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded-lg">{a}</span>):<span className="text-xs text-zinc-500">{room.note||'Atividade definida pelo professor'}</span>}
+      </div>
+     </article>
+    })}
+   </div>
   </section>
-  <section className="bg-white border rounded-xl p-5"><h2 className="text-lg font-bold mb-3">Ocupação das salas em {day.split('-').reverse().join('/')}</h2>
-   {overview.assignments.length===0?<p className="text-sm text-zinc-600">Nenhuma sala vinculada nessa data.</p>:<div className="space-y-2">{overview.assignments.map(a=><div key={a.class_id} className="border rounded-lg p-3 text-sm"><strong>{overview.rooms.find(r=>r.slug===a.room_slug)?.name||a.room_slug}</strong> · {fmt(a.start_time)}–{fmt(a.end_time)} · {a.activity}<p className="text-zinc-600">{a.title} · {a.teacher_name||'Professor'}</p></div>)}</div>}
+
+  <section className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+   <div className="px-5 sm:px-6 py-5 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="flex items-center gap-3">
+     <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><CalendarDays className="w-5 h-5"/></div>
+     <div><h2 className="text-lg font-semibold text-zinc-900">Vincular sala à aula</h2><p className="text-xs text-zinc-500 mt-0.5">Escolha a data, a aula e o ambiente adequado.</p></div>
+    </div>
+    <span className="self-start sm:self-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-600 bg-zinc-100 rounded-full"><ShieldCheck className="w-3.5 h-3.5"/> Super Admin</span>
+   </div>
+   <div className="p-5 sm:p-6 space-y-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
+     <div>
+      <label htmlFor="room-date" className="block text-sm font-medium text-zinc-700 mb-1.5">Data da aula</label>
+      <input id="room-date" type="date" value={day} onChange={e=>{setDay(e.target.value);setClassId('');setRoomSlug('');setActivity('');setMessage('')}} className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors"/>
+     </div>
+     <div>
+      <label htmlFor="room-class" className="block text-sm font-medium text-zinc-700 mb-1.5">Aula</label>
+      <select id="room-class" value={classId} onChange={e=>{const id=e.target.value;setClassId(id);const a=assignmentsByClass.get(id);setRoomSlug(a?.room_slug||'');setActivity(a?.activity||'');setMessage('')}} className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors">
+       <option value="">Selecione uma aula</option>
+       {classes.map(c=><option key={c.id} value={c.id}>{fmt(c.start_time)}–{fmt(c.end_time)} · {c.title} · {state.teachers.find(t=>t.id===c.teacher_id)?.name||'Professor'}</option>)}
+      </select>
+      {classes.length===0&&<p className="text-xs text-zinc-500 mt-1.5">Nenhuma aula encontrada nesta data.</p>}
+     </div>
+     <div>
+      <label htmlFor="room-select" className="block text-sm font-medium text-zinc-700 mb-1.5">Sala</label>
+      <select id="room-select" disabled={!classId} value={roomSlug} onChange={e=>{setRoomSlug(e.target.value);setActivity('');setMessage('')}} className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors disabled:opacity-60">
+       <option value="">Selecione uma sala</option>
+       {availableRooms.map(r=><option key={r.slug} value={r.slug}>{r.name}</option>)}
+      </select>
+     </div>
+     <div>
+      <label htmlFor="room-activity" className="block text-sm font-medium text-zinc-700 mb-1.5">Atividade</label>
+      {chosenRoom&&chosenRoom.activities.length?
+       <select id="room-activity" value={activity} onChange={e=>setActivity(e.target.value)} className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors"><option value="">Selecione a atividade</option>{chosenRoom.activities.map(a=><option key={a} value={a}>{a}</option>)}</select>:
+       <input id="room-activity" value={activity} disabled={!chosenRoom} onChange={e=>setActivity(e.target.value)} placeholder="Informe a atividade" className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors disabled:opacity-60"/>}
+     </div>
+    </div>
+    {chosenClass&&<div className="flex flex-wrap items-center gap-x-5 gap-y-2 bg-zinc-50 border border-zinc-100 rounded-xl p-3.5 text-sm">
+     <span className="inline-flex items-center gap-2 text-zinc-700"><Clock3 className="w-4 h-4 text-indigo-500"/>{fmt(chosenClass.start_time)} às {fmt(chosenClass.end_time)}</span>
+     <span className="inline-flex items-center gap-2 text-zinc-700"><UserRound className="w-4 h-4 text-indigo-500"/>{teacher?.name||'Professor não identificado'}</span>
+     {assignmentsByClass.has(classId)&&<span className="inline-flex items-center gap-1.5 text-indigo-700 font-medium"><CheckCircle2 className="w-4 h-4"/>Sala já vinculada</span>}
+    </div>}
+    {overlaps.length>0&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 flex items-start gap-2 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0"/><p><strong>Conflito de horário.</strong> Sala reservada: {overlaps.map(a=>a.title+' ('+fmt(a.start_time)+'–'+fmt(a.end_time)+')').join(', ')}.</p></div>}
+    {message&&<div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 flex items-center gap-2 text-sm text-emerald-800"><CheckCircle2 className="w-4 h-4 shrink-0"/>{message}</div>}
+    <div className="flex flex-col sm:flex-row gap-3">
+     <button type="button" disabled={busy||!classId||!roomSlug||!activity||overlaps.length>0} onClick={()=>void save()} className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl shadow-sm hover:bg-indigo-700 disabled:opacity-40 transition-colors"><Save className="w-4 h-4"/>{busy?'Processando...':'Salvar vínculo da sala'}</button>
+     {classId&&assignmentsByClass.has(classId)&&<button type="button" disabled={busy} onClick={()=>void release()} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-700 border border-rose-200 bg-white rounded-xl hover:bg-rose-50 disabled:opacity-40 transition-colors"><Trash2 className="w-4 h-4"/>Liberar sala</button>}
+    </div>
+   </div>
   </section>
- </div>
+
+  <section className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+   <div className="px-5 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-zinc-100">
+    <div><h2 className="text-lg font-semibold text-zinc-900">Ocupação das salas</h2><p className="text-sm text-zinc-500 mt-1">Reservas registradas em {day.split('-').reverse().join('/')}.</p></div>
+    <span className="self-start sm:self-auto text-xs font-semibold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-full">{activeReservations.length} reserva(s)</span>
+   </div>
+   {overview.assignments.length===0?
+    <div className="p-10 text-center flex flex-col items-center gap-2"><div className="p-3 rounded-full bg-zinc-100 text-zinc-400"><Music2 className="w-6 h-6"/></div><p className="text-sm font-medium text-zinc-700">Nenhuma sala reservada nesta data</p><p className="text-xs text-zinc-500">Selecione uma aula acima para registrar uma reserva.</p></div>:
+    <div className="overflow-x-auto"><table className="min-w-full divide-y divide-zinc-100"><thead className="bg-zinc-50 text-xs font-semibold text-zinc-500 uppercase tracking-wide"><tr><th className="px-5 py-3.5 text-left">Sala</th><th className="px-5 py-3.5 text-left">Horário</th><th className="px-5 py-3.5 text-left">Aula e atividade</th><th className="px-5 py-3.5 text-left">Professor</th><th className="px-5 py-3.5 text-left">Situação</th></tr></thead><tbody className="divide-y divide-zinc-100 bg-white">{overview.assignments.map(a=><tr key={a.class_id} className="hover:bg-zinc-50/80 transition-colors text-sm"><td className="px-5 py-4 whitespace-nowrap font-semibold text-zinc-900">{overview.rooms.find(r=>r.slug===a.room_slug)?.name||a.room_slug}</td><td className="px-5 py-4 whitespace-nowrap text-zinc-600">{fmt(a.start_time)}–{fmt(a.end_time)}</td><td className="px-5 py-4 min-w-48"><p className="font-medium text-zinc-800">{a.title}</p><p className="text-xs text-zinc-500 mt-0.5">{a.activity}</p></td><td className="px-5 py-4 whitespace-nowrap text-zinc-600">{a.teacher_name||'Não informado'}</td><td className="px-5 py-4"><span className={a.status==='cancelled'?'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 border border-zinc-200 text-zinc-600':'inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 border border-emerald-200 text-emerald-700'}>{a.status==='cancelled'?'Aula cancelada':'Sala reservada'}</span></td></tr>)}</tbody></table></div>}
+  </section>
+ </div>;
 }
