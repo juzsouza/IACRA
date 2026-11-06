@@ -9,7 +9,7 @@ function requireDev() {
 export type RealDevOffer = {
  model_id:TermModelId; teacher_name:string; plan_name:string; group_name:string|null;
  start_date:string; enrollment_date:string; due_day:number; monthly_amount:number;
- term_title:string; term_body:string;
+ term_title:string; term_body:string; expires_at:string;
 };
 export type RealDevRequest = {
  id:string; status:'pending'|'approved'|'changes_requested'; student:Record<string,string>;
@@ -19,13 +19,15 @@ export type RealDevRequest = {
 };
 export async function createRealDevOffer(input:{
  modelId:TermModelId;teacherId:string;planId:string;groupId:string|null;startDate:string;
- enrollmentDate:string;dueDay:number;monthlyAmount:number;term:TermDraft;
+ enrollmentDate:string;dueDay:number;monthlyAmount:number;term:TermDraft;expiresOn:string;
 }):Promise<string>{
  requireDev();
- const {data,error}=await supabase.rpc('eavra_dev_create_enrollment_offer',{
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(input.expiresOn))throw new Error('Informe uma data de validade válida.');
+ const {data,error}=await supabase.rpc('eavra_dev_create_enrollment_offer_with_expiry',{
  p_model_id:input.modelId,p_teacher_id:input.teacherId,p_plan_id:input.planId,p_group_id:input.groupId,
  p_start_date:input.startDate,p_enrollment_date:input.enrollmentDate,p_due_day:input.dueDay,
- p_monthly_amount:input.monthlyAmount,p_term_title:input.term.title,p_term_body:input.term.body
+ p_monthly_amount:input.monthlyAmount,p_term_title:input.term.title,p_term_body:input.term.body,
+ p_expires_on:input.expiresOn
  });
  if(error)throw error;
  const token=String(data?.token||'');
