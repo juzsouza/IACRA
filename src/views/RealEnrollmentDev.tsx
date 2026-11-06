@@ -18,6 +18,7 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  const [start,setStart]=useState('2026-11-02');
  const [date,setDate]=useState('2026-10-29');
  const [due,setDue]=useState('10');
+ const [expiresOn,setExpiresOn]=useState('');
  const [url,setUrl]=useState('');
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<RealDevRequest[]>([]);
@@ -42,13 +43,13 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  useEffect(()=>{if(currentUserProfile?.role==='super_admin')void refresh()},[currentUserProfile?.id,currentUserProfile?.role]);
  if(currentUserProfile?.role!=='super_admin'||currentUserProfile.access_status!=='active')return <div role="alert">Área restrita ao Super Admin ativo.</div>;
  const issue=async()=>{
-   if(!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict)return;
+   if(!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!expiresOn)return;
    setBusy(true);setUrl('');setNotice('');
    try{
      let term=originalTermDraft(model);
      try{term=readSavedTermDraft(localStorage.getItem(termDraftStorageKey(model)))||term}catch{}
      const result=await createRealDevOffer({modelId:model,teacherId:teacher.id,planId:plan.id,groupId:group?.id||null,
-       startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term});
+       startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term,expiresOn});
      setUrl(result);setNotice('Convite de homologação criado no banco DEV. Use somente dados inventados.');
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao criar convite');}finally{setBusy(false)}
  };
@@ -65,7 +66,7 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  };
  return <div className="max-w-5xl mx-auto p-6 space-y-5">
   <h1 className="text-2xl font-bold">Matrícula digital — banco DEV</h1>
-  <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg text-sm">Homologação com escrita no banco IACRA-DEV. Use exclusivamente dados inventados. Os convites duram sete dias e são usados uma única vez. Não envie para alunos reais.</div>
+  <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg text-sm">Homologação com escrita no banco IACRA-DEV. Use exclusivamente dados inventados. A secretaria define o vencimento de cada convite, que pode ser usado apenas uma vez. Não envie para alunos reais.</div>
   {approvedRequest && (
     <div id="dev-enrollment-confirmation">
       <EnrollmentDevSuccess request={approvedRequest} onNavigate={onNavigate}/>
@@ -79,9 +80,10 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
    <label className="block">Professor<select className="block w-full border p-2 disabled:bg-zinc-100" value={resolvedId} disabled={Boolean(group?.teacher_id||plan?.exclusive_teacher_id)} onChange={e=>{setTeacherId(e.target.value);setUrl('')}}><option value="">Selecione um professor</option>{teachers.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
    <label className="block">Mensalidade da matrícula (R$)<input className="block w-full border p-2" type="number" min="0" step="0.01" value={price??(plan?String(plan.base_price):'')} onChange={e=>{setPrice(e.target.value);setUrl('')}}/></label>
    <div className="grid grid-cols-2 gap-3"><label>Início<input className="block w-full border p-2" type="date" value={start} onChange={e=>{setStart(e.target.value);setUrl('')}}/></label><label>Data da matrícula<input className="block w-full border p-2" type="date" value={date} onChange={e=>{setDate(e.target.value);setUrl('')}}/></label></div>
-   <label className="block">Dia de vencimento<input className="block w-full border p-2" type="number" min="1" max="31" value={due} onChange={e=>{setDue(e.target.value);setUrl('')}}/></label>
+   <label className="block">Dia de vencimento da mensalidade<input className="block w-full border p-2" type="number" min="1" max="31" value={due} onChange={e=>{setDue(e.target.value);setUrl('')}}/></label>
+   <label className="block">Data de validade do link para preenchimento <span className="text-red-700">*</span><input className="block w-full border p-2" type="date" required min={new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} value={expiresOn} onChange={e=>{setExpiresOn(e.target.value);setUrl('')}}/><span className="text-sm text-zinc-600">O preenchimento e aceite ficam disponíveis até 23h59 (horário de Brasília) na data escolhida.</span></label>
    {conflict&&<p role="alert" className="text-red-700">Professor do grupo e professor exclusivo do plano não coincidem.</p>}
-   <button type="button" disabled={busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link no DEV</button>
+   <button type="button" disabled={busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link no DEV</button>
    {url&&<div className="space-y-2"><p className="text-xs">O token é confidencial: não compartilhe o link fora da homologação.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir matrícula fictícia</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link de teste</button></div>}
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
