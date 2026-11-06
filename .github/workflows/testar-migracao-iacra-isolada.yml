@@ -60,11 +60,12 @@ jobs:
       - name: Verificar termo, validade, responsavel, alunos existentes, salas e permissoes
         run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/verificacoes.sql
 
-      - name: Confirmar que todos os registros ficticios permaneceram inteiros
+      - name: Confirmar os registros ficticios
         run: |
-          psql -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN
+          result=$(psql -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN
           (SELECT count(*) FROM students)=2 AND
           (SELECT count(*) FROM enrollments)=2 AND
           (SELECT count(*) FROM transactions)=1 AND
           (SELECT count(*) FROM app_private.eavra_dev_enrollment_submissions)=3
-          THEN 'OK: dados ficticios preservados' ELSE 1/0::text END"
+          THEN 'OK' ELSE 'FALHA' END")
+          test "$result" = "OK"
