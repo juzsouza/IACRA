@@ -33,6 +33,7 @@ export function PublicEnrollmentDev():React.ReactElement{
        <p>Professor: {offer.teacher_name}</p><p>Plano: {offer.plan_name}</p>
        {offer.group_name&&<p>Grupo: {offer.group_name}</p>}
        <p>Início: {offer.start_date} · Matrícula: {offer.enrollment_date}</p>
+       <p className="font-semibold text-amber-800">Prazo para preenchimento e aceite: {new Date(offer.expires_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})} (Brasília)</p>
        <p>Mensalidade: {Number(offer.monthly_amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} · Vencimento dia {offer.due_day}</p>
      </section>
      <section className="border rounded-lg p-4 space-y-3">
