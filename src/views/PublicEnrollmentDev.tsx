@@ -7,8 +7,17 @@ export function PublicEnrollmentDev():React.ReactElement{
  const [notice,setNotice]=useState('');
  const [sent,setSent]=useState(false);
  const [busy,setBusy]=useState(false);
- const [student,setStudent]=useState({name:'Aluno Teste',email:'aluno@example.com',phone:'11999999999',cpf:'00000000000',birth_date:'2000-01-01',instrument:'Canto',guardian_name:'',guardian_email:''});
+ const [student,setStudent]=useState({name:'Aluno Teste',email:'aluno@example.com',phone:'11999999999',cpf:'00000000000',birth_date:'2000-01-01',instrument:'Canto',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});
  const [accepted,setAccepted]=useState(false);
+ const isMinor=Boolean(student.birth_date)&&(()=>{
+   const birth=new Date(student.birth_date+'T12:00:00Z');
+   if(Number.isNaN(birth.getTime()))return false;
+   const today=new Date();
+   const br=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(today);
+   const [y,m,d]=br.split('-').map(Number);
+   const age=y-birth.getUTCFullYear()-((m<birth.getUTCMonth()+1||(m===birth.getUTCMonth()+1&&d<birth.getUTCDate()))?1:0);
+   return age<18;
+ })();
  const set=(field:keyof typeof student,value:string)=>setStudent(prev=>({...prev,[field]:value}));
  useEffect(()=>{if(!/^[0-9a-f]{64}$/.test(token)){setNotice('Link inválido.');return;}
    let active=true;
@@ -44,15 +53,21 @@ export function PublicEnrollmentDev():React.ReactElement{
        <label className="block">CPF fictício<input className="block border p-2 w-full rounded-lg" required value={student.cpf} onChange={e=>set('cpf',e.target.value)}/></label>
        <label className="block">Data de nascimento<input type="date" className="block border p-2 w-full rounded-lg" required value={student.birth_date} onChange={e=>set('birth_date',e.target.value)}/></label>
        <label className="block">Instrumento<input className="block border p-2 w-full rounded-lg" required value={student.instrument} onChange={e=>set('instrument',e.target.value)}/></label>
-       <p className="text-sm">Se o aluno for menor de idade, preencha também os dados do responsável:</p>
-       <label className="block">Responsável legal<input className="block border p-2 w-full rounded-lg" value={student.guardian_name} onChange={e=>set('guardian_name',e.target.value)}/></label>
-       <label className="block">E-mail do responsável<input type="email" className="block border p-2 w-full rounded-lg" value={student.guardian_email} onChange={e=>set('guardian_email',e.target.value)}/></label>
+       {isMinor&&<div className="border border-amber-200 rounded-lg p-3 space-y-3 bg-amber-50">
+         <h3 className="font-semibold">Dados do responsável legal (obrigatórios para menores de 18 anos)</h3>
+         <label className="block">Nome completo do responsável<input className="block border p-2 w-full rounded-lg" required value={student.guardian_name} onChange={e=>set('guardian_name',e.target.value)}/></label>
+         <label className="block">Parentesco ou vínculo legal<input className="block border p-2 w-full rounded-lg" required value={student.guardian_relationship} onChange={e=>set('guardian_relationship',e.target.value)}/></label>
+         <label className="block">E-mail do responsável<input type="email" className="block border p-2 w-full rounded-lg" required value={student.guardian_email} onChange={e=>set('guardian_email',e.target.value)}/></label>
+         <label className="block">Telefone do responsável<input type="tel" className="block border p-2 w-full rounded-lg" required value={student.guardian_phone} onChange={e=>set('guardian_phone',e.target.value)}/></label>
+         <label className="block">CPF do responsável (opcional no DEV)<input className="block border p-2 w-full rounded-lg" inputMode="numeric" value={student.guardian_cpf} onChange={e=>set('guardian_cpf',e.target.value)}/></label>
+       </div>}
+       <p className="text-sm text-zinc-600">Se o aluno já estiver cadastrado, o termo e o aceite serão recebidos normalmente. A secretaria conferirá o cadastro antes de aprovar, sem alterar seus dados automaticamente.</p>
      </section>
      <section className="border rounded-lg p-4 space-y-3">
        <h2 className="font-semibold">{offer.term_title}</h2>
        <p className="text-sm text-amber-800">Termo em teste, sem validade contratual.</p>
        <div className="whitespace-pre-wrap break-words max-h-72 overflow-y-auto text-sm">{splitBoldSegments(offer.term_body).map((p,i)=>p.bold?<strong key={i}>{p.text}</strong>:<React.Fragment key={i}>{p.text}</React.Fragment>)}</div>
-       <label className="flex gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> Confirmo o aceite fictício somente para teste no IACRA-DEV.</label>
+       <label className="flex gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> {isMinor?'Como responsável legal informado, confirmo o aceite fictício do termo para teste no IACRA-DEV.':'Confirmo o aceite fictício somente para teste no IACRA-DEV.'}</label>
        <button disabled={!accepted||busy} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Enviar solicitação ao DEV</button>
      </section>
    </form>}
