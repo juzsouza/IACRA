@@ -52,18 +52,30 @@ export async function readRealDevInbox():Promise<RealDevRequest[]>{
  if(error)throw error;
  return (data||[]) as RealDevRequest[];
 }
-export async function approveRealDevRequest(id:string):Promise<{student_id:string;enrollment_id:string}>{
+export type RealDevStudentMatch={
+ match_count:number; multiple_matches?:boolean;
+ student?:{id:string;name:string;email:string|null;phone:string|null;instrument:string|null;birth_date:string|null;status:string};
+ matching_enrollment_id?:string|null;
+};
+export async function reviewRealDevStudentMatch(id:string):Promise<RealDevStudentMatch>{
  requireDev();
- const {data,error}=await supabase.rpc('eavra_dev_approve_enrollment',{p_submission_id:id});
+ const {data,error}=await supabase.rpc('eavra_dev_admin_review_student_match',{p_submission_id:id});
+ if(error)throw error;
+ return data as RealDevStudentMatch;
+}
+export async function approveRealDevRequest(id:string,options:{updateStudent:boolean;forceNewEnrollment:boolean}):Promise<{student_id:string;enrollment_id:string;student_reused:boolean;enrollment_reused:boolean}>{
+ requireDev();
+ const {data,error}=await supabase.rpc('eavra_dev_approve_enrollment_review',{p_submission_id:id,p_update_student:options.updateStudent,p_force_new_enrollment:options.forceNewEnrollment});
  if(error)throw error;
  if(!data?.approved)throw new Error('Aprovação não confirmada');
- return {student_id:data.student_id,enrollment_id:data.enrollment_id};
+ return {student_id:data.student_id,enrollment_id:data.enrollment_id,student_reused:!!data.student_reused,enrollment_reused:!!data.enrollment_reused};
 }
 
 export type RealDevTermAudit = {
  status:string; term_title:string; term_body:string; accepted_at:string;
  reviewed_at:string|null; reviewed_by:string|null;
  student_id:string|null; enrollment_id:string|null;
+ guardian_name?:string|null;guardian_email?:string|null;guardian_phone?:string|null;guardian_relationship?:string|null;guardian_cpf?:string|null;
 };
 export async function readRealDevTermAudit(id:string):Promise<RealDevTermAudit>{
  requireDev();
