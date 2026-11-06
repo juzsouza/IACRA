@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {useAppStore} from '../store';
 import {TERM_MODELS,type TermModelId} from '../utils/enrollmentTermsDemo';
 import {originalTermDraft,readSavedTermDraft,termDraftStorageKey} from '../utils/enrollmentTermsDraft';
-import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,readRealDevTermAudit,type RealDevTermAudit,type RealDevRequest} from '../services/enrollmentDevReal';
+import {createRealDevOffer,readRealDevInbox,approveRealDevRequest,reviewRealDevStudentMatch,readRealDevTermAudit,type RealDevTermAudit,type RealDevRequest,type RealDevStudentMatch} from '../services/enrollmentDevReal';
 import {isGroupModel} from '../utils/enrollmentDevInbox';
 import {EnrollmentDevSuccess} from '../components/EnrollmentDevSuccess';
 import {splitBoldSegments} from '../utils/termBoldMarkup';
@@ -27,6 +27,10 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  const [auditId,setAuditId]=useState<string|null>(null);
  const [auditBusy,setAuditBusy]=useState(false);
  const [recentApprovedId,setRecentApprovedId]=useState<string|null>(null);
+ const [reviewId,setReviewId]=useState<string|null>(null);
+ const [match,setMatch]=useState<RealDevStudentMatch|null>(null);
+ const [updateExisting,setUpdateExisting]=useState(false);
+ const [forceNewEnrollment,setForceNewEnrollment]=useState(false);
  const approvedRequest = records.find(r => r.id === recentApprovedId && r.status === 'approved' && r.student_id && r.enrollment_id)
    ?? records.find(r => r.status === 'approved' && r.student_id && r.enrollment_id);
  const plans=state.financialPlans.filter(p=>p.is_active);
@@ -59,10 +63,20 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível consultar o termo');setAuditId(null)}
    finally{setAuditBusy(false)}
  };
- const approve=async(id:string)=>{
-   if(!window.confirm('Criar aluno e matrícula fictícios no banco IACRA-DEV? A operação poderá acionar rotinas de cadastro do sistema.'))return;
-   setBusy(true);try{const result=await approveRealDevRequest(id);setNotice('Gravação confirmada no banco DEV.');setRecentApprovedId(id);await refresh();}
-   catch(e){setNotice(e instanceof Error?e.message:'Falha ao aprovar');}finally{setBusy(false)}
+ const openReview=async(id:string)=>{
+   setBusy(true);setNotice('');setMatch(null);
+   try{const result=await reviewRealDevStudentMatch(id);setMatch(result);setReviewId(id);setUpdateExisting(false);setForceNewEnrollment(false);}
+   catch(e){setNotice(e instanceof Error?e.message:'Não foi possível conferir o aluno');}finally{setBusy(false)}
+ };
+ const approve=async()=>{
+   if(!reviewId||!match||match.match_count>1)return;
+   if(!window.confirm('Confirmar aprovação do termo no IACRA-DEV? O cadastro será reutilizado quando houver aluno com o mesmo CPF.'))return;
+   setBusy(true);
+   try{
+     const result=await approveRealDevRequest(reviewId,{updateStudent:updateExisting,forceNewEnrollment});
+     setNotice(result.student_reused?'Termo aprovado e vinculado ao aluno existente no DEV.':'Novo aluno e termo aprovados no DEV.');
+     setRecentApprovedId(reviewId);setReviewId(null);setMatch(null);await refresh();
+   }catch(e){setNotice(e instanceof Error?e.message:'Falha ao aprovar');}finally{setBusy(false)}
  };
  return <div className="max-w-5xl mx-auto p-6 space-y-5">
   <h1 className="text-2xl font-bold">Matrícula digital — banco DEV</h1>
@@ -93,13 +107,34 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
      <p className="text-sm">Situação: {r.status} · CPF fictício: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
      <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
-     {r.status==='pending'&&<button disabled={busy} onClick={()=>void approve(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Aprovar e gravar aluno + matrícula no DEV</button>}
+     {r.status==='pending'&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
      {r.status==='approved'&&r.student_id&&r.enrollment_id&&<button type="button" onClick={()=>{
        setRecentApprovedId(r.id);
        document.getElementById('dev-enrollment-confirmation')?.scrollIntoView({behavior:'smooth',block:'start'});
      }} className="rounded-lg border border-indigo-200 text-indigo-800 px-3 py-2 hover:bg-indigo-50">Ver confirmação da matrícula</button>}
    </div>)}
   </section>
+  {reviewId&&match&&<section className="fixed inset-0 z-50 bg-black/50 p-3 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Revisar cadastro e termo">
+    <div className="bg-white p-5 rounded-xl max-w-xl w-full max-h-full overflow-y-auto space-y-3">
+      <h2 className="text-lg font-bold">Conferir aluno e aprovar termo (DEV)</h2>
+      {match.match_count===0&&<p>Nenhum aluno encontrado com esse CPF. Ao aprovar, o DEV criará um cadastro novo.</p>}
+      {match.match_count===1&&<div className="space-y-2">
+        <p className="font-semibold">Aluno já cadastrado: {match.student?.name}</p>
+        <p className="text-sm">E-mail atual: {match.student?.email||'não informado'} · Telefone atual: {match.student?.phone||'não informado'}</p>
+        <p>O termo poderá ser aprovado sem duplicar o aluno, preservando os dados originais.</p>
+        <label className="flex gap-2"><input type="checkbox" checked={updateExisting} onChange={e=>setUpdateExisting(e.target.checked)}/> Atualizar os dados cadastrais com as informações deste formulário</label>
+      </div>}
+      {match.match_count>1&&<p role="alert" className="text-red-700">Há mais de um cadastro com este CPF. O termo aceito está preservado. É necessário revisar as duplicidades antes de vincular.</p>}
+      {match.match_count<=1&&<div className="space-y-2">
+        {match.matching_enrollment_id&&<p>Já existe uma matrícula ativa para este plano e professor. Ela será reutilizada, salvo se você escolher uma nova.</p>}
+        <label className="flex gap-2"><input type="checkbox" checked={forceNewEnrollment} onChange={e=>setForceNewEnrollment(e.target.checked)}/> Criar nova matrícula em vez de reutilizar uma matrícula ativa correspondente</label>
+      </div>}
+      <div className="flex gap-2">
+        <button type="button" className="border rounded-lg px-3 py-2" onClick={()=>{setReviewId(null);setMatch(null)}}>Cancelar</button>
+        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação no DEV</button>
+      </div>
+    </div>
+  </section>}
   {auditId&&<section className="fixed inset-0 z-50 bg-black/50 p-3 sm:p-8 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Termo e histórico da matrícula">
     <div className="bg-white rounded-xl w-full max-w-3xl max-h-full overflow-y-auto p-5 sm:p-7 space-y-4">
       <div className="flex justify-between items-start gap-3"><h2 className="text-xl font-bold">Termo e histórico da matrícula (DEV)</h2><button type="button" className="border rounded-lg px-3 py-1" onClick={()=>{setAuditId(null);setAudit(null)}}>Fechar</button></div>
@@ -111,6 +146,7 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
           <p><strong>Aprovação:</strong> {audit.reviewed_at?new Date(audit.reviewed_at).toLocaleString('pt-BR'):'Ainda não aprovada'}</p>
           <p><strong>Responsável pela aprovação (identificador):</strong> {audit.reviewed_by||'Não registrado'}</p>
           <p><strong>Vínculo da matrícula:</strong> {audit.enrollment_id||'Aguardando aprovação'}</p>
+          {audit.guardian_name&&<p><strong>Responsável legal informado no aceite:</strong> {audit.guardian_name} ({audit.guardian_relationship||'vínculo não informado'}), {audit.guardian_email||'sem e-mail'}, {audit.guardian_phone||'sem telefone'}</p>}
         </div>
         <div className="border rounded-lg p-4">
           <h3 className="font-bold text-lg mb-3">{audit.term_title}</h3>
