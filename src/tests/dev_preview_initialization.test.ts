@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const entry=readFileSync(new URL('../main.tsx',import.meta.url),'utf8');
+const devConfig=readFileSync(new URL('../lib/devSupabaseConfig.ts',import.meta.url),'utf8');
+const serverConfig=readFileSync(new URL('../server/devSupabaseConfig.ts',import.meta.url),'utf8');
+assert.match(entry,/void import\("\.\/App\.tsx"\)/);
+assert.match(entry,/\.catch\(\(err: unknown\)/);
+assert.match(entry,/Pr[eé]via IACRA-DEV indispon[ií]vel/);
+assert.match(entry,/VITE_SUPABASE_URL/);
+assert.match(entry,/VITE_EAVRA_DEV_PROJECT_REF/);
+assert.match(entry,/VITE_SUPABASE_ANON_KEY/);
+assert.match(entry,/Não preencha nem copie credenciais do IACRA original/);
+assert.doesNotMatch(entry,/https:\/\/ldumzwrwbhjtrnlioigg/);
+assert.doesNotMatch(entry,/eyJhbGci/);
+assert.match(devConfig,/validateDevSupabaseUrl/);
+assert.match(serverConfig,/validateDevSupabaseUrl/);
+console.log('PASS: preview de diagnóstico fail-closed, sem segredos nem configuração de produção.');
