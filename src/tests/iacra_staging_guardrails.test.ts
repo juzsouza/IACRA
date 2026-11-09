@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {checkIacraFeatureEnvironment} from '../lib/iacraFeatureGate.ts';
+const file=(p:string)=>readFileSync(new URL(p,import.meta.url),'utf8');
+const prod='ldumzwrwbhjtrnlioigg';
+const dev='xuyimfugcdkqovqelrfz';
+const url=(ref:string)=>'https://'+ref+'.supabase.co';
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(dev),approvedProjectRef:dev}),true);
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(prod),approvedProjectRef:dev}),false);
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'production',supabaseUrl:url(dev),approvedProjectRef:dev}),false);
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'production',supabaseUrl:url(prod),approvedProjectRef:prod}),true);
+assert.equal(checkIacraFeatureEnvironment({enabled:'true',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
+assert.equal(checkIacraFeatureEnvironment({enabled:'false',buildTarget:'production',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
+const client=file('../lib/supabase.ts');
+assert.doesNotMatch(client,/\\|\\|\\s*['"]https:\\/\\/ldumzwrwbhjtrnlioigg/);
+assert.doesNotMatch(client,/eyJhbGciOiJIUzI1Ni/);
+assert.match(client,/Conexão bloqueada/);
+const cfg=file('../../vite.config.ts');
+assert.doesNotMatch(cfg,/process\\.env\\.SUPABASE_KEY/);
+assert.doesNotMatch(cfg,/process\\.env\\.GEMINI_API_KEY/);
+const docker=file('../../Dockerfile');
+assert.match(docker,/IACRA_BUILD_TARGET=staging/);
+assert.match(docker,/VITE_IACRA_FEATURES_ENABLED=false/);
+assert.match(docker,/test "\\$VITE_SUPABASE_URL" = "https:\\/\\/xuyimfugcdkqovqelrfz\\.supabase\\.co"/);
+for (const p of ['../server/googleCalendarService.ts','../server/googleCalendarRoutes.ts','../server/adminRoutes.ts']) {
+  const server=file(p);
+  assert.match(server,/IACRA_BUILD_TARGET === 'staging'/);
+  assert.doesNotMatch(server,/\\|\\|\\s*['"]https:\\/\\/ldumzwrwbhjtrnlioigg/);
+  assert.doesNotMatch(server,/eyJhbGciOiJIUzI1Ni/);
+}
+console.log('PASS: staging só DEV, produção bloqueada e nenhuma chave ou URL de fallback nas conexões.');
