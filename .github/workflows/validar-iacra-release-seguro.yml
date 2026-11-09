@@ -41,6 +41,8 @@ jobs:
         run: npx tsx src/tests/iacra_staging_permissions.test.ts
       - name: Testar regras de produção e homologação
         run: npx tsx src/tests/iacra_production_features.test.ts
+      - name: Testar envio de matrícula digital
+        run: npx tsx src/tests/iacra_public_enrollment_submit.test.ts
       - name: Tipos
         run: npm run lint
       - name: Compilar
