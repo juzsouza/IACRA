@@ -5,8 +5,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
+# URL e chave publicável do IACRA-DEV. Chave sb_publishable é pública e usada no navegador;
+# nunca definir service_role / sb_secret aqui. Não publicar este Dockerfile como produção.
+ARG VITE_SUPABASE_URL=https://xuyimfugcdkqovqelrfz.supabase.co
+ARG VITE_SUPABASE_ANON_KEY=sb_publishable_urkle27KkHDy9Eg4kYsJOw_veDb3uGQ
 ENV VITE_IACRA_BUILD_TARGET=staging
 ENV VITE_IACRA_FEATURES_ENABLED=true
 ENV VITE_IACRA_PRODUCTION_PROJECT_REF=xuyimfugcdkqovqelrfz
