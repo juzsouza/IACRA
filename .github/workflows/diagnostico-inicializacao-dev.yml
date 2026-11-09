@@ -1,0 +1,35 @@
+name: Diagnosticar inicialização IACRA DEV (isolado)
+on:
+  push:
+    branches:
+      - correcao-inicializacao-dev-20261109
+  pull_request:
+    branches:
+      - validacao-telas-iacra-20261109
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout seguro
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dependências
+        run: npm ci
+      - name: Diagnóstico de inicialização
+        run: node --experimental-strip-types src/tests/dev_preview_initialization.test.ts
+      - name: Proteção do banco original
+        run: npm run test:dev-preflight
+      - name: Tipos
+        run: npm run lint
+      - name: Compilação
+        run: npm run build
