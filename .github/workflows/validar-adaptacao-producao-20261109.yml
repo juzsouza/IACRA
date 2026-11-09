@@ -28,6 +28,8 @@ jobs:
         run: npm ci
       - name: Testar isolamento e telas em modo offline
         run: node --experimental-strip-types src/tests/iacra_production_features.test.ts
+      - name: Testar painel de permissões candidato PROD
+        run: npx tsx src/tests/iacra_prod_permissions_gate.test.ts
       - name: Verificar tipos
         run: npm run lint
       - name: Compilar aplicativo
