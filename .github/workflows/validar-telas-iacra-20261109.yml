@@ -9,6 +9,9 @@ on:
       - '.github/workflows/validar-telas-iacra-20261109.yml'
       - 'package.json'
       - 'package-lock.json'
+  pull_request:
+    branches:
+      - eavra-dev-visual-isolado
   workflow_dispatch:
 permissions:
   contents: read
