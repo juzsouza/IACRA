@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { TermModelId, TermDraft } from '../utils/enrollmentTermModels';
+import { validTermForIssue,type TermModelId,type TermDraft } from '../utils/enrollmentTermModels';
 import { iacraFeaturesEnabled } from '../lib/iacraFeatureGate';
 
 function requireFeature() {
@@ -21,6 +21,7 @@ export async function createDigitalOffer(input:{
  enrollmentDate:string;dueDay:number;monthlyAmount:number;term:TermDraft;expiresOn:string;
 }):Promise<string>{
  requireFeature();
+ if(!validTermForIssue(input.term))throw new Error('O termo precisa estar preenchido e revisado.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(input.expiresOn))throw new Error('Informe uma data de validade válida.');
  const {data,error}=await supabase.rpc('eavra_dev_create_enrollment_offer_with_expiry',{
  p_model_id:input.modelId,p_teacher_id:input.teacherId,p_plan_id:input.planId,p_group_id:input.groupId,
