@@ -15,8 +15,9 @@ const refs = {
   production: 'ldumzwrwbhjtrnlioigg',
 } as const;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('[IACRA] Configuração pública do Supabase ausente. Este build não pode acessar qualquer banco.');
+const isolatedNodeTest = typeof window === 'undefined' && !supabaseUrl && !supabaseKey;
+if ((!supabaseUrl || !supabaseKey) && !isolatedNodeTest) {
+  throw new Error('[IACRA] Configuração pública do Supabase ausente. Conexão bloqueada.');
 }
 if (buildTarget === 'staging' || buildTarget === 'production') {
   const expected = 'https://' + refs[buildTarget] + '.supabase.co';
@@ -24,9 +25,13 @@ if (buildTarget === 'staging' || buildTarget === 'production') {
     throw new Error('[IACRA] Banco incompatível com o ambiente escolhido. Conexão bloqueada.');
   }
 }
-if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl)) {
+if (!isolatedNodeTest && !/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl)) {
   throw new Error('[IACRA] URL Supabase inválida. Conexão bloqueada.');
 }
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+// Valor inválido e sem rede real, exclusivo para testes de Node sem navegador.
+export const supabase = createClient(
+  isolatedNodeTest ? 'https://iacra-unconfigured.invalid' : supabaseUrl,
+  isolatedNodeTest ? 'no-network-test-key' : supabaseKey,
+  {
   auth: { persistSession: true, autoRefreshToken: true },
 });
