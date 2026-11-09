@@ -1,0 +1,80 @@
+name: Validar pacote completo IACRA com SQL e telas (sem deploy)
+
+on:
+  push:
+    branches:
+      - adaptacao-producao-iacra-20261109
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  homologacao-pacote-integrado:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: teste_temporario
+          POSTGRES_DB: iacra_teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_teste"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: iacra_teste
+      PGUSER: postgres
+      PGPASSWORD: teste_temporario
+
+    steps:
+      - name: Baixar código da versão candidata
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Baixar migração da branch isolada
+        uses: actions/checkout@v4
+        with:
+          ref: preparacao-iacra-prod-20261106
+          path: migracao-de-teste
+          persist-credentials: false
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar compatibilidade dos contratos de RPC
+        run: node --experimental-strip-types src/tests/iacra_full_release_contracts.test.ts migracao-de-teste/docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+      - name: Preparar cliente PostgreSQL
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Criar tabelas e alunos fictícios em PostgreSQL temporário
+        run: psql -X -v ON_ERROR_STOP=1 -f migracao-de-teste/docs/revisao-producao/testes/esquema_ficticio.sql
+      - name: Instalar migração exclusivamente no banco temporário
+        run: psql -X -v ON_ERROR_STOP=1 -f migracao-de-teste/docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+      - name: Testar fluxos de matrícula e salas sem banco real
+        run: psql -X -v ON_ERROR_STOP=1 -f migracao-de-teste/docs/revisao-producao/testes/verificacoes.sql
+      - name: Tipagem
+        run: npm run lint
+      - name: Compilação
+        run: npm run build
+      - name: Testes financeiros
+        run: npm run test:billings
+      - name: Regras de pagamentos
+        run: npm run test:choir-balance
