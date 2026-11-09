@@ -1,0 +1,32 @@
+name: Validar preparação Codespaces IACRA-DEV
+on:
+  push:
+    branches:
+      - homologacao-github-iacra-dev-20261109
+  pull_request:
+    branches:
+      - correcao-inicializacao-dev-20261109
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Testes de configuração totalmente offline
+        run: node --experimental-strip-types src/tests/codespaces_dev_config.test.ts
+      - name: Isolamento de produção
+        run: npm run test:dev-preflight
+      - name: Tipos
+        run: npm run lint
+      - name: Build
+        run: npm run build
