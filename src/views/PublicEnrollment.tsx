@@ -15,7 +15,7 @@ export function PublicEnrollment():React.ReactElement{
    const birth=new Date(student.birth_date+'T12:00:00Z');
    if(Number.isNaN(birth.getTime()))return false;
    const today=new Date();
-   const br=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(today);
+   const br=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(today);
    const [y,m,d]=br.split('-').map(Number);
    const age=y-birth.getUTCFullYear()-((m<birth.getUTCMonth()+1||(m===birth.getUTCMonth()+1&&d<birth.getUTCDate()))?1:0);
    return age<18;
