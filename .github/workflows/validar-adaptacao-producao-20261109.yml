@@ -1,0 +1,37 @@
+name: Validar adaptação IACRA para produção (sem deploy)
+on:
+  push:
+    branches:
+      - adaptacao-producao-iacra-20261109
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout sem credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dependências
+        run: npm ci
+      - name: Testar isolamento e telas em modo offline
+        run: node --experimental-strip-types src/tests/iacra_production_features.test.ts
+      - name: Verificar tipos
+        run: npm run lint
+      - name: Compilar aplicativo
+        run: npm run build
+      - name: Testar regras financeiras anteriores
+        run: npm run test:billings
+      - name: Testar balanço do coral e pagamentos
+        run: npm run test:choir-balance
