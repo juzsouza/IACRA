@@ -37,6 +37,8 @@ jobs:
       - run: npm ci
       - name: Verificar isolamento de ambientes e ausência de chaves hardcoded
         run: npx tsx src/tests/iacra_staging_guardrails.test.ts
+      - name: Testar módulo de permissões DEV
+        run: npx tsx src/tests/iacra_staging_permissions.test.ts
       - name: Testar regras de produção e homologação
         run: npx tsx src/tests/iacra_production_features.test.ts
       - name: Tipos
