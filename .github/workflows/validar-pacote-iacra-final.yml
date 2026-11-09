@@ -48,6 +48,7 @@ jobs:
         with:
           ref: preparacao-iacra-prod-20261106
           path: migracao-de-teste
+          sparse-checkout: docs/revisao-producao
           persist-credentials: false
       - name: Preparar Node
         uses: actions/setup-node@v4
