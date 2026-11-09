@@ -1,0 +1,50 @@
+name: IACRA PROD permissoes - testar so no Postgres temporario
+
+on:
+  push:
+    branches:
+      - iacra-prod-preparacao-segura-20261109
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/testar-painel-permissoes-prod-isolado.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  permissoes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-senha-ficticia
+          POSTGRES_DB: iacra_teste_permissoes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_teste_permissoes"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: iacra_teste_permissoes
+      PGUSER: postgres
+      PGPASSWORD: ci-senha-ficticia
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Instalar cliente PostgreSQL
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Criar usuarios e perfis exclusivamente ficticios
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/permissoes_esquema_ficticio_prod.sql
+      - name: Criar catalogo privado e RPCs de homologacao apenas no container do CI
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_permissoes_painel_prod_20261109.sql
+      - name: Validar super admin, professor, anon, auditoria e escopos
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/permissoes_validacao_prod.sql
