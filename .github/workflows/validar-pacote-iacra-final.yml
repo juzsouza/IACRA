@@ -71,6 +71,10 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f migracao-de-teste/docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
       - name: Testar fluxos de matrícula e salas sem banco real
         run: psql -X -v ON_ERROR_STOP=1 -f migracao-de-teste/docs/revisao-producao/testes/verificacoes.sql
+      - name: Remover checkout auxiliar de migração antes de compilar
+        run: |
+          test -f migracao-de-teste/docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+          rm -rf -- migracao-de-teste
       - name: Tipagem
         run: npm run lint
       - name: Compilação
