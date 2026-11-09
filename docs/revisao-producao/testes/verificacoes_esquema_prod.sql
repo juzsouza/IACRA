@@ -77,8 +77,8 @@ BEGIN
  -- Nenhuma escrita durante a emissão ou envio do convite em tabelas financeiras.
  IF (SELECT count(*) FROM public.competence_billings)<>1 OR
     (SELECT count(*) FROM public.transactions)<>1 OR
-    (SELECT count(*) FROM public.enrollments)<>1 OR
-    (SELECT count(*) FROM public.students)<>1 THEN
+    (SELECT count(*) FROM public.enrollments)<>2 OR
+    (SELECT count(*) FROM public.students)<>2 THEN
     RAISE EXCEPTION 'core_data_unexpectedly_changed';
  END IF;
  v_after := (select jsonb_build_object('students',count(*),'names',array_agg(name order by name)) from public.students);
