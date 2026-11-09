@@ -32,7 +32,10 @@
     "test:pix": "tsx src/tests/teacher_pix_key.test.ts",
     "test:profile-gate": "node --experimental-strip-types src/tests/profile_access_gate.test.ts",
     "test:admin-gate": "node --experimental-strip-types src/tests/admin_authorization_gate.test.ts",
-    "test:dev-preflight": "node --experimental-strip-types src/tests/dev_environment_preflight.test.ts"
+    "test:dev-preflight": "node --experimental-strip-types src/tests/dev_environment_preflight.test.ts",
+    "homologacao:configurar": "node scripts/configurar-homologacao-dev.mjs",
+    "homologacao:verificar": "node scripts/verificar-homologacao-dev.mjs",
+    "homologacao:abrir": "npm run homologacao:verificar && npm run dev"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
