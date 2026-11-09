@@ -7,6 +7,12 @@ on:
     paths:
       - 'docs/revisao-producao/**'
       - '.github/workflows/testar-painel-permissoes-prod-isolado.yml'
+  pull_request:
+    branches:
+      - adaptacao-producao-iacra-20261109
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/testar-painel-permissoes-prod-isolado.yml'
   workflow_dispatch:
 
 permissions:
