@@ -123,16 +123,16 @@ export const Layout: React.FC<LayoutProps> = ({
                     onViewChange(item.id);
                     setSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
+                  className={`w-full flex items-center text-left px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
                     isActive
                       ? "bg-indigo-50 text-indigo-700"
                       : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
                   }`}
                 >
                   <Icon
-                    className={`w-5 h-5 mr-3 ${isActive ? "text-indigo-600" : "text-zinc-400"}`}
+                    className={`w-5 h-5 mr-3 shrink-0 ${isActive ? "text-indigo-600" : "text-zinc-400"}`}
                   />
-                  {item.label}
+                  <span className="min-w-0 flex-1 text-left leading-5">{item.label}</span>
                 </button>
               );
             })
