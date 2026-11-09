@@ -7,7 +7,7 @@ export function PublicEnrollmentDev():React.ReactElement{
  const [notice,setNotice]=useState('');
  const [sent,setSent]=useState(false);
  const [busy,setBusy]=useState(false);
- const [student,setStudent]=useState({name:'Aluno Teste',email:'aluno@example.com',phone:'11999999999',cpf:'00000000000',birth_date:'2000-01-01',instrument:'Canto',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});
+ const [student,setStudent]=useState({name:'',email:'',phone:'',cpf:'',birth_date:'',instrument:'',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});
  const [accepted,setAccepted]=useState(false);
  const isMinor=Boolean(student.birth_date)&&(()=>{
    const birth=new Date(student.birth_date+'T12:00:00Z');
