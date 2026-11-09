@@ -28,6 +28,7 @@ import { PrivacyPolicy } from "./views/PrivacyPolicy";
 import { PublicEnrollment } from "./views/PublicEnrollment";
 import { DigitalEnrollmentAdmin } from "./views/DigitalEnrollmentAdmin";
 import { RoomsAdmin } from "./views/RoomsAdmin";
+import { PermissionsManager } from "./views/PermissionsManager";
 import { iacraFeaturesEnabled } from "./lib/iacraFeatureGate";
 import { supabase } from "./lib/supabase";
 import {
@@ -245,6 +246,8 @@ function AppContent() {
         return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
       case "rooms_admin":
         return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RoomsAdmin /> : <div role="alert">Acesso restrito.</div>;
+      case "permissions_manager":
+        return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <PermissionsManager /> : <div role="alert">Acesso restrito.</div>;
       case "discount_rules":
         return <DiscountRules />;
       case "payments":
