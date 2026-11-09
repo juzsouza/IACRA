@@ -25,6 +25,10 @@ import { Login } from "./views/Login";
 import { NotEligible } from "./views/NotEligible";
 import { Affiliates } from "./views/Affiliates";
 import { PrivacyPolicy } from "./views/PrivacyPolicy";
+import { PublicEnrollment } from "./views/PublicEnrollment";
+import { DigitalEnrollmentAdmin } from "./views/DigitalEnrollmentAdmin";
+import { RoomsAdmin } from "./views/RoomsAdmin";
+import { iacraFeaturesEnabled } from "./lib/iacraFeatureGate";
 import { supabase } from "./lib/supabase";
 import {
   View,
@@ -237,6 +241,10 @@ function AppContent() {
         return <Choir />;
       case "enrollments":
         return <Enrollments />;
+      case "digital_enrollment":
+        return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
+      case "rooms_admin":
+        return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RoomsAdmin /> : <div role="alert">Acesso restrito.</div>;
       case "discount_rules":
         return <DiscountRules />;
       case "payments":
@@ -293,6 +301,10 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  if (pathname === "/matricula" || pathname === "/matricula/") {
+    return iacraFeaturesEnabled() ? <PublicEnrollment /> : <div role="alert">Matrícula digital temporariamente indisponível.</div>;
+  }
 
   // ROTA PÚBLICA: /politica-de-privacidade (e /privacy) funciona sem login e sem redirecionamento
   if (
