@@ -76,7 +76,9 @@ export interface SyncClassPayload {
 }
 
 // Configuração Supabase
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.IACRA_BUILD_TARGET === 'staging'
+  ? 'https://xuyimfugcdkqovqelrfz.supabase.co'
+  : (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
 const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 const supabaseKey = rawSupabaseKey.startsWith('sb_publishable_')
   ? rawSupabaseKey
