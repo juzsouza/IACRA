@@ -30,7 +30,7 @@ export function createPermissionsAdminController(gateway: PermissionGateway,
     async load(): Promise<PermissionSnapshot> {
       await verifySuperAdmin();
       const result = await gateway.rpc('eavra_admin_permissions_snapshot');
-      if (result.error) throw new Error('Falha na consulta de permissões do banco DEV.');
+      if (result.error) throw new Error('Falha na consulta de permissões do banco de produção.');
       return parseSnapshot(result.data);
     },
     async save(input: PermissionMutation, snapshot: PermissionSnapshot,
@@ -44,7 +44,7 @@ export function createPermissionsAdminController(gateway: PermissionGateway,
       });
       if (result.error || !result.data || typeof result.data !== 'object' ||
           typeof (result.data as {changed?:unknown}).changed !== 'boolean') {
-        throw new Error('Alteração não confirmada pelo banco DEV.');
+        throw new Error('Alteração não confirmada pelo banco de produção.');
       }
       return { changed: (result.data as {changed:boolean}).changed };
     },
