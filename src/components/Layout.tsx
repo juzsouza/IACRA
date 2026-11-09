@@ -51,6 +51,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
     { id: "digital_enrollment", label: "Matrícula digital", icon: FileText, roles: ["super_admin"] },
     { id: "rooms_admin", label: "Salas", icon: CalendarDays, roles: ["super_admin"] },
+    { id: "permissions_manager", label: "Gerenciamento de Permissões", icon: Shield, roles: ["super_admin"] },
     { id: "affiliates", label: "Afiliados", icon: Share2, roles: ["super_admin", "admin"] },
     { id: "groups", label: "Grupos", icon: Users, roles: ["super_admin", "admin"] },
     { id: "not_eligible", label: "Não Elegíveis", icon: Ban, roles: ["super_admin", "admin"] },
@@ -68,7 +69,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const userRole = currentUserProfile?.role;
   const navItems = userRole
-    ? allNavItems.filter((item) => item.roles.includes(userRole) && (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin')))
+    ? allNavItems.filter((item) => item.roles.includes(userRole) && (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')))
     : [];
 
   return (
@@ -122,7 +123,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     onViewChange(item.id);
                     setSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
+                  className={`w-full flex items-center text-left px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${
                     isActive
                       ? "bg-indigo-50 text-indigo-700"
                       : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
