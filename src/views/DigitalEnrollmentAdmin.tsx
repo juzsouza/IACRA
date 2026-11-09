@@ -5,7 +5,7 @@ import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../
 import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
 import {isGroupModel} from '../utils/enrollmentTermModels';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
-import {splitBoldSegments} from '../utils/termBoldMarkup';
+import {splitBoldSegments,toggleBoldSelection} from '../utils/termBoldMarkup';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
 
 export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
@@ -20,6 +20,8 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const [due,setDue]=useState('10');
  const [expiresOn,setExpiresOn]=useState('');
  const [term,setTerm]=useState<TermDraft>({title:TERM_MODELS[0].label,body:''});
+ const termEditorRef=React.useRef<HTMLTextAreaElement>(null);
+ const applyBold=()=>{const editor=termEditorRef.current;if(!editor)return;const r=toggleBoldSelection(term.body,editor.selectionStart,editor.selectionEnd);setTerm(v=>({...v,body:r.text}));setUrl('');requestAnimationFrame(()=>{editor.focus();editor.setSelectionRange(r.start,r.end)});};
  const [url,setUrl]=useState('');
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<DigitalRequest[]>([]);
@@ -48,7 +50,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  useEffect(()=>{if(currentUserProfile?.role==='super_admin')void refresh()},[currentUserProfile?.id,currentUserProfile?.role]);
  if(currentUserProfile?.role!=='super_admin'||currentUserProfile.access_status!=='active')return <div role="alert">Área restrita ao Super Admin ativo.</div>;
  const issue=async()=>{
-   if(!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!expiresOn)return;
+   if(!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn)return;
    setBusy(true);setUrl('');setNotice('');
    try{
      if(!validTermForIssue(term))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
@@ -90,7 +92,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    <h2 className="font-bold text-lg">Preparar convite</h2>
    <label className="block">Modelo de termo<select className="block w-full border p-2" value={model} onChange={e=>{const id=e.target.value as TermModelId;setModel(id);setTerm({title:TERM_MODELS.find(x=>x.id===id)?.label||'',body:'' });setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
    <label className="block">Título do termo<input className="block w-full border p-2" maxLength={160} required value={term.title} onChange={e=>{setTerm(v=>({...v,title:e.target.value}));setUrl('')}}/></label>
-   <label className="block">Texto completo do termo<textarea className="block w-full border p-2" rows={9} maxLength={20000} required placeholder="Insira o termo revisado pela instituição. Não use documentos fictícios." value={term.body} onChange={e=>{setTerm(v=>({...v,body:e.target.value}));setUrl('')}}/></label>
+   <label className="block">Texto completo do termo<textarea ref={termEditorRef} className="block w-full border p-2" rows={9} maxLength={20000} required placeholder="Insira o termo revisado pela instituição." value={term.body} onChange={e=>{setTerm(v=>({...v,body:e.target.value}));setUrl('')}}/></label><button type="button" className="border rounded px-3 py-2" onClick={applyBold}>Aplicar negrito ao trecho selecionado</button><p className="text-xs text-zinc-600">O negrito será marcado com **asteriscos** e exibido formatado ao aluno.</p>
    {!validTermForIssue(term)&&<p role="status" className="text-sm text-amber-800">Preencha o texto do termo para liberar o convite. O conteúdo precisa ser revisado pela secretaria.</p>}
    <label className="block">Plano<select className="block w-full border p-2" value={planId} onChange={e=>{setPlanId(e.target.value);setPrice(null);setUrl('')}}><option value="">Selecione um plano</option>{plans.map(p=><option key={p.id} value={p.id}>{p.name} — R$ {p.base_price.toFixed(2)}</option>)}</select></label>
    {isGroupModel(model)&&<label className="block">Grupo<select className="block w-full border p-2" value={groupId} onChange={e=>{setGroupId(e.target.value);setUrl('')}}><option value="">Selecione um grupo</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}
@@ -134,14 +136,14 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
       </div>}
       <div className="flex gap-2">
         <button type="button" className="border rounded-lg px-3 py-2" onClick={()=>{setReviewId(null);setMatch(null)}}>Cancelar</button>
-        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação no DEV</button>
+        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação</button>
       </div>
     </div>
   </section>}
   {auditId&&<section className="fixed inset-0 z-50 bg-black/50 p-3 sm:p-8 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Termo e histórico da matrícula">
     <div className="bg-white rounded-xl w-full max-w-3xl max-h-full overflow-y-auto p-5 sm:p-7 space-y-4">
-      <div className="flex justify-between items-start gap-3"><h2 className="text-xl font-bold">Termo e histórico da matrícula (DEV)</h2><button type="button" className="border rounded-lg px-3 py-1" onClick={()=>{setAuditId(null);setAudit(null)}}>Fechar</button></div>
-      {auditBusy&&<p>Carregando termo do banco DEV…</p>}
+      <div className="flex justify-between items-start gap-3"><h2 className="text-xl font-bold">Termo e histórico da matrícula</h2><button type="button" className="border rounded-lg px-3 py-1" onClick={()=>{setAuditId(null);setAudit(null)}}>Fechar</button></div>
+      {auditBusy&&<p>Carregando termo…</p>}
       {audit&&<>
         <p className="text-sm text-zinc-600">Situação: {audit.status==='approved'?'Aprovada':audit.status==='pending'?'Pendente':audit.status}</p>
         <div className="rounded-lg bg-indigo-50 p-4 space-y-2 text-sm">
@@ -155,7 +157,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
           <h3 className="font-bold text-lg mb-3">{audit.term_title}</h3>
           <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{splitBoldSegments(audit.term_body).map((seg,i)=>seg.bold?<strong key={i}>{seg.text}</strong>:<React.Fragment key={i}>{seg.text}</React.Fragment>)}</div>
         </div>
-        {audit.status==='approved'&&records.find(r=>r.id===auditId)?.enrollment_id&&<button type="button" className="bg-indigo-700 text-white rounded-lg px-4 py-2" onClick={()=>{try{const record=records.find(r=>r.id===auditId);if(record)openEnrollmentReceipt(record,audit)}catch(e){setNotice(e instanceof Error?e.message:'Erro ao emitir comprovante')}}}>Emitir comprovante em PDF (DEV)</button>}
+        {audit.status==='approved'&&records.find(r=>r.id===auditId)?.enrollment_id&&<button type="button" className="bg-indigo-700 text-white rounded-lg px-4 py-2" onClick={()=>{try{const record=records.find(r=>r.id===auditId);if(record)openEnrollmentReceipt(record,audit)}catch(e){setNotice(e instanceof Error?e.message:'Erro ao emitir comprovante')}}}>Emitir comprovante em PDF</button>}
         <p className="text-xs text-zinc-500">Cópia preservada no sistema. O registro de aceite não é um certificado de assinatura digital.</p>
       </>}
     </div>
