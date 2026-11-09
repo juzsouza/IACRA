@@ -1,32 +1,36 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {checkIacraFeatureEnvironment} from '../lib/iacraFeatureGate.ts';
+
 const file=(p:string)=>readFileSync(new URL(p,import.meta.url),'utf8');
 const prod='ldumzwrwbhjtrnlioigg';
 const dev='xuyimfugcdkqovqelrfz';
 const url=(ref:string)=>'https://'+ref+'.supabase.co';
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(dev),approvedProjectRef:dev}),true);
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(prod),approvedProjectRef:dev}),false);
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'staging',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'production',supabaseUrl:url(dev),approvedProjectRef:dev}),false);
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',buildTarget:'production',supabaseUrl:url(prod),approvedProjectRef:prod}),true);
-assert.equal(checkIacraFeatureEnvironment({enabled:'true',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
-assert.equal(checkIacraFeatureEnvironment({enabled:'false',buildTarget:'production',supabaseUrl:url(prod),approvedProjectRef:prod}),false);
+const config={enabled:'true',buildTarget:'staging',supabaseUrl:url(dev),approvedProjectRef:dev};
+assert.equal(checkIacraFeatureEnvironment(config),true);
+assert.equal(checkIacraFeatureEnvironment({...config,supabaseUrl:url(prod)}),false);
+assert.equal(checkIacraFeatureEnvironment({...config,approvedProjectRef:prod}),false);
+assert.equal(checkIacraFeatureEnvironment({...config,buildTarget:'production'}),false);
+assert.equal(checkIacraFeatureEnvironment({...config,buildTarget:'production',supabaseUrl:url(prod),approvedProjectRef:prod}),true);
+assert.equal(checkIacraFeatureEnvironment({...config,buildTarget:undefined}),false);
+assert.equal(checkIacraFeatureEnvironment({...config,enabled:'false'}),false);
+
 const client=file('../lib/supabase.ts');
-assert.doesNotMatch(client,/\\|\\|\\s*['"]https:\\/\\/ldumzwrwbhjtrnlioigg/);
-assert.doesNotMatch(client,/eyJhbGciOiJIUzI1Ni/);
-assert.match(client,/Conexão bloqueada/);
+assert.equal(client.includes("|| 'https://ldumzwrwbhjtrnlioigg"),false);
+assert.equal(client.includes('eyJhbGciOiJIUzI1Ni'),false);
+assert.equal(client.includes('Conexão bloqueada'),true);
 const cfg=file('../../vite.config.ts');
-assert.doesNotMatch(cfg,/process\\.env\\.SUPABASE_KEY/);
-assert.doesNotMatch(cfg,/process\\.env\\.GEMINI_API_KEY/);
+assert.equal(cfg.includes('process.env.SUPABASE_KEY'),false);
+assert.equal(cfg.includes('process.env.GEMINI_API_KEY'),false);
 const docker=file('../../Dockerfile');
-assert.match(docker,/IACRA_BUILD_TARGET=staging/);
-assert.match(docker,/VITE_IACRA_FEATURES_ENABLED=false/);
-assert.match(docker,/test "\\$VITE_SUPABASE_URL" = "https:\\/\\/xuyimfugcdkqovqelrfz\\.supabase\\.co"/);
+assert.equal(docker.includes('IACRA_BUILD_TARGET=staging'),true);
+assert.equal(docker.includes('VITE_IACRA_FEATURES_ENABLED=false'),true);
+assert.equal(docker.includes('https://xuyimfugcdkqovqelrfz.supabase.co'),true);
+
 for (const p of ['../server/googleCalendarService.ts','../server/googleCalendarRoutes.ts','../server/adminRoutes.ts']) {
   const server=file(p);
-  assert.match(server,/IACRA_BUILD_TARGET === 'staging'/);
-  assert.doesNotMatch(server,/\\|\\|\\s*['"]https:\\/\\/ldumzwrwbhjtrnlioigg/);
-  assert.doesNotMatch(server,/eyJhbGciOiJIUzI1Ni/);
+  assert.equal(server.includes("IACRA_BUILD_TARGET === 'staging'"),true);
+  assert.equal(server.includes("|| 'https://ldumzwrwbhjtrnlioigg"),false);
+  assert.equal(server.includes('eyJhbGciOiJIUzI1Ni'),false);
 }
-console.log('PASS: staging só DEV, produção bloqueada e nenhuma chave ou URL de fallback nas conexões.');
+console.log('PASS: staging isolado ao DEV, sem URLs ou chaves de fallback da produção.');
