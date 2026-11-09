@@ -76,11 +76,11 @@ export interface SyncClassPayload {
 }
 
 // Configuração Supabase
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
 const supabaseKey = rawSupabaseKey.startsWith('eyJ')
   ? rawSupabaseKey
-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+  : '';
 
 // Cliente administrativo exclusivo de servidor para teacher_google_accounts e class_google_events
 // Suporta a nova Supabase Secret Key (prefixo sb_...) e JWT legado (prefixo eyJ...)
