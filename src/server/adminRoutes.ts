@@ -11,10 +11,12 @@ import {
 export const adminRouter = Router();
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const rawSupabaseKey = (process.env.SUPABASE_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
-const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('eyJ')
+const rawSupabaseKey = (process.env.SUPABASE_KEY || '').trim();
+const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('sb_publishable_')
   ? rawSupabaseKey
-  : '';
+  : rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ').startsWith('eyJ')
+    ? rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ')
+    : '';
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
 
 // POST /api/admin/create-or-resolve-user
