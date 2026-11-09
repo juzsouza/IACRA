@@ -26,6 +26,7 @@ import { ClassAuditModal } from "./ClassAuditModal";
 import { RaphaelBillingSimulatorModal } from "./RaphaelBillingSimulatorModal";
 import { Calculator } from "lucide-react";
 import { View } from "../utils/navigation";
+import { iacraFeaturesEnabled } from "../lib/iacraFeatureGate";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -48,6 +49,8 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "prospects", label: "Pré-cadastros", icon: FileText, roles: ["super_admin", "admin"] },
     { id: "students", label: "Alunos", icon: Users, roles: ["super_admin", "admin", "teacher"] },
     { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
+    { id: "digital_enrollment", label: "Matrícula digital", icon: FileText, roles: ["super_admin"] },
+    { id: "rooms_admin", label: "Salas", icon: CalendarDays, roles: ["super_admin"] },
     { id: "affiliates", label: "Afiliados", icon: Share2, roles: ["super_admin", "admin"] },
     { id: "groups", label: "Grupos", icon: Users, roles: ["super_admin", "admin"] },
     { id: "not_eligible", label: "Não Elegíveis", icon: Ban, roles: ["super_admin", "admin"] },
@@ -65,7 +68,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const userRole = currentUserProfile?.role;
   const navItems = userRole
-    ? allNavItems.filter((item) => item.roles.includes(userRole))
+    ? allNavItems.filter((item) => item.roles.includes(userRole) && (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin')))
     : [];
 
   return (
