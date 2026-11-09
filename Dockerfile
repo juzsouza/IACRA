@@ -24,7 +24,9 @@ ENV NODE_ENV=production
 ENV PORT=8080
 ENV IACRA_BUILD_TARGET=staging
 ENV SUPABASE_URL=https://xuyimfugcdkqovqelrfz.supabase.co
-ARG VITE_SUPABASE_ANON_KEY
+# Estágio de execução tem escopo próprio para ARG do Docker.
+# Repetir apenas a mesma chave publicável de DEV; nunca usar segredo neste ARG.
+ARG VITE_SUPABASE_ANON_KEY=sb_publishable_urkle27KkHDy9Eg4kYsJOw_veDb3uGQ
 ENV SUPABASE_KEY=${VITE_SUPABASE_ANON_KEY}
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
