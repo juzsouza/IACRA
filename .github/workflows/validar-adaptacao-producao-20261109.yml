@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - adaptacao-producao-iacra-20261109
+      - iacra-prod-preparacao-segura-20261109
   pull_request:
     branches:
       - main
@@ -27,10 +28,34 @@ jobs:
         run: npm ci
       - name: Testar isolamento e telas em modo offline
         run: node --experimental-strip-types src/tests/iacra_production_features.test.ts
+      - name: Testar painel de permissões candidato PROD
+        run: npx tsx src/tests/iacra_prod_permissions_gate.test.ts
       - name: Verificar tipos
         run: npm run lint
       - name: Compilar aplicativo
         run: npm run build
+      - name: Verificar build de produção não expõe segredo e novas telas ficam desligadas
+        run: |
+          grep -q 'VITE_IACRA_FEATURES_ENABLED=false' Dockerfile
+          if grep -Eq 'process.env.(SUPABASE_KEY|GEMINI_API_KEY)' vite.config.ts; then
+            echo "ERRO: Vite ainda embute variáveis secretas"
+            exit 1
+          fi
+          if grep -Eq "supabaseKey.*\\|\\| ['\\\"]eyJ" src/lib/supabase.ts; then
+            echo "ERRO: fallback JWT não permitido"
+            exit 1
+          fi
+      - name: Construir contêiner isoladamente
+        run: docker build -t iacra-prod-candidate:test .
+      - name: Testar API HTTP do contêiner sem conexão com banco
+        run: |
+          docker run -d --name iacra-prod-test -p 18080:8080 iacra-prod-candidate:test
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:18080/ >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:18080/ >/dev/null
+          docker rm -f iacra-prod-test
       - name: Testar regras financeiras anteriores
         run: npm run test:billings
       - name: Testar balanço do coral e pagamentos
