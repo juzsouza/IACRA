@@ -11,7 +11,7 @@ const fmt=(s:string)=>String(s||'').slice(0,5);
 
 export function RoomsDev():React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
- const [day,setDay]=useState(()=>new Date().toLocaleDateString('en-CA'));
+ const [day,setDay]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'}));
  const [overview,setOverview]=useState<Overview>({rooms:[],assignments:[]});
  const [classId,setClassId]=useState('');
  const [roomSlug,setRoomSlug]=useState('');
