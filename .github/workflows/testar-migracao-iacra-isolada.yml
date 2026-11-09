@@ -7,6 +7,12 @@ on:
       - 'docs/revisao-producao/**'
       - '.github/workflows/testar-migracao-iacra-isolada.yml'
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/testar-migracao-iacra-isolada.yml'
 
 permissions:
   contents: read
