@@ -28,7 +28,9 @@ import {
 
 export const googleCalendarRouter = Router();
 
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_URL = process.env.IACRA_BUILD_TARGET === 'staging'
+  ? 'https://xuyimfugcdkqovqelrfz.supabase.co'
+  : (process.env.SUPABASE_URL || '');
 const rawSupabaseKey = (process.env.SUPABASE_KEY || '').trim();
 const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('sb_publishable_')
   ? rawSupabaseKey
