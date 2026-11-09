@@ -1,13 +1,31 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL) || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
-const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+/**
+ * Sem valores padrão de produção: um build incompleto nunca pode se
+ * conectar silenciosamente ao banco real do IACRA.
+ * VITE_* contém apenas informações públicas (URL e publishable/anon key).
+ */
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '');
+const supabaseKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '').trim();
+const buildTarget = String(import.meta.env.VITE_IACRA_BUILD_TARGET || '').trim();
+const refs = {
+  staging: 'xuyimfugcdkqovqelrfz',
+  production: 'ldumzwrwbhjtrnlioigg',
+} as const;
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('[IACRA] Configuração pública do Supabase ausente. Este build não pode acessar qualquer banco.');
+}
+if (buildTarget === 'staging' || buildTarget === 'production') {
+  const expected = 'https://' + refs[buildTarget] + '.supabase.co';
+  if (supabaseUrl !== expected) {
+    throw new Error('[IACRA] Banco incompatível com o ambiente escolhido. Conexão bloqueada.');
   }
+}
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl)) {
+  throw new Error('[IACRA] URL Supabase inválida. Conexão bloqueada.');
+}
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: true, autoRefreshToken: true },
 });
-
