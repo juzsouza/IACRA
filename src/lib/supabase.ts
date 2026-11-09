@@ -6,9 +6,10 @@ import { createClient } from '@supabase/supabase-js';
  * conectar silenciosamente ao banco real do IACRA.
  * VITE_* contém apenas informações públicas (URL e publishable/anon key).
  */
-const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '');
-const supabaseKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || '').trim();
-const buildTarget = String(import.meta.env.VITE_IACRA_BUILD_TARGET || '').trim();
+const publicEnv = (typeof import.meta !== 'undefined' && import.meta.env) || ({} as ImportMetaEnv);
+const supabaseUrl = String(publicEnv.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '');
+const supabaseKey = String(publicEnv.VITE_SUPABASE_ANON_KEY || publicEnv.VITE_SUPABASE_KEY || '').trim();
+const buildTarget = String(publicEnv.VITE_IACRA_BUILD_TARGET || '').trim();
 const refs = {
   staging: 'xuyimfugcdkqovqelrfz',
   production: 'ldumzwrwbhjtrnlioigg',
