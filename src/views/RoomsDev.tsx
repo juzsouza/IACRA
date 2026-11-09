@@ -31,7 +31,7 @@ export function RoomsDev():React.ReactElement{
  const chosenRoom=overview.rooms.find(r=>r.slug===roomSlug);
  const teacher=state.teachers.find(t=>t.id===chosenClass?.teacher_id);
  const availableRooms=overview.rooms.filter(r=>!r.raphael_only||/raphael/i.test(teacher?.name||''));
- const assignmentsByClass=new Map(overview.assignments.map(a=>[a.class_id,a]));
+ const assignmentsByClass=new Map<string,Assignment>(overview.assignments.map(a=>[a.class_id,a] as [string,Assignment]));
  const activeReservations=overview.assignments.filter(a=>a.status!=='cancelled');
  const reservedRoomsCount=new Set(activeReservations.map(a=>a.room_slug)).size;
  const overlaps=overview.assignments.filter(a=>chosenClass&&a.room_slug===roomSlug&&a.class_id!==classId&&a.status!=='cancelled'&&a.start_time<chosenClass.end_time&&a.end_time>chosenClass.start_time);
