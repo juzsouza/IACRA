@@ -15,8 +15,8 @@ export function RealEnrollmentDev({onNavigate}:{onNavigate:(view:'students'|'enr
  const [teacherId,setTeacherId]=useState('');
  const [groupId,setGroupId]=useState('');
  const [price,setPrice]=useState<string|null>(null);
- const [start,setStart]=useState('2026-11-02');
- const [date,setDate]=useState('2026-10-29');
+ const [start,setStart]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'}));
+ const [date,setDate]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'}));
  const [due,setDue]=useState('10');
  const [expiresOn,setExpiresOn]=useState('');
  const [url,setUrl]=useState('');

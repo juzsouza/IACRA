@@ -1,0 +1,45 @@
+name: Validar telas DEV IACRA sem publicar
+
+on:
+  push:
+    branches:
+      - validacao-telas-iacra-20261109
+    paths:
+      - 'src/**'
+      - '.github/workflows/validar-telas-iacra-20261109.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches:
+      - eavra-dev-visual-isolado
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Baixar branch de testes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar cenários das telas sem rede
+        run: node --experimental-strip-types src/tests/telas_iacra_validacao_offline.test.ts
+      - name: Validar isolamento DEV
+        run: npm run test:dev-preflight
+      - name: Verificar acesso de perfis
+        run: npm run test:profile-gate
+      - name: Verificar controle de administradores
+        run: npm run test:admin-gate
+      - name: Compilar TypeScript
+        run: npm run lint
+      - name: Gerar versão para conferência
+        run: npm run build
