@@ -77,10 +77,12 @@ export interface SyncClassPayload {
 
 // Configuração Supabase
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
-const supabaseKey = rawSupabaseKey.startsWith('eyJ')
+const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+const supabaseKey = rawSupabaseKey.startsWith('sb_publishable_')
   ? rawSupabaseKey
-  : '';
+  : rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ').startsWith('eyJ')
+    ? rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ')
+    : '';
 
 // Cliente administrativo exclusivo de servidor para teacher_google_accounts e class_google_events
 // Suporta a nova Supabase Secret Key (prefixo sb_...) e JWT legado (prefixo eyJ...)
