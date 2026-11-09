@@ -20,7 +20,7 @@ const layout=read('../components/Layout.tsx');
 const app=read('../App.tsx');
 const docker=read('../../Dockerfile');
 assert.equal(nav.includes('permissions_manager: ["super_admin"]'),true);
-assert.equal(layout.includes('Permissões (DEV)'),true);
+assert.equal(layout.includes('Gerenciamento de Permissões'),true);
 assert.equal(app.includes('<PermissionsManager />'),true);
 assert.equal(docker.includes('VITE_EAVRA_PERMISSION_ADMIN_ENABLED=true'),true);
 assert.equal(docker.includes('VITE_EAVRA_DEV_PROJECT_REF=xuyimfugcdkqovqelrfz'),true);
