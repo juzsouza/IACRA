@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - iacra-release-seguro-20261109
+  pull_request:
+    branches:
+      - adaptacao-producao-iacra-20261109
   workflow_dispatch:
 
 permissions:
