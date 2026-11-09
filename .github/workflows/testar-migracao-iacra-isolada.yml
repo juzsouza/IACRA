@@ -1,0 +1,77 @@
+name: Testar migracao IACRA em PostgreSQL isolado
+on:
+  push:
+    branches:
+      - preparacao-iacra-prod-20261106
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/testar-migracao-iacra-isolada.yml'
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/testar-migracao-iacra-isolada.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validar-migracao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: somente_testes
+          POSTGRES_DB: teste_iacra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d teste_iacra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: teste_iacra
+      PGUSER: postgres
+      PGPASSWORD: somente_testes
+      PGOPTIONS: -c client_min_messages=warning
+
+    steps:
+      - name: Baixar apenas o codigo da branch de preparacao
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Preparar cliente PostgreSQL
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+
+      - name: Criar esquema e registros ficticios
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/esquema_ficticio.sql
+
+      - name: Executar migracao proposta apenas no PostgreSQL temporario
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+
+      - name: Verificar termo, validade, responsavel, alunos existentes, salas e permissoes
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/verificacoes.sql
+
+      - name: Confirmar os registros ficticios
+        run: |
+          result=$(psql -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN
+          (SELECT count(*) FROM students)=2 AND
+          (SELECT count(*) FROM enrollments)=2 AND
+          (SELECT count(*) FROM transactions)=1 AND
+          (SELECT count(*) FROM app_private.eavra_dev_enrollment_submissions)=3
+          THEN 'OK' ELSE 'FALHA' END")
+          test "$result" = "OK"
