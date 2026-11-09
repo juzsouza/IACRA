@@ -1,0 +1,55 @@
+name: Validar migracao contra esquema real simulado (sem PROD)
+
+on:
+  push:
+    branches:
+      - validacao-esquema-real-iacra-20261109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar-esquema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: senha-ficticia-apenas-ci
+          POSTGRES_DB: iacra_ficticio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_ficticio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: iacra_ficticio
+      PGUSER: postgres
+      PGPASSWORD: senha-ficticia-apenas-ci
+      PGOPTIONS: -c client_min_messages=warning
+    steps:
+      - name: Baixar codigo isolado
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar cliente PostgreSQL
+        run: |
+          command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Criar replica FICTICIA de estrutura essencial do PROD
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/esquema_compativel_prod_sem_dados.sql
+      - name: Aplicar migracao em banco temporario descartavel
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+      - name: Executar casos com dados ficticios contra a estrutura realista
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/verificacoes.sql
+      - name: Verificar isencao, dados protegidos e registro financeiro
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/verificacoes_esquema_prod.sql
+      - name: Contagem final de financeiro e salas ficticias
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN (SELECT count(*) FROM public.transactions)=1 AND (SELECT count(*) FROM public.competence_billings)=1 AND (SELECT count(*) FROM app_private.eavra_dev_rooms)=7 THEN 'OK' ELSE 'FALHA' END" | grep -qx OK
