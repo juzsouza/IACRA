@@ -20,6 +20,8 @@ export type View =
   | "prospects"
   | "profiles"
   | "affiliates"
+  | "digital_enrollment"
+  | "rooms_admin"
   | "not_eligible";
 
 export const ALL_VIEWS: readonly View[] = [
@@ -39,6 +41,8 @@ export const ALL_VIEWS: readonly View[] = [
   "prospects",
   "profiles",
   "affiliates",
+  "digital_enrollment",
+  "rooms_admin",
   "not_eligible",
 ] as const;
 
@@ -48,6 +52,8 @@ export const VIEW_ROLE_PERMISSIONS: Record<View, readonly string[]> = {
   students: ["super_admin", "admin", "teacher"],
   enrollments: ["super_admin", "admin"],
   affiliates: ["super_admin", "admin"],
+  digital_enrollment: ["super_admin"],
+  rooms_admin: ["super_admin"],
   groups: ["super_admin", "admin"],
   not_eligible: ["super_admin", "admin"],
   payments: ["super_admin"],
