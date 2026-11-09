@@ -24,7 +24,7 @@ assert.equal(cfg.includes('process.env.SUPABASE_KEY'),false);
 assert.equal(cfg.includes('process.env.GEMINI_API_KEY'),false);
 const docker=file('../../Dockerfile');
 assert.equal(docker.includes('IACRA_BUILD_TARGET=staging'),true);
-assert.equal(docker.includes('VITE_IACRA_FEATURES_ENABLED=false'),true);
+assert.equal(docker.includes('VITE_IACRA_FEATURES_ENABLED=true'),true);
 assert.equal(docker.includes('https://xuyimfugcdkqovqelrfz.supabase.co'),true);
 
 for (const p of ['../server/googleCalendarService.ts','../server/googleCalendarRoutes.ts','../server/adminRoutes.ts']) {
