@@ -22,6 +22,8 @@ ENV NODE_ENV=production
 ENV PORT=8080
 ENV IACRA_BUILD_TARGET=staging
 ENV SUPABASE_URL=https://xuyimfugcdkqovqelrfz.supabase.co
+ARG VITE_SUPABASE_ANON_KEY
+ENV SUPABASE_KEY=${VITE_SUPABASE_ANON_KEY}
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
