@@ -35,7 +35,7 @@ assert.match(navigation,/rooms_admin: \["super_admin"\]/);
 assert.match(navigation,/permissions_manager: \["super_admin"\]/);
 assert.match(navigation,/digital_enrollment: \["super_admin"\]/);
 assert.match(layout,/iacraFeaturesEnabled\(\)/);
-assert.match(layout,/Permissões \(DEV\)/);
+assert.match(layout,/Gerenciamento de Permissões/);
 assert.match(app,/case "permissions_manager"/);
 assert.match(admin,/validTermForIssue\(term\)/);
 assert.match(admin,/setTerm/);
