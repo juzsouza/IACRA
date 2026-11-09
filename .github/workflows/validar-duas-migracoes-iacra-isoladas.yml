@@ -7,6 +7,12 @@ on:
     paths:
       - 'docs/revisao-producao/**'
       - '.github/workflows/validar-duas-migracoes-iacra-isoladas.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/revisao-producao/**'
+      - '.github/workflows/validar-duas-migracoes-iacra-isoladas.yml'
   workflow_dispatch:
 
 permissions:
