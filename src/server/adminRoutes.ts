@@ -10,11 +10,15 @@ import {
 
 export const adminRouter = Router();
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ldumzwrwbhjtrnlioigg.supabase.co';
-const rawSupabaseKey = (process.env.SUPABASE_KEY || '').replace(/^.*?eyJ/, 'eyJ').trim();
-const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('eyJ')
+const SUPABASE_URL = process.env.IACRA_BUILD_TARGET === 'staging'
+  ? 'https://xuyimfugcdkqovqelrfz.supabase.co'
+  : (process.env.SUPABASE_URL || '');
+const rawSupabaseKey = (process.env.SUPABASE_KEY || '').trim();
+const SUPABASE_ANON_KEY = rawSupabaseKey.startsWith('sb_publishable_')
   ? rawSupabaseKey
-  : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkdW16d3J3YmhqdHJubGlvaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTU0MDcsImV4cCI6MjA4ODYzMTQwN30.PgzhWMBsYifm6ADnYm-EQu83DK9BShDQAVZlQw5sayU';
+  : rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ').startsWith('eyJ')
+    ? rawSupabaseKey.replace(/^.*?eyJ/, 'eyJ')
+    : '';
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
 
 // POST /api/admin/create-or-resolve-user

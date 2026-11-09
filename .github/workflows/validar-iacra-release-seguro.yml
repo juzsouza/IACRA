@@ -1,0 +1,70 @@
+name: IACRA staging seguro — sem deploy e sem dados reais
+
+on:
+  push:
+    branches:
+      - iacra-release-seguro-20261109
+  pull_request:
+    branches:
+      - adaptacao-producao-iacra-20261109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-isolado:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VITE_SUPABASE_URL: https://xuyimfugcdkqovqelrfz.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      VITE_IACRA_BUILD_TARGET: staging
+      VITE_IACRA_PRODUCTION_PROJECT_REF: xuyimfugcdkqovqelrfz
+      VITE_IACRA_FEATURES_ENABLED: 'false'
+      IACRA_BUILD_TARGET: staging
+      SUPABASE_URL: https://xuyimfugcdkqovqelrfz.supabase.co
+      SUPABASE_KEY: sb_publishable_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verificar isolamento de ambientes e ausência de chaves hardcoded
+        run: npx tsx src/tests/iacra_staging_guardrails.test.ts
+      - name: Testar módulo de permissões DEV
+        run: npx tsx src/tests/iacra_staging_permissions.test.ts
+      - name: Testar regras de produção e homologação
+        run: npx tsx src/tests/iacra_production_features.test.ts
+      - name: Testar envio de matrícula digital
+        run: npx tsx src/tests/iacra_public_enrollment_submit.test.ts
+      - name: Tipos
+        run: npm run lint
+      - name: Compilar
+        run: npm run build
+      - name: Regressão de cobranças
+        run: npm run test:billings
+      - name: Regressão de pagamentos
+        run: npm run test:choir-balance
+      - name: Construir contêiner de staging sem credenciais reais
+        run: |
+          docker build -t iacra-staging-ci \
+            --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+            --build-arg VITE_SUPABASE_ANON_KEY="$VITE_SUPABASE_ANON_KEY" .
+      - name: Testar API HTTP do contêiner isolado
+        run: |
+          docker run -d --name iacra-test -p 127.0.0.1:18080:8080 iacra-staging-ci
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 2 http://127.0.0.1:18080/api/health > health.json; then
+              grep -q '"status":"ok"' health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs iacra-test
+          exit 1
