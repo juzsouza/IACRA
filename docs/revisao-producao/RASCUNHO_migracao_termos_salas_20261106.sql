@@ -1,4 +1,6 @@
--- RASCUNHO DE MIGRAÇÃO IACRA: NÃO EXECUTAR EM PRODUÇÃO AINDA.
+-- CANDIDATA ISOLADA (10/11/2026): NÃO EXECUTAR EM PRODUÇÃO AINDA.
+-- Guardas adicionais contra escalada de privilégios na tabela public.profiles.
+-- Exige app_private.eavra_admin_allowlist instalada e populada de forma segura.
 -- Origem: funções e tabelas de IACRA-DEV; ajustadas para esquema IACRA real em 06/11/2026.
 -- Revisão pendente: teste em uma cópia isolada com mesmo esquema de produção,
 -- verificação de permissões, testes ponta a ponta, plano de reversão e backup completo.
@@ -30,6 +32,17 @@ BEGIN
     OR to_regprocedure('extensions.digest(bytea,text)') IS NULL THEN
    RAISE EXCEPTION 'required_crypto_functions_missing';
  END IF;
+  IF to_regclass('app_private.eavra_admin_allowlist') IS NULL THEN
+    RAISE EXCEPTION 'security_allowlist_missing_do_not_run';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM app_private.eavra_admin_allowlist approved
+    JOIN auth.users u ON u.id=approved.auth_user_id
+    JOIN public.profiles p ON p.id=u.id::text
+    WHERE p.role='super_admin' AND p.access_status='active'
+  ) THEN RAISE EXCEPTION 'no_approved_super_admin';
+  END IF;
 END
 $preflight$;
 
@@ -107,6 +120,7 @@ declare
 begin
   if v_actor is null or not exists (
     select 1 from public.profiles p where p.id=v_actor and p.role='super_admin' and p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
   ) then raise exception 'access_denied' using errcode='42501'; end if;
   if p_model_id not in ('individual_instruments_vocal','raphael_individual','institutional_group','mev_group')
     or p_model_id is null or p_teacher_id is null or p_plan_id is null
@@ -266,6 +280,7 @@ declare v_actor text:=auth.uid()::text; v_records jsonb;
 begin
   if v_actor is null or not exists(
     select 1 from public.profiles where id=v_actor and role='super_admin' and access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
   ) then raise exception 'access_denied' using errcode='42501'; end if;
   select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
     'id',s.id,'status',s.status,'student',s.student_data,
@@ -299,7 +314,8 @@ DECLARE
  v_enrollment_id text;
 BEGIN
  IF v_actor IS NULL OR NOT EXISTS
-    (SELECT 1 FROM public.profiles p WHERE p.id=v_actor AND p.role='super_admin' AND p.access_status='active')
+    (SELECT 1 FROM public.profiles p WHERE p.id=v_actor AND p.role='super_admin' AND p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid()))
  THEN RAISE EXCEPTION 'access_denied' USING errcode='42501'; END IF;
  SELECT s.student_data INTO v_data FROM app_private.eavra_dev_enrollment_submissions s
  WHERE s.id=p_submission_id AND s.status='pending';
@@ -350,7 +366,8 @@ DECLARE
  v_birth date;
 BEGIN
  IF v_actor IS NULL OR NOT EXISTS
-    (SELECT 1 FROM public.profiles WHERE id=v_actor AND role='super_admin' AND access_status='active')
+    (SELECT 1 FROM public.profiles WHERE id=v_actor AND role='super_admin' AND access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid()))
  THEN RAISE EXCEPTION 'access_denied' USING errcode='42501'; END IF;
  SELECT * INTO v_request FROM app_private.eavra_dev_enrollment_submissions
  WHERE id=p_submission_id FOR UPDATE;
@@ -445,6 +462,7 @@ BEGIN
  IF auth.uid() IS NULL OR NOT EXISTS (
   SELECT 1 FROM public.profiles p
   WHERE p.id=auth.uid()::text AND p.role='super_admin' AND p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
  ) THEN RAISE EXCEPTION 'access_denied' USING errcode='42501'; END IF;
  SELECT pg_catalog.jsonb_build_object(
    'status',s.status,'term_title',o.term_title,'term_body',o.term_body,
@@ -530,6 +548,7 @@ begin
   if auth.uid() is null or not exists (
     select 1 from public.profiles p
     where p.id=auth.uid()::text and p.role='super_admin' and p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
   ) then raise exception 'access_denied' using errcode='42501'; end if;
   if p_day is null then raise exception 'invalid_day' using errcode='22023'; end if;
   select pg_catalog.jsonb_build_object(
@@ -571,6 +590,7 @@ begin
   if v_actor is null or not exists (
     select 1 from public.profiles p
     where p.id=v_actor and p.role='super_admin' and p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
   ) then raise exception 'access_denied' using errcode='42501'; end if;
 
   select c.id,c.date,c.start_time,c.end_time,c.status,c.teacher_id
@@ -627,6 +647,7 @@ begin
   if v_actor is null or not exists (
     select 1 from public.profiles p
     where p.id=v_actor and p.role='super_admin' and p.access_status='active'
+      AND EXISTS (SELECT 1 FROM app_private.eavra_admin_allowlist approved WHERE approved.auth_user_id = auth.uid())
   ) then raise exception 'access_denied' using errcode='42501'; end if;
   delete from app_private.eavra_dev_class_rooms where class_id=p_class_id;
   return pg_catalog.jsonb_build_object('released',true);
