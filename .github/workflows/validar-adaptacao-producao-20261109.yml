@@ -4,6 +4,7 @@ on:
     branches:
       - adaptacao-producao-iacra-20261109
       - iacra-prod-preparacao-segura-20261109
+      - iacra-validacao-seguranca-20261110
   pull_request:
     branches:
       - main
