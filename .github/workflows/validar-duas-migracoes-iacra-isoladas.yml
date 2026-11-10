@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - iacra-prod-preparacao-segura-20261109
+      - iacra-validacao-seguranca-20261110
     paths:
       - 'docs/revisao-producao/**'
       - '.github/workflows/validar-duas-migracoes-iacra-isoladas.yml'
@@ -62,6 +63,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/verificacoes_esquema_prod.sql
       - name: Testar perfil Super Admin, professores e auditoria
         run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/permissoes_validacao_integrada_prod.sql
+      - name: Bloquear tentativa de escalar perfil Super Admin nas telas novas
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_allowlist_matricula_salas.sql
       - name: Conferir registros financeiros ficticios
         run: |
           psql -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN (SELECT count(*) FROM public.transactions)=1 AND (SELECT count(*) FROM public.competence_billings)=1 AND (SELECT count(*) FROM app_private.eavra_dev_rooms)=7 AND (SELECT count(*) FROM app_private.eavra_permission_catalog)=52 THEN 'OK' ELSE 'FALHA' END" | grep -qx OK
