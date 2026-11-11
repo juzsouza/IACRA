@@ -30,7 +30,7 @@ export function RoomsAdmin():React.ReactElement{
   setOverview(data as Overview);
  };
  useEffect(()=>{if(authorized)void load().catch(e=>setMessage(e.message));},[day,authorized]);
- const studentStatuses=new Map(state.students.map(student=>[student.id,student.status] as [string,'active'|'inactive']));
+ const studentStatuses=new Map<string,'active'|'inactive'>(state.students.map(student=>[student.id,student.status] as [string,'active'|'inactive']));
  const classes=state.classes.filter(c=>c.date===day&&c.status!=='cancelled'&&classHasEligibleStudents(c.student_ids||[],studentStatuses)).sort((a,b)=>a.start_time.localeCompare(b.start_time));
  const filteredClasses=filteredRoomClasses(classes,teacherFilter) as typeof classes;
  const classStudentNames=(studentIds:string[])=>studentIds.map(id=>state.students.find(student=>student.id===id)?.name).filter((name):name is string=>!!name);
