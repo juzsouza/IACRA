@@ -1,0 +1,27 @@
+name: IACRA - convite com instrumento e alerta de aulas duplicadas
+
+on:
+  push:
+    branches: [iacra-agenda-instrumento-convite-20261111]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsx src/tests/instrument_and_room_schedule.test.ts
+      - run: npx tsx src/tests/rich_term_editor.test.ts
+      - run: npx tsx src/tests/rooms_admin_adjustments.test.ts
+      - run: npm run test:billings
+      - run: npm run build
