@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {readDigitalOffer,submitDigitalOffer,type DigitalOffer} from '../services/digitalEnrollment';
-import {splitBoldSegments} from '../utils/termBoldMarkup';
+import {termToSafeHtml} from '../utils/richTermMarkup';
 export function PublicEnrollment():React.ReactElement{
  const [token]=useState(()=>new URLSearchParams(window.location.search).get('convite')||'');
  const [offer,setOffer]=useState<DigitalOffer|null>(null);
@@ -66,7 +66,7 @@ export function PublicEnrollment():React.ReactElement{
      <section className="border rounded-lg p-4 space-y-3">
        <h2 className="font-semibold">{offer.term_title}</h2>
        <p className="text-sm text-zinc-600">Leia atentamente o documento antes de confirmar o aceite.</p>
-       <div className="whitespace-pre-wrap break-words max-h-72 overflow-y-auto text-sm">{splitBoldSegments(offer.term_body).map((p,i)=>p.bold?<strong key={i}>{p.text}</strong>:<React.Fragment key={i}>{p.text}</React.Fragment>)}</div>
+       <div className="break-words max-h-72 overflow-y-auto text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6" dangerouslySetInnerHTML={{__html:termToSafeHtml(offer.term_body)}}/>
        <label className="flex gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> {isMinor?'Declaro que sou o responsável legal informado e que li e aceito os termos apresentados.':'Declaro que li e aceito os termos apresentados.'}</label>
        <button disabled={!accepted||busy} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Enviar solicitação</button>
      </section>
