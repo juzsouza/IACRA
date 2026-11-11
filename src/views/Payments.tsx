@@ -1053,9 +1053,13 @@ export const Payments: React.FC = () => {
               frozen_at: new Date().toISOString(),
               frozen_by: currentUserProfile?.id || 'admin',
               final_price: amountToPay,
-              base_price: contractualBasePrice,
-              teacher_share: teacherShareOnPayment,
-              school_share: schoolShareOnPayment,
+              ...(isRaphael && existingSnap.metadata?.source === 'due_competence_materializer'
+                ? {
+                    base_price: contractualBasePrice,
+                    teacher_share: teacherShareOnPayment,
+                    school_share: schoolShareOnPayment,
+                  }
+                : {}),
               discount: discountVal,
               metadata: {
                 ...(existingSnap.metadata || {}),
