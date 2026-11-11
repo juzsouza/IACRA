@@ -1,3 +1,5 @@
+import {isRichTerm,termPlainText,MAX_TERM_LENGTH} from './richTermMarkup';
+
 /** Modelos de matrícula. O texto jurídico é preenchido e revisado pela secretaria. */
 export const TERM_MODELS = [
   { id: 'individual_instruments_vocal', label: 'Aulas Individuais — Instrumento e Técnica Vocal' },
@@ -12,7 +14,8 @@ export const isGroupModel = (id: TermModelId) => id === 'institutional_group' ||
 export const validTermForIssue = (term: TermDraft) => {
   const title = term.title.trim();
   const body = term.body.trim();
+  const visibleText = isRichTerm(body) ? termPlainText(body) : body;
   return title.length >= 3 && title.length <= 160 &&
-    body.length >= 10 && body.length <= 20000 &&
-    !/(DOCUMENTO DE TESTE|SEM VALIDADE CONTRATUAL|DADOS FICTÍCIOS)/i.test(body);
+    body.length <= MAX_TERM_LENGTH && visibleText.trim().length >= 10 &&
+    !/(DOCUMENTO DE TESTE|SEM VALIDADE CONTRATUAL|DADOS FICTÍCIOS)/i.test(visibleText);
 };
