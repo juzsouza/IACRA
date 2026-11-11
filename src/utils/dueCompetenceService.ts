@@ -177,7 +177,8 @@ export function calculateDueBillingValues({
         enrollment,
         context.classes || [],
         context.groups || [],
-        plan
+        plan,
+        { requireExplicitStudentId: true }
       );
 
       const raphaelRealBilling = calculateRaphaelRealStudentBilling({
@@ -190,6 +191,7 @@ export function calculateDueBillingValues({
         applyCredits: true,
         studentName: student?.name || 'Aluno',
         allGroups: context.groups || [],
+        requireExplicitStudentId: true,
       });
 
       const finalAmount = raphaelRealBilling.finalAmount;
