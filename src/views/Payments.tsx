@@ -26,6 +26,7 @@ import { RaphaelPaymentConfirmationCard } from '../components/RaphaelPaymentConf
 import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
+import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
 
 // ============================================================================
 // Helper de Elegibilidade de Matrículas para Cobrança Mensal
@@ -385,9 +386,14 @@ export const Payments: React.FC = () => {
         }
 
         let raphaelPreview: RaphaelBillingSimulationResult | null = null;
-        let raphaelRealBilling: RaphaelBillingMemory | null = resolved.raphaelBilling || null;
+        // O snapshot automático pendente pode ter sido criado pelo motor antigo,
+        // que contava aulas de outros alunos. Recalcular apenas a PRÉVIA de
+        // snapshots não pagos e não congelados; não regravar o banco ao abrir a tela.
+        const recalculatePending = isRaphael && shouldRecalculatePendingRaphaelSnapshot(resolved.snapshot, isPaid);
+        let raphaelRealBilling: RaphaelBillingMemory | null =
+          recalculatePending ? null : (resolved.raphaelBilling || null);
 
-        if (isRaphael && !resolved.raphaelBilling && !resolved.isFrozen && !isPaid) {
+        if (isRaphael && (!resolved.raphaelBilling || recalculatePending) && !resolved.isFrozen && !isPaid) {
           const monthRefStr = `${mRef.yearStr}-${mRef.monthStr}`;
           const enrollmentClasses = getClassesForEnrollment(
             e,
@@ -431,7 +437,9 @@ export const Payments: React.FC = () => {
           plan,
           basePrice: resolved.basePrice,
           crossDiscount: resolved.discount,
-          priceWithDiscount: resolved.finalPrice,
+          priceWithDiscount: recalculatePending && raphaelRealBilling
+            ? raphaelRealBilling.finalAmount
+            : resolved.finalPrice,
           isPaid,
           transaction,
           monthStr: mRef.monthStr,
