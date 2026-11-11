@@ -20,6 +20,8 @@ jobs:
         run: npm run lint
       - name: Conferir vínculo estrito de aulas e mensalidade
         run: npx tsx src/tests/raphael_strict_class_linkage.test.ts
+      - name: Proteger snapshots pagos, congelados e manuais
+        run: npx tsx src/tests/raphael_pending_snapshot_policy.test.ts
       - name: Testar cálculos financeiros existentes
         run: npm run test:billings
       - name: Compilar sem publicar
