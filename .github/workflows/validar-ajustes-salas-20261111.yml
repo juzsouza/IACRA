@@ -1,0 +1,77 @@
+name: IACRA Salas - build e migracao isolada
+
+on:
+  push:
+    branches: [iacra-ajustes-salas-20261111]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-front:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsx src/tests/rooms_admin_adjustments.test.ts
+      - run: npx tsx src/tests/feature_delegated_permissions.test.ts
+      - run: npm run test:billings
+      - run: npm run build
+
+  validar-postgres-ficticio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: senha-ficticia-somente-ci
+          POSTGRES_DB: iacra_permissoes_ficticias
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_permissoes_ficticias"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: iacra_permissoes_ficticias
+      PGUSER: postgres
+      PGPASSWORD: senha-ficticia-somente-ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: preparacao-iacra-prod-20261106
+          path: base-fixture
+          sparse-checkout: docs/revisao-producao/testes/esquema_ficticio.sql
+          persist-credentials: false
+      - name: PostgreSQL CLI
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Schema de teste isolado, sem dados reais
+        run: psql -X -v ON_ERROR_STOP=1 -f base-fixture/docs/revisao-producao/testes/esquema_ficticio.sql
+      - name: Identidades e allowlist fictícios
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/iniciar_permissoes_matricula_salas_ficticias.sql
+      - name: Instalar RPCs existentes apenas no banco descartável
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+      - name: Instalar permissões existentes apenas no banco descartável
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_permissoes_painel_prod_20261109.sql
+      - name: Aplicar candidato dos dois módulos somente no banco temporário
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_permissoes_matricula_salas_20261111.sql
+      - name: Validar negar por padrão, ações, override e escalada
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_permissoes_matricula_salas_ficticias.sql
+      - name: Unificar salas somente no banco temporário
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_unificar_boaz_joaquim_20261111.sql
+      - name: Conferir unificação e não exclusão de dados
+        run: psql -X -v ON_ERROR_STOP=1 -c "SELECT slug,name,active FROM app_private.eavra_dev_rooms WHERE slug IN ('boaz','joaquim');" -c "SELECT CASE WHEN COUNT(*)=1 AND bool_and(name='Sala Boaz Joaquim' AND active) THEN true ELSE false END AS correto FROM app_private.eavra_dev_rooms WHERE active AND slug IN ('boaz','joaquim');"
