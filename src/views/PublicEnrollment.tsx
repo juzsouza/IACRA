@@ -28,7 +28,7 @@ export function PublicEnrollment():React.ReactElement{
    event.preventDefault();
    if(!accepted||busy)return;
    setBusy(true);setNotice('');
-   try{await submitDigitalOffer(token,student);setSent(true);setStudent({name:'',email:'',phone:'',cpf:'',birth_date:'',instrument:'',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});}
+   try{await submitDigitalOffer(token,{...student,instrument:offer?.instrument||student.instrument});setSent(true);setStudent({name:'',email:'',phone:'',cpf:'',birth_date:'',instrument:'',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});}
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível enviar');}finally{setBusy(false)}
  };
  return <main className="max-w-2xl mx-auto p-6 space-y-5">
@@ -40,6 +40,7 @@ export function PublicEnrollment():React.ReactElement{
      <section className="border rounded-lg p-4 bg-zinc-50 space-y-2">
        <h2 className="font-semibold">Informações definidas pela secretaria (não editáveis)</h2>
        <p>Professor: {offer.teacher_name}</p><p>Plano: {offer.plan_name}</p>
+       {offer.instrument&&<p><strong>Instrumento ou atividade:</strong> {offer.instrument} (definido pela secretaria)</p>}
        {offer.group_name&&<p>Grupo: {offer.group_name}</p>}
        <p>Início: {offer.start_date} · Matrícula: {offer.enrollment_date}</p>
        <p className="font-semibold text-amber-800">Prazo para preenchimento e aceite: {new Date(offer.expires_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})} (Brasília)</p>
@@ -52,7 +53,7 @@ export function PublicEnrollment():React.ReactElement{
        <label className="block">Telefone com DDD<input className="block border p-2 w-full rounded-lg" required value={student.phone} onChange={e=>set('phone',e.target.value)}/></label>
        <label className="block">CPF<input className="block border p-2 w-full rounded-lg" required value={student.cpf} onChange={e=>set('cpf',e.target.value)}/></label>
        <label className="block">Data de nascimento<input type="date" className="block border p-2 w-full rounded-lg" required value={student.birth_date} onChange={e=>set('birth_date',e.target.value)}/></label>
-       <label className="block">Instrumento<input className="block border p-2 w-full rounded-lg" required value={student.instrument} onChange={e=>set('instrument',e.target.value)}/></label>
+       {offer.instrument?<div className="space-y-1"><p className="text-sm font-medium">Instrumento ou atividade</p><p className="border p-2 w-full rounded-lg bg-zinc-100 text-zinc-800">{offer.instrument}</p><p className="text-xs text-zinc-600">Informação definida pela secretaria. Não pode ser alterada neste formulário.</p></div>:<label className="block">Instrumento<input className="block border p-2 w-full rounded-lg" required value={student.instrument} onChange={e=>set('instrument',e.target.value)}/><span className="block text-xs text-zinc-600">Campo disponível somente em convites antigos.</span></label>}
        {isMinor&&<div className="border border-amber-200 rounded-lg p-3 space-y-3 bg-amber-50">
          <h3 className="font-semibold">Dados do responsável legal (obrigatórios para menores de 18 anos)</h3>
          <label className="block">Nome completo do responsável<input className="block border p-2 w-full rounded-lg" required value={student.guardian_name} onChange={e=>set('guardian_name',e.target.value)}/></label>
