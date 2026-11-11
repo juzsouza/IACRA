@@ -879,9 +879,9 @@ export const Payments: React.FC = () => {
             }
 
             const raphaelTag = isRaphael ? ` [Raphael Etapa 5]` : '';
-            const newTxId = crypto.randomUUID();
+            let newTxId = crypto.randomUUID();
 
-            addTransaction({
+            const savedTransaction = await addTransaction({
               id: newTxId,
               type: 'income',
               amount: finalAmount,
@@ -889,6 +889,7 @@ export const Payments: React.FC = () => {
               date: paymentDate,
               status: 'completed'
             });
+        newTxId = savedTransaction.id;
 
             // Etapa 3: Congelamento ou gravação de snapshot da competência
             const comp = `${gi.yearStr}-${gi.monthStr}`;
@@ -944,7 +945,9 @@ export const Payments: React.FC = () => {
                 });
               }
             } catch (snapErr) {
-              console.warn('[Snapshot] Aviso ao congelar competência de grupo:', snapErr);
+              console.error('[Financeiro] Transação salva mas confirmação do grupo falhou:', snapErr);
+              window.alert('Transação registrada, mas a baixa não foi concluída no banco. Não repita; faça conciliação.');
+              return;
             }
           }
         }
@@ -1004,9 +1007,9 @@ export const Payments: React.FC = () => {
         }
 
         const raphaelTag = isRaphael ? ` [Raphael Etapa 5]` : '';
-        const newTxId = crypto.randomUUID();
+        let newTxId = crypto.randomUUID();
 
-        addTransaction({
+        const savedTransaction = await addTransaction({
           id: newTxId,
           type: 'income',
           amount: amountToPay,
@@ -1014,6 +1017,7 @@ export const Payments: React.FC = () => {
           date: paymentDate,
           status: 'completed'
         });
+        newTxId = savedTransaction.id;
 
         // Etapa 3: Congelamento ou gravação de snapshot da competência liquidada
         const comp = `${eb.yearStr}-${eb.monthStr}`;
@@ -1077,7 +1081,9 @@ export const Payments: React.FC = () => {
             });
           }
         } catch (snapErr) {
-          console.warn('[Snapshot] Aviso ao congelar competência de matrícula:', snapErr);
+          console.error('[Financeiro] Transação salva mas confirmação da matrícula falhou:', snapErr);
+          window.alert('Transação registrada, mas a baixa não foi concluída no banco. Não repita; faça conciliação.');
+          return;
         }
       }
     }
@@ -1098,9 +1104,9 @@ export const Payments: React.FC = () => {
         const discountStr = customDiscounts[cb.itemKey];
         const discountVal = discountStr ? parseFloat(discountStr) : 0;
         const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
-        const newTxId = crypto.randomUUID();
+        let newTxId = crypto.randomUUID();
 
-        addTransaction({
+        const savedTransaction = await addTransaction({
           id: newTxId,
           type: 'income',
           amount: amountToPay,
@@ -1108,6 +1114,7 @@ export const Payments: React.FC = () => {
           date: paymentDate,
           status: 'completed'
         });
+        newTxId = savedTransaction.id;
 
         // Etapa 3: Congelamento ou gravação de snapshot da competência de coral
         const comp = `${cb.yearStr}-${cb.monthStr}`;
@@ -1160,7 +1167,9 @@ export const Payments: React.FC = () => {
             });
           }
         } catch (snapErr) {
-          console.warn('[Snapshot] Aviso ao congelar competência de coral:', snapErr);
+          console.error('[Financeiro] Transação salva mas confirmação do coral falhou:', snapErr);
+          window.alert('Transação registrada, mas a baixa não foi concluída no banco. Não repita; faça conciliação.');
+          return;
         }
       }
     }
