@@ -1,0 +1,26 @@
+name: Validar hotfix financeiro IACRA (sem deploy)
+on:
+  push:
+    branches: [iacra-hotfix-pagamentos-20261111]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  teste-seguro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verificar tipagem
+        run: npm run lint
+      - name: Conferir vínculo estrito de aulas e mensalidade
+        run: npx tsx src/tests/raphael_strict_class_linkage.test.ts
+      - name: Testar cálculos financeiros existentes
+        run: npm run test:billings
+      - name: Compilar sem publicar
+        run: npm run build
