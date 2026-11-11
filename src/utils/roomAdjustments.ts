@@ -32,3 +32,15 @@ export function filteredRoomReservations<
     (!teacherId || teacherByClassId.get(a.class_id) === teacherId)
   );
 }
+
+/** Hide future booking choices only when EVERY linked student is known inactive.
+ * Keep classes with no student link and mixed/unknown memberships visible for
+ * manual review rather than guessing their scheduling eligibility.
+ */
+export function classHasEligibleStudents(
+  studentIds: readonly string[],
+  studentStatusById: ReadonlyMap<string,'active'|'inactive'>
+): boolean {
+  if (studentIds.length === 0) return true;
+  return !studentIds.every(id => studentStatusById.get(id) === 'inactive');
+}
