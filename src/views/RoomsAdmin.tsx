@@ -32,6 +32,8 @@ export function RoomsAdmin():React.ReactElement{
  useEffect(()=>{if(authorized)void load().catch(e=>setMessage(e.message));},[day,authorized]);
  const classes=state.classes.filter(c=>c.date===day&&c.status!=='cancelled').sort((a,b)=>a.start_time.localeCompare(b.start_time));
  const filteredClasses=filteredRoomClasses(classes,teacherFilter) as typeof classes;
+ const classStudentNames=(studentIds:string[])=>studentIds.map(id=>state.students.find(student=>student.id===id)?.name).filter((name):name is string=>!!name);
+ const duplicateTimeClasses=classes.filter(c=>c.teacher_id===classes.find(x=>x.id===classId)?.teacher_id && c.id!==classId && c.start_time===classes.find(x=>x.id===classId)?.start_time && c.end_time===classes.find(x=>x.id===classId)?.end_time);
  const classTeachers=new Map<string,string>(classes.map(c=>[c.id,c.teacher_id] as [string,string]));
  const shownReservations=filteredRoomReservations(overview.assignments,teacherFilter,roomFilter,classTeachers) as Assignment[];
  const chosenClass=classes.find(c=>c.id===classId);
@@ -165,7 +167,7 @@ export function RoomsAdmin():React.ReactElement{
       <label htmlFor="room-class" className="block text-sm font-medium text-zinc-700 mb-1.5">Aula</label>
       <select id="room-class" value={classId} onChange={e=>{const id=e.target.value;setClassId(id);const a=assignmentsByClass.get(id);setRoomSlug(a?.room_slug||'');setActivity(a?.activity||'');setMessage('')}} className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-colors">
        <option value="">Selecione uma aula</option>
-       {filteredClasses.map(c=><option key={c.id} value={c.id}>{fmt(c.start_time)}–{fmt(c.end_time)} · {c.title} · {state.teachers.find(t=>t.id===c.teacher_id)?.name||'Professor'}</option>)}
+       {filteredClasses.map(c=><option key={c.id} value={c.id}>{fmt(c.start_time)}–{fmt(c.end_time)} · {c.title} · {classStudentNames(c.student_ids).join(', ')||'Sem aluno vinculado'} · {state.teachers.find(t=>t.id===c.teacher_id)?.name||'Professor'}</option>)}
       </select>
       {filteredClasses.length===0&&<p className="text-xs text-zinc-500 mt-1.5">Nenhuma aula encontrada para esse professor na data.</p>}
      </div>
@@ -190,6 +192,7 @@ export function RoomsAdmin():React.ReactElement{
      <span className="inline-flex items-center gap-2 text-zinc-700"><UserRound className="w-4 h-4 text-indigo-500"/>{teacher?.name||'Professor não identificado'}</span>
      {assignmentsByClass.has(classId)&&<span className="inline-flex items-center gap-1.5 text-indigo-700 font-medium"><CheckCircle2 className="w-4 h-4"/>Sala já vinculada</span>}
     </div>}
+    {chosenClass&&duplicateTimeClasses.length>0&&<div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900"><strong>Horário duplicado na agenda:</strong> existem {duplicateTimeClasses.length+1} aulas diferentes do mesmo professor neste horário. A aula selecionada é de {classStudentNames(chosenClass.student_ids).join(', ')||'aluno não identificado'}. Confira a agenda antes de vincular a sala; nenhum registro será excluído automaticamente.</div>}
     {overlaps.length>0&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 flex items-start gap-2 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0"/><p><strong>Conflito de horário.</strong> Sala reservada: {overlaps.map(a=>a.title+' ('+fmt(a.start_time)+'–'+fmt(a.end_time)+')').join(', ')}.</p></div>}
     {message&&<div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 flex items-center gap-2 text-sm text-emerald-800"><CheckCircle2 className="w-4 h-4 shrink-0"/>{message}</div>}
     <div className="flex flex-col sm:flex-row gap-3">
