@@ -185,6 +185,8 @@ export const Payments: React.FC = () => {
   const [isStage5TestsModalOpen, setIsStage5TestsModalOpen] = useState(false);
   const [isHistoricalRegularizationModalOpen, setIsHistoricalRegularizationModalOpen] = useState(false);
   const [expandedRaphaelDetails, setExpandedRaphaelDetails] = useState<Record<string, boolean>>({});
+  // Bloqueio local contra clique duplo enquanto uma baixa está em andamento.
+  const paymentInProgressRef = React.useRef(false);
 
   const toggleRaphaelDetails = (itemKey: string) => {
     setExpandedRaphaelDetails(prev => ({
@@ -832,6 +834,9 @@ export const Payments: React.FC = () => {
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (paymentInProgressRef.current) return;
+    paymentInProgressRef.current = true;
+    try {
 
     if (selectedGroupId) {
       const groupItem = groupsBillingList.find(g => g.id === selectedGroupId);
@@ -1175,6 +1180,12 @@ export const Payments: React.FC = () => {
     }
 
     closePaymentModal();
+    } catch (paymentError) {
+      console.error('[Financeiro] Baixa não concluída:', paymentError);
+      window.alert('Não foi possível concluir a baixa. Verifique os registros antes de tentar novamente; não repita pagamentos já salvos.');
+    } finally {
+      paymentInProgressRef.current = false;
+    }
   };
 
   const formatCurrency = (value: number) => {
