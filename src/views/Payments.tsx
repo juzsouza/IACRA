@@ -998,6 +998,13 @@ export const Payments: React.FC = () => {
         const discountStr = customDiscounts[eb.itemKey];
         const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.creditDiscountAmount : 0);
         const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
+        const contractualBasePrice = Number(eb.enrollment.custom_price ?? eb.plan.base_price ?? 0);
+        const teacherShareOnPayment = eb.plan.teacher_fee_type === 'percentage'
+          ? (amountToPay * Number(eb.plan.teacher_fee_value || 0) / 100)
+          : Number(eb.plan.teacher_fee_value || 0);
+        const schoolShareOnPayment = Math.max(
+          0, amountToPay - teacherShareOnPayment - Number(eb.plan.secretary_fee_value || 0)
+        );
 
         // Consume credits if Raphael
         if (isRaphael && eb.raphaelRealBilling) {
@@ -1046,6 +1053,9 @@ export const Payments: React.FC = () => {
               frozen_at: new Date().toISOString(),
               frozen_by: currentUserProfile?.id || 'admin',
               final_price: amountToPay,
+              base_price: contractualBasePrice,
+              teacher_share: teacherShareOnPayment,
+              school_share: schoolShareOnPayment,
               discount: discountVal,
               metadata: {
                 ...(existingSnap.metadata || {}),
@@ -1058,11 +1068,6 @@ export const Payments: React.FC = () => {
             });
           } else if (createCompetenceBilling) {
             const plan = eb.plan;
-            const teacherShare = plan.teacher_fee_type === 'percentage'
-              ? (amountToPay * (plan.teacher_fee_value || 0) / 100)
-              : (plan.teacher_fee_value || 0);
-            const schoolShare = Math.max(0, amountToPay - teacherShare - (plan.secretary_fee_value || 0));
-
             await createCompetenceBilling({
               competence: comp,
               category: 'individual',
@@ -1072,13 +1077,13 @@ export const Payments: React.FC = () => {
               student_id: student.id,
               teacher_id: eb.enrollment.teacher_id || plan.exclusive_teacher_id || null,
               is_paying: true,
-              base_price: eb.basePrice,
+              base_price: contractualBasePrice,
               discount: discountVal,
               final_price: amountToPay,
               teacher_fee_type: plan.teacher_fee_type,
               teacher_fee_value: plan.teacher_fee_value,
-              teacher_share: teacherShare,
-              school_share: schoolShare,
+              teacher_share: teacherShareOnPayment,
+              school_share: schoolShareOnPayment,
               status: 'paid',
               transaction_id: newTxId,
               is_frozen: true,
