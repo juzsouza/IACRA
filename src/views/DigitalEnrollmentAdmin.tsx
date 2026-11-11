@@ -7,9 +7,12 @@ import {isGroupModel} from '../utils/enrollmentTermModels';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
 import {splitBoldSegments,toggleBoldSelection} from '../utils/termBoldMarkup';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
+import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
 
 export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
+ const access=useIacraFeaturePermissions(currentUserProfile);
+ const active=Boolean(currentUserProfile?.access_status==='active' && access.digital_enrollment.view);
  const [model,setModel]=useState<TermModelId>('individual_instruments_vocal');
  const [planId,setPlanId]=useState('');
  const [teacherId,setTeacherId]=useState('');
@@ -47,10 +50,10 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const validAmount=(price??(plan?String(plan.base_price):''))!==''&&Number.isFinite(amount)&&amount>=0&&amount<=100000&&Math.round(amount*100)===amount*100;
  const conflict=Boolean(group?.teacher_id&&plan?.exclusive_teacher_id&&group.teacher_id!==plan.exclusive_teacher_id);
  const refresh=async()=>{try{setRecords(await readDigitalInbox())}catch(e){setNotice(e instanceof Error?e.message:'Não foi possível carregar solicitações');}};
- useEffect(()=>{if(currentUserProfile?.role==='super_admin')void refresh()},[currentUserProfile?.id,currentUserProfile?.role]);
- if(currentUserProfile?.role!=='super_admin'||currentUserProfile.access_status!=='active')return <div role="alert">Área restrita ao Super Admin ativo.</div>;
+ useEffect(()=>{if(active)void refresh()},[active,currentUserProfile?.id]);
+ if(!active)return <div role="alert">Sem permissão para Matrícula Digital.</div>;
  const issue=async()=>{
-   if(!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn)return;
+   if(!access.digital_enrollment.create||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn)return;
    setBusy(true);setUrl('');setNotice('');
    try{
      if(!validTermForIssue(term))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
@@ -71,7 +74,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível conferir o aluno');}finally{setBusy(false)}
  };
  const approve=async()=>{
-   if(!reviewId||!match||match.match_count>1)return;
+   if(!access.digital_enrollment.approve||!reviewId||!match||match.match_count>1)return;
    if(!window.confirm('Confirmar aprovação do termo no IACRA? O cadastro será reutilizado quando houver aluno com o mesmo CPF.'))return;
    setBusy(true);
    try{
@@ -102,7 +105,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    <label className="block">Dia de vencimento da mensalidade<input className="block w-full border p-2" type="number" min="1" max="31" value={due} onChange={e=>{setDue(e.target.value);setUrl('')}}/></label>
    <label className="block">Data de validade do link para preenchimento <span className="text-red-700">*</span><input className="block w-full border p-2" type="date" required min={new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} value={expiresOn} onChange={e=>{setExpiresOn(e.target.value);setUrl('')}}/><span className="text-sm text-zinc-600">O preenchimento e aceite ficam disponíveis até 23h59 (horário de Brasília) na data escolhida.</span></label>
    {conflict&&<p role="alert" className="text-red-700">Professor do grupo e professor exclusivo do plano não coincidem.</p>}
-   <button type="button" disabled={busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
+   <button type="button" disabled={!access.digital_enrollment.create||busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
    {url&&<div className="space-y-2"><p className="text-xs">O link é individual e confidencial. Envie apenas ao destinatário correto.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir formulário de matrícula</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link</button></div>}
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
@@ -112,7 +115,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
      <p className="text-sm">Situação: {r.status} · CPF: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
      <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
-     {r.status==='pending'&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
+     {r.status==='pending'&&access.digital_enrollment.approve&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
      {r.status==='approved'&&r.student_id&&r.enrollment_id&&<button type="button" onClick={()=>{
        setRecentApprovedId(r.id);
        document.getElementById('enrollment-confirmation')?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -136,7 +139,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
       </div>}
       <div className="flex gap-2">
         <button type="button" className="border rounded-lg px-3 py-2" onClick={()=>{setReviewId(null);setMatch(null)}}>Cancelar</button>
-        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação</button>
+        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={!access.digital_enrollment.approve||busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação</button>
       </div>
     </div>
   </section>}
