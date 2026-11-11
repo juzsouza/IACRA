@@ -14,7 +14,7 @@ import { checkPermissionDevEnvironment, getPermissionDevEnvironment } from '../u
 type Choice = 'inherit' | 'deny' | 'allow_own' | 'allow_all';
 const MODULE_LABELS: Record<string, string> = {
   dashboard: 'Painel', coral: 'Coral', agenda: 'Agenda', classes: 'Aulas',
-  students: 'Alunos', enrollments: 'Matrículas', teachers: 'Professores',
+  students: 'Alunos', enrollments: 'Matrículas', digital_enrollment: 'Matrícula Digital', rooms: 'Salas', teachers: 'Professores',
   finance: 'Financeiro', payments: 'Pagamentos', google_calendar: 'Google Calendar',
   settings: 'Configurações', permissions: 'Gerenciamento de Permissões',
 };
@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_individual_values: 'Consultar valores individuais', view_closings: 'Ver fechamentos',
   close_period: 'Fechar período', reopen_period: 'Reabrir período',
   view_reports: 'Relatórios', approve: 'Aprovar',
+  assign: 'Vincular sala à aula', unassign: 'Liberar sala',
   view_consolidated: 'Ver consolidado', connect_own_account: 'Conectar minha conta Google',
   sync_own_events: 'Sincronizar meus eventos', disconnect_own_account: 'Desconectar minha conta',
 };
@@ -98,7 +99,7 @@ export function PermissionsManager(): React.ReactElement {
       const latest = await loadAdminPermissions();
       setSnapshot(latest);
       setEdits(previous => { const next = { ...previous }; delete next[editId]; return next; });
-      setNotice(result.changed ? 'Permissão registrada e auditada no DEV.' : 'A regra já estava configurada; nada mudou.');
+      setNotice(result.changed ? 'Permissão registrada e auditada no banco.' : 'A regra já estava configurada; nada mudou.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Falha ao salvar regra.');
     } finally { setBusyKey(null); }
@@ -125,7 +126,7 @@ export function PermissionsManager(): React.ReactElement {
     </div>}
     {error && <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm">{error}</div>}
     {notice && <div role="status" className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex gap-2"><CheckCircle2 className="w-4 h-4"/>{notice}</div>}
-    {gate.ok && loading && <div role="status" className="p-4 text-zinc-600">Verificando permissões no banco DEV...</div>}
+    {gate.ok && loading && <div role="status" className="p-4 text-zinc-600">Verificando permissões no banco...</div>}
     {snapshot && <>
       <section className="bg-white border rounded-xl p-4 grid sm:grid-cols-3 gap-4">
         <label className="text-sm font-medium">Tipo de regra
@@ -177,7 +178,7 @@ export function PermissionsManager(): React.ReactElement {
           </div>;
         })}
       </section>
-      <p className="text-xs text-zinc-600">O banco DEV deve conter as RPCs da Etapa 09 antes de ativar esta tela. Não use o Supabase IACRA original.</p>
+      <p className="text-xs text-zinc-600">As regras só dão acesso quando a API do módulo também autoriza a operação. O Super Admin mantém as permissões administrativas.</p>
     </>}
   </div>;
 }
