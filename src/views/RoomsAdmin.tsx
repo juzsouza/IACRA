@@ -59,6 +59,7 @@ export function RoomsAdmin():React.ReactElement{
    <div>
     <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Salas de atendimento</h1>
     <p className="text-sm text-zinc-500 mt-1">Organize os ambientes e acompanhe a ocupação das aulas.</p>
+    {!permissions.rooms.assign && <p className="text-xs text-amber-800 mt-1">Somente consulta: vincular salas não foi autorizado para seu perfil.</p>}
    </div>
    <button type="button" disabled={busy} onClick={()=>void load()} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-indigo-700 bg-white border border-indigo-200 rounded-xl shadow-sm hover:bg-indigo-50 transition-colors disabled:opacity-40">
     <RefreshCw className="w-4 h-4"/> Atualizar salas
@@ -159,8 +160,8 @@ export function RoomsAdmin():React.ReactElement{
     {overlaps.length>0&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 flex items-start gap-2 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0"/><p><strong>Conflito de horário.</strong> Sala reservada: {overlaps.map(a=>a.title+' ('+fmt(a.start_time)+'–'+fmt(a.end_time)+')').join(', ')}.</p></div>}
     {message&&<div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 flex items-center gap-2 text-sm text-emerald-800"><CheckCircle2 className="w-4 h-4 shrink-0"/>{message}</div>}
     <div className="flex flex-col sm:flex-row gap-3">
-     <button type="button" disabled={busy||!classId||!roomSlug||!activity||overlaps.length>0} onClick={()=>void save()} className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl shadow-sm hover:bg-indigo-700 disabled:opacity-40 transition-colors"><Save className="w-4 h-4"/>{busy?'Processando...':'Salvar vínculo da sala'}</button>
-     {classId&&assignmentsByClass.has(classId)&&<button type="button" disabled={busy} onClick={()=>void release()} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-700 border border-rose-200 bg-white rounded-xl hover:bg-rose-50 disabled:opacity-40 transition-colors"><Trash2 className="w-4 h-4"/>Liberar sala</button>}
+     <button type="button" disabled={!permissions.rooms.assign||busy||!classId||!roomSlug||!activity||overlaps.length>0} onClick={()=>void save()} className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-xl shadow-sm hover:bg-indigo-700 disabled:opacity-40 transition-colors"><Save className="w-4 h-4"/>{busy?'Processando...':'Salvar vínculo da sala'}</button>
+     {permissions.rooms.unassign&&classId&&assignmentsByClass.has(classId)&&<button type="button" disabled={busy} onClick={()=>void release()} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-rose-700 border border-rose-200 bg-white rounded-xl hover:bg-rose-50 disabled:opacity-40 transition-colors"><Trash2 className="w-4 h-4"/>Liberar sala</button>}
     </div>
    </div>
   </section>
