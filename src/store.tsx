@@ -5700,7 +5700,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     const descriptionParts = (transaction.description || '').split(' | ');
     const isMonthlyBill =
       ['Mensalidade', 'Mensalidade Coral', 'Mensalidade Grupo'].includes(descriptionParts[0]) &&
-      !!descriptionParts[1] && /^\\d{2}\\/\\d{4}$/.test(descriptionParts[2] || '');
+      !!descriptionParts[1] && /^\d{2}\/\d{4}$/.test(descriptionParts[2] || '');
     const baseQuery = supabase
       .from('transactions')
       .select('*')
