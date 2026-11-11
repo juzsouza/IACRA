@@ -1,4 +1,4 @@
-import { splitBoldSegments } from './termBoldMarkup.ts';
+import { termToSafeHtml } from './richTermMarkup.ts';
 import type { DigitalRequest, DigitalTermAudit } from '../services/digitalEnrollment';
 
 const safe = (value: unknown): string =>
@@ -34,9 +34,7 @@ export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: Digit
       !request.student_id || request.student_id !== audit.student_id) {
     throw new Error('Comprovante disponível somente para matrícula aprovada e vinculada.');
   }
-  const termHtml = splitBoldSegments(audit.term_body || '').map(segment =>
-    segment.bold ? `<strong>${safe(segment.text)}</strong>` : safe(segment.text)
-  ).join('');
+  const termHtml = termToSafeHtml(audit.term_body || '');
   const enrollmentCode = request.enrollment_id;
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -58,7 +56,10 @@ export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: Digit
   .field { break-inside: avoid; overflow-wrap: anywhere; }
   .label { font-size: 9pt; color: #656e80; }
   .value { margin-top: 3px; font-weight: 600; }
-  .term { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10pt; line-height: 1.55; }
+  .term { overflow-wrap: anywhere; font-size: 10pt; line-height: 1.55; }
+  .term ul { list-style: disc; padding-left: 22px; }
+  .term ol { list-style: decimal; padding-left: 22px; }
+  .term p { margin: 8px 0; }
   .footer { margin-top: 30px; border-top: 1px solid #d4d8e5; padding-top: 12px; font-size: 9pt; color: #61687a; }
   @media print { .controls { display: none; } .sheet { margin: 0; padding: 0; max-width: unset; } .warning { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
