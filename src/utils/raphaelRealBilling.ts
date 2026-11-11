@@ -99,7 +99,8 @@ export function getClassesForEnrollment(
   enrollment: Enrollment,
   allClasses: ClassSession[],
   allGroups: Group[] = [],
-  plan?: FinancialPlan | null
+  plan?: FinancialPlan | null,
+  options: { requireExplicitStudentId?: boolean } = {}
 ): ClassSession[] {
   const studentId = enrollment.student_id;
   const isIndividual = !enrollment.group_id;
@@ -107,7 +108,13 @@ export function getClassesForEnrollment(
   return (allClasses || []).filter((c) => {
     // 1. Participação do aluno
     const sids = Array.isArray(c.student_ids) ? c.student_ids : [];
-    if (studentId && sids.length > 0 && !sids.includes(studentId)) {
+    // Modo estrito para faturamento real: aulas sem aluno explicitamente
+    // vinculado não podem ser atribuídas a todas as matrículas do professor.
+    if (options.requireExplicitStudentId) {
+      if (!studentId || !sids.includes(studentId)) return false;
+      const enrollmentStart = enrollment.start_date || enrollment.enrollment_date;
+      if (enrollmentStart && (!c.date || c.date < enrollmentStart)) return false;
+    } else if (studentId && sids.length > 0 && !sids.includes(studentId)) {
       return false;
     }
 
@@ -325,8 +332,10 @@ export function calculateRaphaelRealStudentBilling(params: {
   applyCredits?: boolean;
   studentName?: string;
   allGroups?: Group[];
+  /** Produção: exigir vínculo explícito com aluno e data vigente da matrícula. */
+  requireExplicitStudentId?: boolean;
 }): RaphaelBillingMemory {
-  const { enrollment, plan, teacher, classes, monthStr, credits, applyCredits = true, studentName, allGroups = [] } = params;
+  const { enrollment, plan, teacher, classes, monthStr, credits, applyCredits = true, studentName, allGroups = [], requireExplicitStudentId = false } = params;
 
   const teacherName = teacher?.name || "RAPHAEL AUGUSTO PINTO";
   const monthlyBasePrice =
@@ -342,7 +351,9 @@ export function calculateRaphaelRealStudentBilling(params: {
   const pricePerLesson = baseLessons > 0 ? monthlyBasePrice / baseLessons : 0;
 
   // Filtrar exclusivamente aulas que pertencem a esta matrícula no mês específico
-  const enrollmentClasses = getClassesForEnrollment(enrollment, classes, allGroups, plan);
+  const enrollmentClasses = getClassesForEnrollment(
+    enrollment, classes, allGroups, plan, { requireExplicitStudentId }
+  );
   const monthClasses = enrollmentClasses.filter((c) => (c.date || "").startsWith(monthStr));
 
   let regularLessons = 0;
