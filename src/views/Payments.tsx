@@ -391,7 +391,8 @@ export const Payments: React.FC = () => {
             e,
             state.classes,
             state.groups,
-            plan
+            plan,
+            { requireExplicitStudentId: true }
           );
           const previousCredits = calculateCumulativePreviousCredits(
             student.id,
@@ -419,6 +420,7 @@ export const Payments: React.FC = () => {
             applyCredits: true,
             studentName: student.name,
             allGroups: state.groups,
+            requireExplicitStudentId: true,
           });
         }
 
