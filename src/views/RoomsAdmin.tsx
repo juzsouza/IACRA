@@ -3,6 +3,7 @@ import { DoorOpen, CalendarDays, Clock3, CheckCircle2, AlertCircle, RefreshCw, S
 import {supabase} from '../lib/supabase';
 import {useAppStore} from '../store';
 import {iacraFeaturesEnabled} from '../lib/iacraFeatureGate';
+import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
 
 type Room={slug:string;name:string;activities:string[];note:string;raphael_only:boolean};
 type Assignment={class_id:string;room_slug:string;activity:string;title:string;teacher_name:string|null;start_time:string;end_time:string;status:string};
@@ -11,6 +12,7 @@ const fmt=(s:string)=>String(s||'').slice(0,5);
 
 export function RoomsAdmin():React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
+ const permissions=useIacraFeaturePermissions(currentUserProfile);
  const [day,setDay]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'}));
  const [overview,setOverview]=useState<Overview>({rooms:[],assignments:[]});
  const [classId,setClassId]=useState('');
@@ -18,8 +20,7 @@ export function RoomsAdmin():React.ReactElement{
  const [activity,setActivity]=useState('');
  const [busy,setBusy]=useState(false);
  const [message,setMessage]=useState('');
- const authorized=currentUserProfile?.role==='super_admin'&&currentUserProfile?.access_status==='active'
-    &&iacraFeaturesEnabled();
+ const authorized=currentUserProfile?.access_status==='active' && permissions.rooms.view && iacraFeaturesEnabled();
  const load=async()=>{
   const {data,error}=await supabase.rpc('eavra_dev_room_overview',{p_day:day});
   if(error)throw error;
@@ -36,7 +37,7 @@ export function RoomsAdmin():React.ReactElement{
  const reservedRoomsCount=new Set(activeReservations.map(a=>a.room_slug)).size;
  const overlaps=overview.assignments.filter(a=>chosenClass&&a.room_slug===roomSlug&&a.class_id!==classId&&a.status!=='cancelled'&&a.start_time<chosenClass.end_time&&a.end_time>chosenClass.start_time);
  const save=async()=>{
-  if(!authorized||!chosenClass||!chosenRoom||!activity)return;
+  if(!authorized||!permissions.rooms.assign||!chosenClass||!chosenRoom||!activity)return;
   setBusy(true);setMessage('');
   try{
    const {error}=await supabase.rpc('eavra_dev_room_assign',{p_class_id:classId,p_room_slug:roomSlug,p_activity:activity});
@@ -46,13 +47,13 @@ export function RoomsAdmin():React.ReactElement{
   finally{setBusy(false)}
  };
  const release=async()=>{
-  if(!authorized||!classId||!assignmentsByClass.has(classId)||!window.confirm('Liberar a sala desta aula?'))return;
+  if(!authorized||!permissions.rooms.unassign||!classId||!assignmentsByClass.has(classId)||!window.confirm('Liberar a sala desta aula?'))return;
   setBusy(true);setMessage('');
   try{const {error}=await supabase.rpc('eavra_dev_room_unassign',{p_class_id:classId});if(error)throw error;await load();setMessage('Sala liberada.');}
   catch(e){setMessage(e instanceof Error?e.message:'Falha ao liberar sala')}finally{setBusy(false)}
  };
 
- if(!authorized)return <div className="bg-white border border-zinc-200 rounded-2xl p-6 text-sm text-rose-700" role="alert">Área exclusiva do Super Admin ativo.</div>;
+ if(!authorized)return <div className="bg-white border border-zinc-200 rounded-2xl p-6 text-sm text-rose-700" role="alert">Acesso a Salas não autorizado.</div>;
  return <div className="space-y-6">
   <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
    <div>
