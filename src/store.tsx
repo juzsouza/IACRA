@@ -861,7 +861,7 @@ type AppContextType = {
   deleteCredit: (id: string) => Promise<{ success: boolean; error?: string }>;
   reconcileRaphaelCredits: () => Promise<void> | void;
 
-  addTransaction: (transaction: Omit<Transaction, "id">) => void;
+  addTransaction: (transaction: Omit<Transaction, "id"> & { id?: string }) => Promise<Transaction>;
   updateTransaction: (id: string, transaction: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
 
@@ -5692,16 +5692,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
-  const addTransaction = async (transaction: Omit<Transaction, "id">) => {
-    const newTransaction = { ...transaction, id: generateId() };
-    setState((s) => ({
-      ...s,
-      transactions: [...s.transactions, newTransaction],
-    }));
-    if (true) {
-      const { error } = await supabase.from('transactions').insert([newTransaction]);
-      if (error) console.error('Error adding transaction:', error);
+  const addTransaction = async (
+    transaction: Omit<Transaction, "id"> & { id?: string }
+  ): Promise<Transaction> => {
+    // Consultar o banco (não apenas o estado da tela) para impedir nova
+    // transação de uma mesma mensalidade já registrada.
+    const { data: prior, error: checkError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('description', transaction.description)
+      .eq('type', transaction.type)
+      .eq('status', 'completed')
+      .limit(1);
+    if (checkError) throw new Error('Não foi possível conferir pagamentos anteriores: ' + checkError.message);
+    if (prior && prior.length > 0) {
+      const existingTransaction = prior[0] as Transaction;
+      setState(s => ({
+        ...s,
+        transactions: s.transactions.some(t => t.id === existingTransaction.id)
+          ? s.transactions : [...s.transactions, existingTransaction],
+      }));
+      return existingTransaction;
     }
+
+    // Manter o mesmo ID enviado pela baixa; nunca inventar outro ID antes de
+    // vinculá-lo ao snapshot (FK de competence_billings.transaction_id).
+    const newTransaction = { ...transaction, id: transaction.id || generateId() } as Transaction;
+    const { data: saved, error } = await supabase
+      .from('transactions')
+      .insert([newTransaction])
+      .select('*')
+      .single();
+    if (error || !saved) {
+      throw new Error('Transação não confirmada pelo banco: ' + (error?.message || 'sem retorno'));
+    }
+    const confirmed = saved as Transaction;
+    setState(s => ({
+      ...s,
+      transactions: s.transactions.some(t => t.id === confirmed.id)
+        ? s.transactions : [...s.transactions, confirmed],
+    }));
+    return confirmed;
   };
   const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
     setState((s) => ({
