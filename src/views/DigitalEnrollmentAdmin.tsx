@@ -5,7 +5,8 @@ import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../
 import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
 import {isGroupModel} from '../utils/enrollmentTermModels';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
-import {splitBoldSegments,toggleBoldSelection} from '../utils/termBoldMarkup';
+import {termToSafeHtml} from '../utils/richTermMarkup';
+import {RichTermEditor} from '../components/RichTermEditor';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
 import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
 
@@ -23,8 +24,6 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const [due,setDue]=useState('10');
  const [expiresOn,setExpiresOn]=useState('');
  const [term,setTerm]=useState<TermDraft>({title:TERM_MODELS[0].label,body:''});
- const termEditorRef=React.useRef<HTMLTextAreaElement>(null);
- const applyBold=()=>{const editor=termEditorRef.current;if(!editor)return;const r=toggleBoldSelection(term.body,editor.selectionStart,editor.selectionEnd);setTerm(v=>({...v,body:r.text}));setUrl('');requestAnimationFrame(()=>{editor.focus();editor.setSelectionRange(r.start,r.end)});};
  const [url,setUrl]=useState('');
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<DigitalRequest[]>([]);
@@ -95,7 +94,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    <h2 className="font-bold text-lg">Preparar convite</h2>
    <label className="block">Modelo de termo<select className="block w-full border p-2" value={model} onChange={e=>{const id=e.target.value as TermModelId;setModel(id);setTerm({title:TERM_MODELS.find(x=>x.id===id)?.label||'',body:'' });setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
    <label className="block">Título do termo<input className="block w-full border p-2" maxLength={160} required value={term.title} onChange={e=>{setTerm(v=>({...v,title:e.target.value}));setUrl('')}}/></label>
-   <label className="block">Texto completo do termo<textarea ref={termEditorRef} className="block w-full border p-2" rows={9} maxLength={20000} required placeholder="Insira o termo revisado pela instituição." value={term.body} onChange={e=>{setTerm(v=>({...v,body:e.target.value}));setUrl('')}}/></label><button type="button" className="border rounded px-3 py-2" onClick={applyBold}>Aplicar negrito ao trecho selecionado</button><p className="text-xs text-zinc-600">O negrito será marcado com **asteriscos** e exibido formatado ao aluno.</p>
+   <div className="space-y-2"><label className="block font-medium">Texto completo do termo</label><RichTermEditor value={term.body} onChange={body=>{setTerm(v=>({...v,body}));setUrl('')}}/></div>
    {!validTermForIssue(term)&&<p role="status" className="text-sm text-amber-800">Preencha o texto do termo para liberar o convite. O conteúdo precisa ser revisado pela secretaria.</p>}
    <label className="block">Plano<select className="block w-full border p-2" value={planId} onChange={e=>{setPlanId(e.target.value);setPrice(null);setUrl('')}}><option value="">Selecione um plano</option>{plans.map(p=><option key={p.id} value={p.id}>{p.name} — R$ {p.base_price.toFixed(2)}</option>)}</select></label>
    {isGroupModel(model)&&<label className="block">Grupo<select className="block w-full border p-2" value={groupId} onChange={e=>{setGroupId(e.target.value);setUrl('')}}><option value="">Selecione um grupo</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}
@@ -158,7 +157,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
         </div>
         <div className="border rounded-lg p-4">
           <h3 className="font-bold text-lg mb-3">{audit.term_title}</h3>
-          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{splitBoldSegments(audit.term_body).map((seg,i)=>seg.bold?<strong key={i}>{seg.text}</strong>:<React.Fragment key={i}>{seg.text}</React.Fragment>)}</div>
+          <div className="break-words text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6" dangerouslySetInnerHTML={{__html:termToSafeHtml(audit.term_body)}}/>
         </div>
         {audit.status==='approved'&&records.find(r=>r.id===auditId)?.enrollment_id&&<button type="button" className="bg-indigo-700 text-white rounded-lg px-4 py-2" onClick={()=>{try{const record=records.find(r=>r.id===auditId);if(record)openEnrollmentReceipt(record,audit)}catch(e){setNotice(e instanceof Error?e.message:'Erro ao emitir comprovante')}}}>Emitir comprovante em PDF</button>}
         <p className="text-xs text-zinc-500">Cópia preservada no sistema. O registro de aceite não é um certificado de assinatura digital.</p>
