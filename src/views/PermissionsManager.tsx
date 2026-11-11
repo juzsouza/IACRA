@@ -167,7 +167,8 @@ export function PermissionsManager(): React.ReactElement {
                 disabled={locked || busyKey !== null} onChange={e=>setEdits(old=>({...old,[editId]:e.target.value as Choice}))}>
                 <option value="inherit">{subject === 'user' ? 'Herdar perfil' : 'Sem regra'}</option>
                 <option value="deny">Negar</option>
-                {!item.admin_only || selectedRole !== 'teacher' ? <option value="allow_own">Permitir · próprios dados</option> : null}
+                {!['digital_enrollment','rooms'].includes(item.module) && (!item.admin_only || selectedRole !== 'teacher')
+                  ? <option value="allow_own">Permitir · próprios dados</option> : null}
                 {selectedRole !== 'teacher' && <option value="allow_all">Permitir · geral</option>}
               </select>
             </label>
