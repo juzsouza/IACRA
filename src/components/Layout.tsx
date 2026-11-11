@@ -27,6 +27,7 @@ import { RaphaelBillingSimulatorModal } from "./RaphaelBillingSimulatorModal";
 import { Calculator } from "lucide-react";
 import { View } from "../utils/navigation";
 import { iacraFeaturesEnabled } from "../lib/iacraFeatureGate";
+import { useIacraFeaturePermissions } from "../hooks/useIacraFeaturePermissions";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,14 +44,15 @@ export const Layout: React.FC<LayoutProps> = ({
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isSimulatorModalOpen, setIsSimulatorModalOpen] = useState(false);
   const { currentUserProfile, pendingSyncCount, latestAuditSummary } = useAppStore();
+  const featurePermissions = useIacraFeaturePermissions(currentUserProfile);
 
   const allNavItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["super_admin", "admin"] },
     { id: "prospects", label: "Pré-cadastros", icon: FileText, roles: ["super_admin", "admin"] },
     { id: "students", label: "Alunos", icon: Users, roles: ["super_admin", "admin", "teacher"] },
     { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
-    { id: "digital_enrollment", label: "Matrícula digital", icon: FileText, roles: ["super_admin"] },
-    { id: "rooms_admin", label: "Salas", icon: CalendarDays, roles: ["super_admin"] },
+    { id: "digital_enrollment", label: "Matrícula digital", icon: FileText, roles: ["super_admin", "admin"] },
+    { id: "rooms_admin", label: "Salas", icon: CalendarDays, roles: ["super_admin", "admin"] },
     { id: "permissions_manager", label: "Gerenciamento de Permissões", icon: Shield, roles: ["super_admin"] },
     { id: "affiliates", label: "Afiliados", icon: Share2, roles: ["super_admin", "admin"] },
     { id: "groups", label: "Grupos", icon: Users, roles: ["super_admin", "admin"] },
@@ -69,7 +71,10 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const userRole = currentUserProfile?.role;
   const navItems = userRole
-    ? allNavItems.filter((item) => item.roles.includes(userRole) && (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')))
+    ? allNavItems.filter((item) => item.roles.includes(userRole) &&
+      (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')) &&
+      (item.id !== 'digital_enrollment' || featurePermissions.digital_enrollment.view) &&
+      (item.id !== 'rooms_admin' || featurePermissions.rooms.view))
     : [];
 
   return (
