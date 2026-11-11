@@ -7723,15 +7723,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     if (updates.frozen_by !== undefined) dbUpdates.frozen_by = updates.frozen_by;
     if (updates.metadata !== undefined) dbUpdates.metadata = updates.metadata;
 
-    // 4. Executar UPDATE no Supabase
-    const { error } = await supabase
+    // 4. Confirmar a gravação pelo retorno do banco. Um UPDATE sem erro,
+    // mas bloqueado por RLS, pode afetar zero linhas e não liquidar nada.
+    const { data: confirmedRows, error } = await supabase
       .from('competence_billings')
       .update(dbUpdates)
-      .eq('id', id);
+      .eq('id', id)
+      .select('id,status,transaction_id,is_frozen,final_price');
 
     if (error) {
       console.error('Error updating competence_billing in Supabase:', error);
       throw new Error(error.message || 'Erro ao atualizar faturamento de competência no Supabase.');
+    }
+    if (!confirmedRows || confirmedRows.length !== 1) {
+      throw new Error('Baixa não confirmada: o banco não retornou exatamente uma cobrança atualizada.');
+    }
+    if (
+      (updates.status !== undefined && confirmedRows[0].status !== updates.status) ||
+      (updates.transaction_id !== undefined && confirmedRows[0].transaction_id !== updates.transaction_id) ||
+      (updates.is_frozen !== undefined && confirmedRows[0].is_frozen !== updates.is_frozen) ||
+      (updates.final_price !== undefined && Math.abs(Number(confirmedRows[0].final_price) - Number(updates.final_price)) > 0.001)
+    ) {
+      throw new Error('Baixa não confirmada: o banco retornou dados diferentes dos solicitados.');
     }
 
     // 5. Somente após sucesso atualizar o estado local
