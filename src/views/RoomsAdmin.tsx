@@ -4,7 +4,7 @@ import {supabase} from '../lib/supabase';
 import {useAppStore} from '../store';
 import {iacraFeaturesEnabled} from '../lib/iacraFeatureGate';
 import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
-import {automaticRoomActivity,filteredRoomClasses,filteredRoomReservations} from '../utils/roomAdjustments';
+import {automaticRoomActivity,classHasEligibleStudents,filteredRoomClasses,filteredRoomReservations} from '../utils/roomAdjustments';
 
 type Room={slug:string;name:string;activities:string[];note:string;raphael_only:boolean};
 type Assignment={class_id:string;room_slug:string;activity:string;title:string;teacher_name:string|null;start_time:string;end_time:string;status:string};
@@ -30,7 +30,8 @@ export function RoomsAdmin():React.ReactElement{
   setOverview(data as Overview);
  };
  useEffect(()=>{if(authorized)void load().catch(e=>setMessage(e.message));},[day,authorized]);
- const classes=state.classes.filter(c=>c.date===day&&c.status!=='cancelled').sort((a,b)=>a.start_time.localeCompare(b.start_time));
+ const studentStatuses=new Map(state.students.map(student=>[student.id,student.status] as [string,'active'|'inactive']));
+ const classes=state.classes.filter(c=>c.date===day&&c.status!=='cancelled'&&classHasEligibleStudents(c.student_ids||[],studentStatuses)).sort((a,b)=>a.start_time.localeCompare(b.start_time));
  const filteredClasses=filteredRoomClasses(classes,teacherFilter) as typeof classes;
  const classStudentNames=(studentIds:string[])=>studentIds.map(id=>state.students.find(student=>student.id===id)?.name).filter((name):name is string=>!!name);
  const duplicateTimeClasses=classes.filter(c=>c.teacher_id===classes.find(x=>x.id===classId)?.teacher_id && c.id!==classId && c.start_time===classes.find(x=>x.id===classId)?.start_time && c.end_time===classes.find(x=>x.id===classId)?.end_time);
