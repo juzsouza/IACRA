@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const read=(file:string)=>readFileSync(new URL(file,import.meta.url),'utf8');
+const admin=read('../views/DigitalEnrollmentAdmin.tsx');
+const student=read('../views/PublicEnrollment.tsx');
+const service=read('../services/digitalEnrollment.ts');
+const rooms=read('../views/RoomsAdmin.tsx');
+const sql=read('../../docs/revisao-producao/CANDIDATO_instrumento_definido_secretaria_20261111.sql');
+
+assert.match(admin,/Instrumento ou atividade definido pela secretaria/);
+assert.match(admin,/instrument:instrument\.trim\(\)/);
+assert.match(admin,/instrument\.trim\(\)\.length<2/);
+assert.match(student,/offer\.instrument/);
+assert.match(student,/Informação definida pela secretaria/);
+assert.match(student,/instrument:offer\?\.instrument\|\|student\.instrument/);
+assert.match(service,/eavra_dev_create_enrollment_offer_with_instrument/);
+assert.match(service,/p_instrument:input\.instrument\.trim\(\)/);
+assert.match(sql,/ADD COLUMN IF NOT EXISTS instrument text/);
+assert.match(sql,/v_instrument := coalesce\(nullif\(btrim\(v_offer\.instrument\),''\),btrim\(p_student->>'instrument'\)\)/);
+assert.match(sql,/'instrument',v_record\.instrument/);
+assert.match(sql,/created_by=auth\.uid\(\)::text/);
+assert.match(sql,/public\.eavra_dev_create_enrollment_offer_with_expiry/);
+assert.match(sql,/COMMIT;/);
+assert.match(rooms,/Horário duplicado na agenda/);
+assert.match(rooms,/classStudentNames\(c\.student_ids\)/);
+assert.doesNotMatch(sql,/DELETE\s+FROM\s+public\.(classes|transactions|students)/i);
+console.log('PASS: new fixed instrument, legacy invites, ambiguity warning, and unchanged financial data');
