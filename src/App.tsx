@@ -30,6 +30,7 @@ import { DigitalEnrollmentAdmin } from "./views/DigitalEnrollmentAdmin";
 import { RoomsAdmin } from "./views/RoomsAdmin";
 import { PermissionsManager } from "./views/PermissionsManager";
 import { iacraFeaturesEnabled } from "./lib/iacraFeatureGate";
+import { useIacraFeaturePermissions } from "./hooks/useIacraFeaturePermissions";
 import { supabase } from "./lib/supabase";
 import {
   View,
@@ -145,6 +146,7 @@ export class ErrorBoundary extends ComponentBase {
 
 function AppContent() {
   const { state, deleteFinancialPlan, setGlobalError, currentUserProfile, isProfileLoading } = useAppStore();
+  const featurePermissions = useIacraFeaturePermissions(currentUserProfile);
   const [currentView, setCurrentView] = useState<View>(() => {
     const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     if (currentUserProfile?.id) {
@@ -243,9 +245,9 @@ function AppContent() {
       case "enrollments":
         return <Enrollments />;
       case "digital_enrollment":
-        return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
+        return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
       case "rooms_admin":
-        return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <RoomsAdmin /> : <div role="alert">Acesso restrito.</div>;
+        return iacraFeaturesEnabled() && featurePermissions.rooms.view ? <RoomsAdmin /> : <div role="alert">Acesso restrito.</div>;
       case "permissions_manager":
         return iacraFeaturesEnabled() && currentUserProfile?.role === "super_admin" && currentUserProfile?.access_status === "active" ? <PermissionsManager /> : <div role="alert">Acesso restrito.</div>;
       case "discount_rules":
