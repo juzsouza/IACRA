@@ -7,6 +7,7 @@ function requireFeature() {
 }
 export type DigitalOffer = {
  model_id:TermModelId; teacher_name:string; plan_name:string; group_name:string|null;
+ instrument:string|null;
  start_date:string; enrollment_date:string; due_day:number; monthly_amount:number;
  term_title:string; term_body:string; expires_at:string;
 };
@@ -18,16 +19,17 @@ export type DigitalRequest = {
 };
 export async function createDigitalOffer(input:{
  modelId:TermModelId;teacherId:string;planId:string;groupId:string|null;startDate:string;
- enrollmentDate:string;dueDay:number;monthlyAmount:number;term:TermDraft;expiresOn:string;
+ enrollmentDate:string;dueDay:number;monthlyAmount:number;term:TermDraft;expiresOn:string;instrument:string;
 }):Promise<string>{
  requireFeature();
  if(!validTermForIssue(input.term))throw new Error('O termo precisa estar preenchido e revisado.');
+ if(input.instrument.trim().length<2||input.instrument.trim().length>120)throw new Error('Informe o instrumento ou atividade (2 a 120 caracteres).');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(input.expiresOn))throw new Error('Informe uma data de validade válida.');
- const {data,error}=await supabase.rpc('eavra_dev_create_enrollment_offer_with_expiry',{
+ const {data,error}=await supabase.rpc('eavra_dev_create_enrollment_offer_with_instrument',{
  p_model_id:input.modelId,p_teacher_id:input.teacherId,p_plan_id:input.planId,p_group_id:input.groupId,
  p_start_date:input.startDate,p_enrollment_date:input.enrollmentDate,p_due_day:input.dueDay,
  p_monthly_amount:input.monthlyAmount,p_term_title:input.term.title,p_term_body:input.term.body,
- p_expires_on:input.expiresOn
+ p_expires_on:input.expiresOn,p_instrument:input.instrument.trim()
  });
  if(error)throw error;
  const token=String(data?.token||'');
