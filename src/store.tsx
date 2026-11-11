@@ -5697,16 +5697,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<Transaction> => {
     // Consultar o banco (não apenas o estado da tela) para impedir nova
     // transação de uma mesma mensalidade já registrada.
-    const { data: prior, error: checkError } = await supabase
+    const descriptionParts = (transaction.description || '').split(' | ');
+    const isMonthlyBill =
+      ['Mensalidade', 'Mensalidade Coral', 'Mensalidade Grupo'].includes(descriptionParts[0]) &&
+      !!descriptionParts[1] && /^\\d{2}\\/\\d{4}$/.test(descriptionParts[2] || '');
+    const baseQuery = supabase
       .from('transactions')
       .select('*')
-      .eq('description', transaction.description)
       .eq('type', transaction.type)
-      .eq('status', 'completed')
-      .limit(1);
+      .eq('status', 'completed');
+    // Chave de duplicidade: categoria + origem + competência.
+    // Não usar o nome nem o valor; podem ser editados na confirmação.
+    const prefix = descriptionParts.slice(0, 3).join(' | ') + ' | ';
+    const checkedQuery = isMonthlyBill
+      ? baseQuery.like('description', prefix + '%')
+      : baseQuery.eq('description', transaction.description);
+    const { data: prior, error: checkError } = await checkedQuery.limit(1);
     if (checkError) throw new Error('Não foi possível conferir pagamentos anteriores: ' + checkError.message);
     if (prior && prior.length > 0) {
       const existingTransaction = prior[0] as Transaction;
+      if (Math.abs(Number(existingTransaction.amount) - Number(transaction.amount)) > 0.001) {
+        throw new Error('Pagamento da mesma competência já registrado com outro valor. Faça conciliação antes de continuar.');
+      }
       setState(s => ({
         ...s,
         transactions: s.transactions.some(t => t.id === existingTransaction.id)
