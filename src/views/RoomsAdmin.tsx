@@ -31,9 +31,9 @@ export function RoomsAdmin():React.ReactElement{
  };
  useEffect(()=>{if(authorized)void load().catch(e=>setMessage(e.message));},[day,authorized]);
  const classes=state.classes.filter(c=>c.date===day&&c.status!=='cancelled').sort((a,b)=>a.start_time.localeCompare(b.start_time));
- const filteredClasses=filteredRoomClasses(classes,teacherFilter);
+ const filteredClasses=filteredRoomClasses(classes,teacherFilter) as typeof classes;
  const classTeachers=new Map<string,string>(classes.map(c=>[c.id,c.teacher_id] as [string,string]));
- const shownReservations=filteredRoomReservations(overview.assignments,teacherFilter,roomFilter,classTeachers);
+ const shownReservations=filteredRoomReservations(overview.assignments,teacherFilter,roomFilter,classTeachers) as Assignment[];
  const chosenClass=classes.find(c=>c.id===classId);
  const chosenRoom=overview.rooms.find(r=>r.slug===roomSlug);
  const teacher=state.teachers.find(t=>t.id===chosenClass?.teacher_id);
