@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const read=(path:string)=>readFileSync(new URL(path,import.meta.url),'utf8');
+const admin=read('../views/DigitalEnrollmentAdmin.tsx');
+const tracking=read('../components/EnrollmentInvitationTracking.tsx');
+const trackingPage=read('../views/EnrollmentTrackingPage.tsx');
+const app=read('../App.tsx');
+const service=read('../services/digitalEnrollment.ts');
+const sql=read('../../docs/revisao-producao/CANDIDATO_acompanhamento_nome_matricula_20261112.sql');
+assert.doesNotMatch(admin,/<EnrollmentSuccess/,'confirmation must not mount inside long Matricula Digital page');
+assert.doesNotMatch(admin,/setRecentApprovedId/);
+assert.match(admin,/records\.filter\(r=>r\.status!=='approved'\)/);
+assert.match(tracking,/r\.student_name\|\|r\.recipient_label/);
+assert.match(tracking,/Matrícula registrada/);
+assert.match(tracking,/r\.enrollment_id/);
+assert.match(tracking,/onShowConfirmation/);
+assert.match(trackingPage,/<EnrollmentSuccess request=\{approved\}/);
+assert.match(trackingPage,/readDigitalInbox\(\)/);
+assert.match(trackingPage,/openEnrollmentReceipt/);
+assert.match(trackingPage,/aria-modal="true"/);
+assert.match(app,/onNavigate=\{handleViewChange\}/);
+for(const key of ['student_name','enrollment_id','submission_id','student_id']){
+ assert.match(sql,new RegExp("'"+key+"'"));
+ assert.match(service,new RegExp(key+":string\\|null"));
+}
+assert.match(sql,/eavra_actor_has_feature_permission\('digital_enrollment\.view'\)/);
+assert.match(sql,/LEFT JOIN public\.enrollments en ON en\.id=s\.enrollment_id/);
+assert.match(sql,/LEFT JOIN public\.students st ON st\.id=s\.student_id/);
+assert.doesNotMatch(sql,/\bUPDATE\s+public\.|\bDELETE\s+FROM\s+public\.|\bTRUNCATE\b/i);
+console.log('PASS: approval visibility, student name, verified enrollment and compact tracking modal');
