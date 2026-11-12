@@ -27,6 +27,7 @@ import { Affiliates } from "./views/Affiliates";
 import { PrivacyPolicy } from "./views/PrivacyPolicy";
 import { PublicEnrollment } from "./views/PublicEnrollment";
 import { DigitalEnrollmentAdmin } from "./views/DigitalEnrollmentAdmin";
+import { EnrollmentTrackingPage } from "./views/EnrollmentTrackingPage";
 import { RoomsAdmin } from "./views/RoomsAdmin";
 import { PermissionsManager } from "./views/PermissionsManager";
 import { iacraFeaturesEnabled } from "./lib/iacraFeatureGate";
@@ -246,6 +247,8 @@ function AppContent() {
         return <Enrollments />;
       case "digital_enrollment":
         return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
+      case "enrollment_tracking":
+        return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <EnrollmentTrackingPage canMarkSent={featurePermissions.digital_enrollment.create} /> : <div role="alert">Acesso restrito.</div>;
       case "rooms_admin":
         return iacraFeaturesEnabled() && featurePermissions.rooms.view ? <RoomsAdmin /> : <div role="alert">Acesso restrito.</div>;
       case "permissions_manager":
