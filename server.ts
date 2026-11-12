@@ -156,7 +156,9 @@ export async function createApp() {
   app.get(['/matricula', '/matricula/'], (req, res, next) => {
     try {
       const production = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test-prod';
-      const file = path.join(process.cwd(), production ? 'dist/index.html' : 'index.html');
+      // In development let Vite inject its React-refresh preamble into index.html.
+      if (!production) return next();
+      const file = path.join(process.cwd(), 'dist/index.html');
       if (!fs.existsSync(file)) return next();
       const html = renderEnrollmentShareHtml(fs.readFileSync(file, 'utf-8'));
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
