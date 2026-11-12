@@ -7,7 +7,7 @@ const row:DigitalOfferTracking={
  id:'fictitious',created_at:'2026-11-11T12:00:00Z',expires_at:'2026-11-14T03:00:00Z',
  first_opened_at:null,sent_at:null,recipient_label:null,submitted_at:null,
  term_title:'Termo fictício',model_id:'raphael_individual',plan_name:'Individual',teacher_name:'Professor',
- group_name:null,submission_status:null,
+ group_name:null,submission_status:null,submission_id:null,student_id:null,student_name:null,enrollment_id:null,
 };
 assert.equal(invitationStatus(row,now),'created');
 assert.equal(invitationStatus({...row,sent_at:'2026-11-12T14:00:00Z'},now),'sent');
