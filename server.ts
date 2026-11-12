@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { googleCalendarRouter } from './src/server/googleCalendarRoutes.js';
 import { validateGoogleOAuthConfig } from './src/server/googleCalendarService.js';
 import { adminRouter } from './src/server/adminRoutes.js';
+import { renderEnrollmentShareHtml } from './src/utils/enrollmentLinkPreview.js';
 
 dotenv.config({ override: false });
 
@@ -149,6 +150,20 @@ export async function createApp() {
   // Rota estática direta para a Política de Privacidade (Google Search Console / SEO / LGPD)
   // Serve diretamente o HTML estático completo sem passar pelo fallback SPA ou autenticação
   app.get(['/politica-de-privacidade', '/politica-de-privacidade/'], handlePrivacyPolicy);
+
+  // Prévia pública do convite (WhatsApp). Não processar o token nesta rota;
+  // o React fará a validação normal somente quando a pessoa abrir o formulário.
+  app.get(['/matricula', '/matricula/'], (req, res, next) => {
+    try {
+      const production = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test-prod';
+      const file = path.join(process.cwd(), production ? 'dist/index.html' : 'index.html');
+      if (!fs.existsSync(file)) return next();
+      const html = renderEnrollmentShareHtml(fs.readFileSync(file, 'utf-8'));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.status(200).send(html);
+    } catch (error) { next(error); }
+  });
 
   // Vite middleware em desenvolvimento / arquivos estáticos em produção
   if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test-prod') {
