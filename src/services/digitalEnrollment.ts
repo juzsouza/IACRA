@@ -30,6 +30,13 @@ export type DigitalOfferTracking = {
  student_name:string|null;
  enrollment_id:string|null;
 };
+export async function readTrackingApprovedTerm(id:string):Promise<DigitalTermAudit>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_tracking_read_approved_term',{p_submission_id:id});
+ if(error)throw error;
+ if(!data||data.status!=='approved'||!data.enrollment_id||!data.student_id)throw new Error('Termo aprovado não encontrado.');
+ return data as DigitalTermAudit;
+}
 export async function readTrackingApprovedRequest(id:string):Promise<DigitalRequest>{
  requireFeature();
  const {data,error}=await supabase.rpc('eavra_dev_tracking_read_approved_request',{p_submission_id:id});
