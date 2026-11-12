@@ -2,7 +2,7 @@ import React,{useState} from 'react';
 import {EnrollmentInvitationTracking} from '../components/EnrollmentInvitationTracking';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
-import {readDigitalInbox,readDigitalTermAudit,type DigitalRequest,type DigitalTermAudit} from '../services/digitalEnrollment';
+import {readTrackingApprovedRequest,readDigitalTermAudit,type DigitalRequest,type DigitalTermAudit} from '../services/digitalEnrollment';
 
 export function EnrollmentTrackingPage({canMarkSent,onNavigate}:{canMarkSent:boolean;onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const [approved,setApproved]=useState<DigitalRequest|null>(null);
@@ -12,9 +12,8 @@ export function EnrollmentTrackingPage({canMarkSent,onNavigate}:{canMarkSent:boo
  const showConfirmation=async(id:string)=>{
   setBusy(true);setNotice('');setApproved(null);setAudit(null);
   try{
-   const requests=await readDigitalInbox();
-   const match=requests.find(r=>r.id===id&&r.status==='approved'&&r.student_id&&r.enrollment_id);
-   if(!match)throw new Error('Confirmação não encontrada na lista recente. A matrícula permanece registrada no sistema.');
+   const match=await readTrackingApprovedRequest(id);
+   if(!match||match.status!=='approved'||!match.student_id||!match.enrollment_id)throw new Error('Confirmação não encontrada. A matrícula permanece registrada no sistema.');
    setApproved(match);
   }catch(e){setNotice(e instanceof Error?e.message:'Não foi possível consultar a matrícula');}
   finally{setBusy(false);}
