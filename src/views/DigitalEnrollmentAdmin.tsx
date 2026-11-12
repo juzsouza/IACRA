@@ -10,7 +10,7 @@ import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
 import {groupLabelForTerm,isMevGroupName,termWithGroupSnapshot} from '../utils/enrollmentTermGroup';
 import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
 
-export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
+export function DigitalEnrollmentAdmin():React.ReactElement{
  const {state,currentUserProfile}=useAppStore();
  const access=useIacraFeaturePermissions(currentUserProfile);
  const active=Boolean(currentUserProfile?.access_status==='active' && access.digital_enrollment.view);
