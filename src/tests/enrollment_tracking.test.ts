@@ -16,11 +16,11 @@ assert.equal(invitationStatus({...row,expires_at:'2026-11-12T19:00:00Z'},now),'e
 assert.equal(invitationStatus({...row,expires_at:'2026-11-12T19:00:00Z',submitted_at:'2026-11-12T16:00:00Z'},now),'submitted');
 assert.equal(invitationStatus({...row,submission_status:'approved'},now),'approved');
 const read=(p:string)=>readFileSync(new URL(p,import.meta.url),'utf-8');
-const admin=read('../views/DigitalEnrollmentAdmin.tsx');
+const page=read('../views/EnrollmentTrackingPage.tsx');
 const publicForm=read('../views/PublicEnrollment.tsx');
 const service=read('../services/digitalEnrollment.ts');
 const sql=read('../../docs/revisao-producao/CANDIDATO_acompanhamento_termos_20261112.sql');
-assert.match(admin,/<EnrollmentInvitationTracking/);
+assert.match(page,/<EnrollmentInvitationTracking/);
 assert.match(publicForm,/readDigitalOffer\(token\)\.then\(x=>\{if\(active\)\{setOffer\(x\);void trackDigitalOfferOpened/);
 assert.match(service,/eavra_dev_track_enrollment_open/);
 assert.match(service,/eavra_dev_admin_enrollment_offers/);
