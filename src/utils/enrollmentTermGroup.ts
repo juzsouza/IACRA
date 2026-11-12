@@ -1,5 +1,5 @@
 import type { TermDraft, TermModelId } from './enrollmentTermModels';
-import { RICH_TERM_PREFIX, isRichTerm, sanitizeTermHtml } from './richTermMarkup';
+import { RICH_TERM_PREFIX, isRichTerm } from './richTermMarkup';
 
 export const isMevGroupName = (name: string): boolean => /^MEV\s+\d+(?:\b|$)/i.test(name.trim());
 
@@ -22,7 +22,7 @@ export function termWithGroupSnapshot(term: TermDraft, model: TermModelId, group
   if (!label) return term;
   const escapedLabel = escapeHtml(label);
   const original = isRichTerm(term.body)
-    ? sanitizeTermHtml(term.body.slice(RICH_TERM_PREFIX.length))
+    ? term.body.slice(RICH_TERM_PREFIX.length)
     : escapeHtml(term.body).replace(/\r\n?|\n/g, '<br>');
   return {
     title: term.title,
