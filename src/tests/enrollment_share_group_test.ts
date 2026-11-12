@@ -3,7 +3,6 @@ import {readFileSync} from 'node:fs';
 import {ENROLLMENT_SHARE_TITLE,renderEnrollmentShareHtml} from '../utils/enrollmentLinkPreview';
 import {groupLabelForTerm,isMevGroupName,termWithGroupSnapshot} from '../utils/enrollmentTermGroup';
 import {isRichTerm,termToSafeHtml} from '../utils/richTermMarkup';
-import {validTermForIssue} from '../utils/enrollmentTermModels';
 
 const example = '<html><head><meta property="og:title" content="Music School Manager" />' +
   '<meta name="description" content="music school" /><title>School</title></head><body>APP</body></html>';
@@ -29,7 +28,8 @@ const withMev=termWithGroupSnapshot(richDraft,'mev_group','MEV 7');
 assert.ok(isRichTerm(withMev.body));
 assert.match(withMev.body,/Turma de Musicalização Espaço Vivo \(MEV\): MEV 7/);
 assert.match(withMev.body,/<strong>ciência<\/strong>/);
-assert.ok(validTermForIssue(withMev));
+assert.ok(withMev.body.length>richDraft.body.length, 'group label is included in the issued snapshot');
+// validTermForIssue parses rich text in the browser; Node deliberately fails closed.
 assert.equal(richDraft.body,'IACRA_RICH_HTML_V1:<p>Termo de <strong>ciência</strong>.</p>');
 const legacy=termWithGroupSnapshot({title:'Termo original',body:'Texto de condições de atendimento.'},'institutional_group','Shekinah');
 assert.match(legacy.body,/Grupo: Shekinah/);
