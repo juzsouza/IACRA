@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {ENROLLMENT_SHARE_TITLE,renderEnrollmentShareHtml} from '../utils/enrollmentLinkPreview';
+import {groupLabelForTerm,isMevGroupName,termWithGroupSnapshot} from '../utils/enrollmentTermGroup';
+import {isRichTerm,termToSafeHtml} from '../utils/richTermMarkup';
+import {validTermForIssue} from '../utils/enrollmentTermModels';
+
+const example = '<html><head><meta property="og:title" content="Music School Manager" />' +
+  '<meta name="description" content="music school" /><title>School</title></head><body>APP</body></html>';
+const preview=renderEnrollmentShareHtml(example);
+assert.match(preview,/<meta property="og:title" content="TERMO DE CIÊNCIA E RESPONSABILIDADE ATENDIMENTOS - ACEITE ELETRÔNICO"/);
+assert.match(preview,/<title>TERMO DE CIÊNCIA E RESPONSABILIDADE ATENDIMENTOS - ACEITE ELETRÔNICO<\/title>/);
+assert.match(preview,/<meta property="og:description"/);
+assert.match(preview,/<meta property="og:url"/);
+assert.ok(!preview.includes('Music School Manager'));
+assert.ok(!preview.includes('convite='));
+assert.equal(renderEnrollmentShareHtml(preview),preview,'idempotent preview metadata');
+assert.equal(ENROLLMENT_SHARE_TITLE,'TERMO DE CIÊNCIA E RESPONSABILIDADE ATENDIMENTOS - ACEITE ELETRÔNICO');
+
+assert.equal(isMevGroupName('MEV 7'),true);
+assert.equal(isMevGroupName('MEV 14 ONLINE'),true);
+assert.equal(isMevGroupName('MEV 12 '),true);
+assert.equal(isMevGroupName('MEV experimental'),false);
+assert.equal(isMevGroupName('GRUPO SANTA PAULA'),false);
+assert.equal(groupLabelForTerm('mev_group','MEV 7'),'Turma de Musicalização Espaço Vivo (MEV): MEV 7');
+assert.equal(groupLabelForTerm('institutional_group','Coro Institucional'),'Grupo: Coro Institucional');
+const richDraft={title:'Termo de matrícula',body:'IACRA_RICH_HTML_V1:<p>Termo de <strong>ciência</strong>.</p>'};
+const withMev=termWithGroupSnapshot(richDraft,'mev_group','MEV 7');
+assert.ok(isRichTerm(withMev.body));
+assert.match(withMev.body,/Turma de Musicalização Espaço Vivo \(MEV\): MEV 7/);
+assert.match(withMev.body,/<strong>ciência<\/strong>/);
+assert.ok(validTermForIssue(withMev));
+assert.equal(richDraft.body,'IACRA_RICH_HTML_V1:<p>Termo de <strong>ciência</strong>.</p>');
+const legacy=termWithGroupSnapshot({title:'Termo original',body:'Texto de condições de atendimento.'},'institutional_group','Shekinah');
+assert.match(legacy.body,/Grupo: Shekinah/);
+assert.match(termToSafeHtml(legacy.body),/Texto de condições de atendimento/);
+const malicious=termWithGroupSnapshot(richDraft,'institutional_group','<img onerror=alert(1)>');
+assert.ok(!malicious.body.includes('<img'));
+const server=readFileSync(new URL('../../server.ts',import.meta.url),'utf-8');
+const admin=readFileSync(new URL('../views/DigitalEnrollmentAdmin.tsx',import.meta.url),'utf-8');
+assert.match(server,/app\.get\(\['\/matricula', '\/matricula\/'\]/);
+assert.match(server,/renderEnrollmentShareHtml/);
+assert.match(admin,/term:groupTerm/);
+assert.match(admin,/selectableGroups/);
+assert.match(admin,/Identificação inserida automaticamente no termo/);
+console.log('PASS: WhatsApp metadata, real groups and MEV number safely embedded in the signed term');
