@@ -8,6 +8,7 @@ import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
 import {termToSafeHtml} from '../utils/richTermMarkup';
 import {RichTermEditor} from '../components/RichTermEditor';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
+import {groupLabelForTerm,isMevGroupName,termWithGroupSnapshot} from '../utils/enrollmentTermGroup';
 import {useIacraFeaturePermissions} from '../hooks/useIacraFeaturePermissions';
 
 export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
@@ -42,8 +43,11 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const plans=state.financialPlans.filter(p=>p.is_active);
  const teachers=state.teachers.filter(t=>t.status==='active');
  const groups=state.groups.filter(g=>g.status!=='inactive');
+ const selectableGroups=groups.filter(g=>model==='mev_group'?isMevGroupName(g.name):model==='institutional_group'?!isMevGroupName(g.name):true);
  const plan=plans.find(p=>p.id===planId);
- const group=isGroupModel(model)?groups.find(g=>g.id===groupId):undefined;
+ const group=isGroupModel(model)?selectableGroups.find(g=>g.id===groupId):undefined;
+ const groupTerm=isGroupModel(model)&&group?termWithGroupSnapshot(term,model,group.name):term;
+ const groupNameInTerm=isGroupModel(model)&&group?groupLabelForTerm(model,group.name):'';
  const resolvedId=group?.teacher_id||plan?.exclusive_teacher_id||teacherId;
  const teacher=teachers.find(t=>t.id===resolvedId);
  const amount=Number(price??plan?.base_price);
@@ -53,12 +57,12 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  useEffect(()=>{if(active)void refresh()},[active,currentUserProfile?.id]);
  if(!active)return <div role="alert">Sem permissão para Matrícula Digital.</div>;
  const issue=async()=>{
-   if(!access.digital_enrollment.create||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||!expiresOn||instrument.trim().length<2)return;
+   if(!access.digital_enrollment.create||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(groupTerm)||!expiresOn||instrument.trim().length<2)return;
    setBusy(true);setUrl('');setNotice('');
    try{
-     if(!validTermForIssue(term))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
+     if(!validTermForIssue(groupTerm))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
      const result=await createDigitalOffer({modelId:model,teacherId:teacher.id,planId:plan.id,groupId:group?.id||null,
-       startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term,expiresOn,instrument:instrument.trim()});
+       startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term:groupTerm,expiresOn,instrument:instrument.trim()});
      setUrl(result);setNotice('Convite criado. Confira o link antes de enviar ao aluno.');
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao criar convite');}finally{setBusy(false)}
  };
@@ -93,20 +97,20 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
   )}
   <section className="bg-white border rounded-xl p-5 space-y-3">
    <h2 className="font-bold text-lg">Preparar convite</h2>
-   <label className="block">Modelo de termo<select className="block w-full border p-2" value={model} onChange={e=>{const id=e.target.value as TermModelId;setModel(id);setTerm({title:TERM_MODELS.find(x=>x.id===id)?.label||'',body:'' });setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
+   <label className="block">Modelo de termo<select className="block w-full border p-2" value={model} onChange={e=>{const id=e.target.value as TermModelId;setModel(id);setGroupId('');setTerm({title:TERM_MODELS.find(x=>x.id===id)?.label||'',body:'' });setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
    <label className="block">Instrumento ou atividade definido pela secretaria <span className="text-red-700">*</span><input className="block w-full border p-2" maxLength={120} minLength={2} required value={instrument} placeholder="Ex.: Piano, Violão, Canto ou Musicalização" onChange={e=>{setInstrument(e.target.value);setUrl('')}}/><span className="text-xs text-zinc-600">Esse campo será mostrado ao aluno, mas não poderá ser alterado por ele.</span></label>
    <label className="block">Título do termo<input className="block w-full border p-2" maxLength={160} required value={term.title} onChange={e=>{setTerm(v=>({...v,title:e.target.value}));setUrl('')}}/></label>
    <div className="space-y-2"><label className="block font-medium">Texto completo do termo</label><RichTermEditor value={term.body} onChange={body=>{setTerm(v=>({...v,body}));setUrl('')}}/></div>
-   {!validTermForIssue(term)&&<p role="status" className="text-sm text-amber-800">Preencha o texto do termo para liberar o convite. O conteúdo precisa ser revisado pela secretaria.</p>}
+   {!validTermForIssue(groupTerm)&&<p role="status" className="text-sm text-amber-800">Preencha o texto do termo para liberar o convite. O conteúdo precisa ser revisado pela secretaria.</p>}
    <label className="block">Plano<select className="block w-full border p-2" value={planId} onChange={e=>{setPlanId(e.target.value);setPrice(null);setUrl('')}}><option value="">Selecione um plano</option>{plans.map(p=><option key={p.id} value={p.id}>{p.name} — R$ {p.base_price.toFixed(2)}</option>)}</select></label>
-   {isGroupModel(model)&&<label className="block">Grupo<select className="block w-full border p-2" value={groupId} onChange={e=>{setGroupId(e.target.value);setUrl('')}}><option value="">Selecione um grupo</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}
+   {isGroupModel(model)&&<div className="space-y-2"><label className="block">{model==='mev_group'?'Turma MEV cadastrada':'Grupo cadastrado'}<select className="block w-full border p-2" value={groupId} onChange={e=>{setGroupId(e.target.value);setUrl('')}}><option value="">Selecione um grupo</option>{selectableGroups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>{groupNameInTerm&&<div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-900"><strong>Identificação inserida automaticamente no termo:</strong> {groupNameInTerm}<p className="text-xs mt-1">O termo emitido guardará esse nome, mesmo se o cadastro do grupo mudar depois.</p></div>}{!selectableGroups.length&&<p className="text-sm text-amber-800">Nenhum grupo ativo dessa categoria encontrado no cadastro de Grupos.</p>}</div>}
    <label className="block">Professor<select className="block w-full border p-2 disabled:bg-zinc-100" value={resolvedId} disabled={Boolean(group?.teacher_id||plan?.exclusive_teacher_id)} onChange={e=>{setTeacherId(e.target.value);setUrl('')}}><option value="">Selecione um professor</option>{teachers.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
    <label className="block">Mensalidade da matrícula (R$)<input className="block w-full border p-2" type="number" min="0" step="0.01" value={price??(plan?String(plan.base_price):'')} onChange={e=>{setPrice(e.target.value);setUrl('')}}/></label>
    <div className="grid grid-cols-2 gap-3"><label>Início<input className="block w-full border p-2" type="date" value={start} onChange={e=>{setStart(e.target.value);setUrl('')}}/></label><label>Data da matrícula<input className="block w-full border p-2" type="date" value={date} onChange={e=>{setDate(e.target.value);setUrl('')}}/></label></div>
    <label className="block">Dia de vencimento da mensalidade<input className="block w-full border p-2" type="number" min="1" max="31" value={due} onChange={e=>{setDue(e.target.value);setUrl('')}}/></label>
    <label className="block">Data de validade do link para preenchimento <span className="text-red-700">*</span><input className="block w-full border p-2" type="date" required min={new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} value={expiresOn} onChange={e=>{setExpiresOn(e.target.value);setUrl('')}}/><span className="text-sm text-zinc-600">O preenchimento e aceite ficam disponíveis até 23h59 (horário de Brasília) na data escolhida.</span></label>
    {conflict&&<p role="alert" className="text-red-700">Professor do grupo e professor exclusivo do plano não coincidem.</p>}
-   <button type="button" disabled={!access.digital_enrollment.create||busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(term)||instrument.trim().length<2||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
+   <button type="button" disabled={!access.digital_enrollment.create||busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(groupTerm)||instrument.trim().length<2||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
    {url&&<div className="space-y-2"><p className="text-xs">O link é individual e confidencial. Envie apenas ao destinatário correto.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir formulário de matrícula</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link</button></div>}
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
