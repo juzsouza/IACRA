@@ -5,7 +5,6 @@ import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../
 import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
 import {isGroupModel} from '../utils/enrollmentTermModels';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
-import {EnrollmentInvitationTracking} from '../components/EnrollmentInvitationTracking';
 import {termToSafeHtml} from '../utils/richTermMarkup';
 import {RichTermEditor} from '../components/RichTermEditor';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
@@ -30,7 +29,6 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const [url,setUrl]=useState('');
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<DigitalRequest[]>([]);
- const [invitationsRevision,setInvitationsRevision]=useState(0);
  const [busy,setBusy]=useState(false);
  const [audit,setAudit]=useState<DigitalTermAudit|null>(null);
  const [auditId,setAuditId]=useState<string|null>(null);
@@ -65,7 +63,7 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
      if(!validTermForIssue(groupTerm))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
      const result=await createDigitalOffer({modelId:model,teacherId:teacher.id,planId:plan.id,groupId:group?.id||null,
        startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term:groupTerm,expiresOn,instrument:instrument.trim()});
-     setUrl(result);setInvitationsRevision(n=>n+1);setNotice('Convite criado. Confira o link antes de enviar ao aluno.');
+     setUrl(result);setNotice('Convite criado. Confira o link antes de enviar ao aluno.');
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao criar convite');}finally{setBusy(false)}
  };
  const viewAudit=async(id:string)=>{
@@ -115,7 +113,6 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    <button type="button" disabled={!access.digital_enrollment.create||busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(groupTerm)||instrument.trim().length<2||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
    {url&&<div className="space-y-2"><p className="text-xs">O link é individual e confidencial. Envie apenas ao destinatário correto.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir formulário de matrícula</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link</button></div>}
   </section>
-  <EnrollmentInvitationTracking canMarkSent={access.digital_enrollment.create} revision={invitationsRevision}/>
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
    {records.length===0&&<p>Sem solicitações.</p>}
