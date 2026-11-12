@@ -1,0 +1,27 @@
+name: IACRA - acompanhamento em menu separado
+
+on:
+  push:
+    branches: [iacra-acompanhamento-menu-20261112]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - run: npx tsx src/tests/enrollment_tracking.test.ts
+      - run: npx tsx src/tests/enrollment_share_group_test.ts
+      - run: npm run test:billings
+      - run: npm run build
