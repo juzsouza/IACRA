@@ -74,7 +74,8 @@ export const Layout: React.FC<LayoutProps> = ({
   const navItems = userRole
     ? allNavItems.filter((item) => item.roles.includes(userRole) &&
       (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'enrollment_tracking' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')) &&
-      (item.id !== 'digital_enrollment' && item.id !== 'enrollment_tracking' || featurePermissions.digital_enrollment.view) &&
+      (item.id !== 'digital_enrollment' || featurePermissions.digital_enrollment.view) &&
+      (item.id !== 'enrollment_tracking' || featurePermissions.enrollment_tracking.view) &&
       (item.id !== 'rooms_admin' || featurePermissions.rooms.view))
     : [];
 
