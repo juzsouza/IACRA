@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {readDigitalOffer,submitDigitalOffer,type DigitalOffer} from '../services/digitalEnrollment';
+import {readDigitalOffer,submitDigitalOffer,trackDigitalOfferOpened,type DigitalOffer} from '../services/digitalEnrollment';
 import {termToSafeHtml} from '../utils/richTermMarkup';
 export function PublicEnrollment():React.ReactElement{
  const [token]=useState(()=>new URLSearchParams(window.location.search).get('convite')||'');
@@ -21,7 +21,7 @@ export function PublicEnrollment():React.ReactElement{
  const set=(field:keyof typeof student,value:string)=>setStudent(prev=>({...prev,[field]:value}));
  useEffect(()=>{if(!/^[0-9a-f]{64}$/.test(token)){setNotice('Link inválido.');return;}
    let active=true;
-   void readDigitalOffer(token).then(x=>{if(active)setOffer(x)}).catch(()=>{if(active)setNotice('Convite inválido, expirado ou já utilizado.');});
+   void readDigitalOffer(token).then(x=>{if(active){setOffer(x);void trackDigitalOfferOpened(token).catch(()=>{});}}).catch(()=>{if(active)setNotice('Convite inválido, expirado ou já utilizado.');});
    return()=>{active=false};
  },[token]);
  const submit=async(event:React.FormEvent)=>{
