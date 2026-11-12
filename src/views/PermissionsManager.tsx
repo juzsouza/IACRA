@@ -14,7 +14,7 @@ import { checkPermissionDevEnvironment, getPermissionDevEnvironment } from '../u
 type Choice = 'inherit' | 'deny' | 'allow_own' | 'allow_all';
 const MODULE_LABELS: Record<string, string> = {
   dashboard: 'Painel', coral: 'Coral', agenda: 'Agenda', classes: 'Aulas',
-  students: 'Alunos', enrollments: 'Matrículas', digital_enrollment: 'Matrícula Digital', rooms: 'Salas', teachers: 'Professores',
+  students: 'Alunos', enrollments: 'Matrículas', digital_enrollment: 'Matrícula Digital', enrollment_tracking: 'Acompanhamento de Termos', rooms: 'Salas', teachers: 'Professores',
   finance: 'Financeiro', payments: 'Pagamentos', google_calendar: 'Google Calendar',
   settings: 'Configurações', permissions: 'Gerenciamento de Permissões',
 };
@@ -24,7 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_individual_values: 'Consultar valores individuais', view_closings: 'Ver fechamentos',
   close_period: 'Fechar período', reopen_period: 'Reabrir período',
   view_reports: 'Relatórios', approve: 'Aprovar',
-  assign: 'Vincular sala à aula', unassign: 'Liberar sala',
+  assign: 'Vincular sala à aula', unassign: 'Liberar sala', mark_sent: 'Registrar envio informado pela secretaria',
   view_consolidated: 'Ver consolidado', connect_own_account: 'Conectar minha conta Google',
   sync_own_events: 'Sincronizar meus eventos', disconnect_own_account: 'Desconectar minha conta',
 };
@@ -167,7 +167,7 @@ export function PermissionsManager(): React.ReactElement {
                 disabled={locked || busyKey !== null} onChange={e=>setEdits(old=>({...old,[editId]:e.target.value as Choice}))}>
                 <option value="inherit">{subject === 'user' ? 'Herdar perfil' : 'Sem regra'}</option>
                 <option value="deny">Negar</option>
-                {!['digital_enrollment','rooms'].includes(item.module) && (!item.admin_only || selectedRole !== 'teacher')
+                {!['digital_enrollment','enrollment_tracking','rooms'].includes(item.module) && (!item.admin_only || selectedRole !== 'teacher')
                   ? <option value="allow_own">Permitir · próprios dados</option> : null}
                 {selectedRole !== 'teacher' && <option value="allow_all">Permitir · geral</option>}
               </select>
