@@ -21,7 +21,7 @@ export function invitationStatus(row:DigitalOfferTracking,now=Date.now()):Status
 const stamp=(date:string|null|undefined)=>date?
  new Date(date).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'short',timeStyle:'short'}):'Não registrado';
 
-export function EnrollmentInvitationTracking({canMarkSent,revision}:{canMarkSent:boolean;revision:number}):React.ReactElement{
+export function EnrollmentInvitationTracking({canMarkSent,revision,onShowConfirmation}:{canMarkSent:boolean;revision:number;onShowConfirmation?:(submissionId:string)=>void}):React.ReactElement{
  const [records,setRecords]=useState<DigitalOfferTracking[]>([]);
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState('');
@@ -47,7 +47,7 @@ export function EnrollmentInvitationTracking({canMarkSent,revision}:{canMarkSent
  const shown=useMemo(()=>records.filter(r=>{
   if(filter!=='all'&&invitationStatus(r,now)!==filter)return false;
   const q=search.trim().toLocaleLowerCase('pt-BR');
-  return !q||[r.recipient_label,r.term_title,r.teacher_name,r.plan_name,r.group_name]
+  return !q||[r.student_name,r.recipient_label,r.term_title,r.teacher_name,r.plan_name,r.group_name]
     .some(value=>String(value||'').toLocaleLowerCase('pt-BR').includes(q));
  }),[records,filter,search,now]);
  const pageCount=Math.max(1,Math.ceil(shown.length/PAGE_SIZE));
@@ -96,9 +96,9 @@ export function EnrollmentInvitationTracking({canMarkSent,revision}:{canMarkSent
   {pageRows.map(r=><details key={r.id} className="group border rounded-lg px-3 py-2 text-sm">
     <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
      <div className="min-w-0 flex-1"><strong className="block truncate">{r.term_title}</strong>
-      <span className="text-xs text-zinc-600">{r.recipient_label||'Destinatário não identificado'} · {r.group_name||r.plan_name}</span>
+      <span className="text-xs text-zinc-600">{r.student_name||r.recipient_label||'Destinatário não identificado'} · {r.group_name||r.plan_name}</span>
      </div>
-     <span className="text-xs font-semibold text-indigo-800">{statusNames[invitationStatus(r,now)]}</span>
+     <span className="text-xs font-semibold text-indigo-800">{r.submission_status==='approved'&&r.enrollment_id?'Matrícula registrada':statusNames[invitationStatus(r,now)]}</span>
      <span aria-hidden="true" className="text-zinc-500 group-open:rotate-180">⌄</span>
     </summary>
     <div className="mt-2 border-t pt-2 space-y-2">
@@ -109,6 +109,8 @@ export function EnrollmentInvitationTracking({canMarkSent,revision}:{canMarkSent
       <span>Primeira abertura: {stamp(r.first_opened_at)}</span>
       <span>Preenchimento: {stamp(r.submitted_at)}</span>
      </div>
+     {r.submission_status==='approved'&&r.enrollment_id&&<div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm"><strong>Matrícula registrada:</strong> {r.student_name||'Aluno cadastrado'}<div className="text-xs break-all">Código: {r.enrollment_id}</div></div>}
+     {r.submission_status==='approved'&&r.submission_id&&r.enrollment_id&&onShowConfirmation&&<button type="button" onClick={()=>onShowConfirmation(r.submission_id!)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 text-xs">Ver confirmação e comprovante</button>}
      {r.sent_at&&<p className="text-xs text-zinc-600">Envio informado: {stamp(r.sent_at)}</p>}
      {canMarkSent&&!r.sent_at&&!r.submitted_at&&new Date(r.expires_at).getTime()>now&&<div className="flex flex-wrap gap-2 items-end">
       <label className="text-xs flex-1 min-w-[180px]">Destinatário (opcional)
