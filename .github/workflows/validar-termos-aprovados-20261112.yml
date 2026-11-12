@@ -1,0 +1,87 @@
+name: IACRA - nomes e matriculas aprovadas no acompanhamento
+
+on:
+  push:
+    branches: [iacra-termos-aprovados-no-acompanhamento-20261112]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-front:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsx src/tests/feature_delegated_permissions.test.ts
+      - run: npx tsx src/tests/enrollment_approval_tracking.test.ts
+      - run: npx tsx src/tests/enrollment_tracking.test.ts
+      - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - run: npm run test:billings
+      - run: npm run build
+
+  validar-postgres-ficticio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: senha-ficticia-somente-ci
+          POSTGRES_DB: iacra_permissoes_ficticias
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iacra_permissoes_ficticias"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: iacra_permissoes_ficticias
+      PGUSER: postgres
+      PGPASSWORD: senha-ficticia-somente-ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: preparacao-iacra-prod-20261106
+          path: base-fixture
+          sparse-checkout: docs/revisao-producao/testes/esquema_ficticio.sql
+          persist-credentials: false
+      - name: PostgreSQL CLI
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Schema de teste isolado, sem dados reais
+        run: psql -X -v ON_ERROR_STOP=1 -f base-fixture/docs/revisao-producao/testes/esquema_ficticio.sql
+      - name: Identidades e allowlist fictícios
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/iniciar_permissoes_matricula_salas_ficticias.sql
+      - name: Instalar RPCs existentes apenas no banco descartável
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_migracao_termos_salas_20261106.sql
+      - name: Instalar permissões existentes apenas no banco descartável
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/RASCUNHO_permissoes_painel_prod_20261109.sql
+      - name: Aplicar candidato dos dois módulos somente no banco temporário
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_permissoes_matricula_salas_20261111.sql
+      - name: Validar negar por padrão, ações, override e escalada
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_permissoes_matricula_salas_ficticias.sql
+      - name: Instalar instrumento somente no banco PostgreSQL descartável
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_instrumento_definido_secretaria_20261111.sql
+      - name: Verificar integridade do candidato, funções e permissões
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_instrumento_convite_ficticio.sql
+      - name: Instalar acompanhamento somente no banco PostgreSQL descartavel
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_acompanhamento_termos_20261112.sql
+      - name: Validar monitoramento, permissao, abertura real e expiracao
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_acompanhamento_termos_ficticio.sql
+      - name: Instalar inclusao de aluno e matricula ficticios
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/CANDIDATO_acompanhamento_nome_matricula_20261112.sql
+      - name: Testar campos da consulta de aprovacao sem expor token
+        run: psql -X -v ON_ERROR_STOP=1 -f docs/revisao-producao/testes/validar_nome_matricula_acompanhamento_ficticio.sql
