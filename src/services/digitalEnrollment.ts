@@ -25,6 +25,10 @@ export type DigitalOfferTracking = {
  teacher_name:string;
  group_name:string|null;
  submission_status:'pending'|'approved'|'changes_requested'|null;
+ submission_id:string|null;
+ student_id:string|null;
+ student_name:string|null;
+ enrollment_id:string|null;
 };
 export async function readDigitalOfferTracking():Promise<DigitalOfferTracking[]>{
  requireFeature();
