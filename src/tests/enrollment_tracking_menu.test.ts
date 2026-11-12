@@ -11,7 +11,7 @@ assert.ok(isValidView('enrollment_tracking'));
 assert.deepEqual(VIEW_ROLE_PERMISSIONS.enrollment_tracking,['super_admin','admin']);
 assert.equal(isViewPermittedForRole('enrollment_tracking','teacher'),false);
 assert.match(app,/case "enrollment_tracking"/);
-assert.match(app,/featurePermissions\.digital_enrollment\.view \? <EnrollmentTrackingPage/);
+assert.match(app,/featurePermissions\.enrollment_tracking\.view \? <EnrollmentTrackingPage/);
 assert.match(layout,/id: "enrollment_tracking", label: "Acompanhamento de Termos"/);
 assert.match(layout,/item\.id !== 'enrollment_tracking'/);
 assert.doesNotMatch(termAdmin,/<EnrollmentInvitationTracking/);
