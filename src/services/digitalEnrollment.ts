@@ -30,6 +30,13 @@ export type DigitalOfferTracking = {
  student_name:string|null;
  enrollment_id:string|null;
 };
+export async function readTrackingApprovedRequest(id:string):Promise<DigitalRequest>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_tracking_read_approved_request',{p_submission_id:id});
+ if(error)throw error;
+ if(!data?.id||data.status!=='approved'||!data?.enrollment_id||!data?.student_id)throw new Error('Confirmação não encontrada.');
+ return data as DigitalRequest;
+}
 export async function readDigitalOfferTracking():Promise<DigitalOfferTracking[]>{
  requireFeature();
  const {data,error}=await supabase.rpc('eavra_dev_admin_enrollment_offers');
