@@ -246,7 +246,7 @@ function AppContent() {
       case "enrollments":
         return <Enrollments />;
       case "digital_enrollment":
-        return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <DigitalEnrollmentAdmin onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
+        return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <DigitalEnrollmentAdmin /> : <div role="alert">Acesso restrito.</div>;
       case "enrollment_tracking":
         return iacraFeaturesEnabled() && featurePermissions.digital_enrollment.view ? <EnrollmentTrackingPage canMarkSent={featurePermissions.digital_enrollment.create} onNavigate={handleViewChange} /> : <div role="alert">Acesso restrito.</div>;
       case "rooms_admin":
