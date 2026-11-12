@@ -4,7 +4,6 @@ import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../
 
 import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
 import {isGroupModel} from '../utils/enrollmentTermModels';
-import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
 import {termToSafeHtml} from '../utils/richTermMarkup';
 import {RichTermEditor} from '../components/RichTermEditor';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
@@ -33,13 +32,10 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
  const [audit,setAudit]=useState<DigitalTermAudit|null>(null);
  const [auditId,setAuditId]=useState<string|null>(null);
  const [auditBusy,setAuditBusy]=useState(false);
- const [recentApprovedId,setRecentApprovedId]=useState<string|null>(null);
  const [reviewId,setReviewId]=useState<string|null>(null);
  const [match,setMatch]=useState<DigitalStudentMatch|null>(null);
  const [updateExisting,setUpdateExisting]=useState(false);
  const [forceNewEnrollment,setForceNewEnrollment]=useState(false);
- const approvedRequest = records.find(r => r.id === recentApprovedId && r.status === 'approved' && r.student_id && r.enrollment_id)
-   ?? records.find(r => r.status === 'approved' && r.student_id && r.enrollment_id);
  const plans=state.financialPlans.filter(p=>p.is_active);
  const teachers=state.teachers.filter(t=>t.status==='active');
  const groups=state.groups.filter(g=>g.status!=='inactive');
@@ -83,18 +79,13 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
    setBusy(true);
    try{
      const result=await approveDigitalRequest(reviewId,{updateStudent:updateExisting,forceNewEnrollment});
-     setNotice(result.student_reused?'Termo aprovado e vinculado ao aluno existente.':'Novo aluno e termo aprovados.');
-     setRecentApprovedId(reviewId);setReviewId(null);setMatch(null);await refresh();
+     setNotice((result.student_reused?'Termo aprovado e vinculado ao aluno existente.':'Novo aluno e termo aprovados.')+' Consulte a confirmação no menu Acompanhamento de Termos.');
+     setReviewId(null);setMatch(null);await refresh();
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao aprovar');}finally{setBusy(false)}
  };
  return <div className="max-w-5xl mx-auto p-6 space-y-5">
   <h1 className="text-2xl font-bold">Matrícula digital — IACRA</h1>
   <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg text-sm">A secretaria define o vencimento do convite. Cada link pode ser utilizado uma única vez, e todos os dados recebidos precisam de aprovação.</div>
-  {approvedRequest && (
-    <div id="enrollment-confirmation">
-      <EnrollmentSuccess request={approvedRequest} onNavigate={onNavigate}/>
-    </div>
-  )}
   <section className="bg-white border rounded-xl p-5 space-y-3">
    <h2 className="font-bold text-lg">Preparar convite</h2>
    <label className="block">Modelo de termo<select className="block w-full border p-2" value={model} onChange={e=>{const id=e.target.value as TermModelId;setModel(id);setGroupId('');setTerm({title:TERM_MODELS.find(x=>x.id===id)?.label||'',body:'' });setUrl('')}}>{TERM_MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
@@ -115,16 +106,12 @@ export function DigitalEnrollmentAdmin({onNavigate}:{onNavigate:(view:'students'
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
-   {records.length===0&&<p>Sem solicitações.</p>}
-   {records.map(r=><div key={r.id} className="border rounded-lg p-4 space-y-2">
+   {records.every(r=>r.status==='approved')&&<p>Nenhuma solicitação aguardando análise. As aprovadas ficam em Acompanhamento de Termos.</p>}
+   {records.filter(r=>r.status!=='approved').map(r=><div key={r.id} className="border rounded-lg p-4 space-y-2">
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
      <p className="text-sm">Situação: {r.status} · CPF: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
      <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
      {r.status==='pending'&&access.digital_enrollment.approve&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
-     {r.status==='approved'&&r.student_id&&r.enrollment_id&&<button type="button" onClick={()=>{
-       setRecentApprovedId(r.id);
-       document.getElementById('enrollment-confirmation')?.scrollIntoView({behavior:'smooth',block:'start'});
-     }} className="rounded-lg border border-indigo-200 text-indigo-800 px-3 py-2 hover:bg-indigo-50">Ver confirmação da matrícula</button>}
    </div>)}
   </section>
   {reviewId&&match&&<section className="fixed inset-0 z-50 bg-black/50 p-3 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Revisar cadastro e termo">
