@@ -52,6 +52,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "students", label: "Alunos", icon: Users, roles: ["super_admin", "admin", "teacher"] },
     { id: "enrollments", label: "Matrículas", icon: GraduationCap, roles: ["super_admin", "admin"] },
     { id: "digital_enrollment", label: "Matrícula digital", icon: FileText, roles: ["super_admin", "admin"] },
+    { id: "enrollment_tracking", label: "Acompanhamento de Termos", icon: ClipboardCheck, roles: ["super_admin", "admin"] },
     { id: "rooms_admin", label: "Salas", icon: CalendarDays, roles: ["super_admin", "admin"] },
     { id: "permissions_manager", label: "Gerenciamento de Permissões", icon: Shield, roles: ["super_admin"] },
     { id: "affiliates", label: "Afiliados", icon: Share2, roles: ["super_admin", "admin"] },
@@ -72,8 +73,8 @@ export const Layout: React.FC<LayoutProps> = ({
   const userRole = currentUserProfile?.role;
   const navItems = userRole
     ? allNavItems.filter((item) => item.roles.includes(userRole) &&
-      (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')) &&
-      (item.id !== 'digital_enrollment' || featurePermissions.digital_enrollment.view) &&
+      (iacraFeaturesEnabled() || (item.id !== 'digital_enrollment' && item.id !== 'enrollment_tracking' && item.id !== 'rooms_admin' && item.id !== 'permissions_manager')) &&
+      (item.id !== 'digital_enrollment' && item.id !== 'enrollment_tracking' || featurePermissions.digital_enrollment.view) &&
       (item.id !== 'rooms_admin' || featurePermissions.rooms.view))
     : [];
 
