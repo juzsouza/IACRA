@@ -14,7 +14,7 @@ import { checkPermissionDevEnvironment, getPermissionDevEnvironment } from '../u
 type Choice = 'inherit' | 'deny' | 'allow_own' | 'allow_all';
 const MODULE_LABELS: Record<string, string> = {
   dashboard: 'Painel', coral: 'Coral', agenda: 'Agenda', classes: 'Aulas',
-  students: 'Alunos', enrollments: 'Matrículas', digital_enrollment: 'Matrícula Digital', rooms: 'Salas', teachers: 'Professores',
+  students: 'Alunos', enrollments: 'Matrículas', digital_enrollment: 'Matrícula Digital', enrollment_tracking: 'Acompanhamento de Termos', rooms: 'Salas', teachers: 'Professores',
   finance: 'Financeiro', payments: 'Pagamentos', google_calendar: 'Google Calendar',
   settings: 'Configurações', permissions: 'Gerenciamento de Permissões',
 };
@@ -24,7 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   view_individual_values: 'Consultar valores individuais', view_closings: 'Ver fechamentos',
   close_period: 'Fechar período', reopen_period: 'Reabrir período',
   view_reports: 'Relatórios', approve: 'Aprovar',
-  assign: 'Vincular sala à aula', unassign: 'Liberar sala',
+  assign: 'Vincular sala à aula', unassign: 'Liberar sala', mark_sent: 'Registrar envio do termo',
   view_consolidated: 'Ver consolidado', connect_own_account: 'Conectar minha conta Google',
   sync_own_events: 'Sincronizar meus eventos', disconnect_own_account: 'Desconectar minha conta',
 };
@@ -159,8 +159,8 @@ export function PermissionsManager(): React.ReactElement {
           const choice = edits[editId] ?? existingChoice(snapshot, item, subject, target);
           const locked = item.reserved || !target || (selectedRole === 'teacher' && item.admin_only);
           return <div key={item.key} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex-1"><div className="text-sm font-medium">{ACTION_LABELS[item.action] || item.action}</div>
-              <p className="text-xs text-zinc-500">{locked && item.reserved ? 'Exclusivo do Super Admin' : item.admin_only ? 'Operação administrativa' : 'Permissão por ação'} · {item.key}</p>
+            <div className="flex-1"><div className="text-sm font-medium">{item.module === 'enrollment_tracking' && item.action === 'view' ? 'Visualizar acompanhamento' : ACTION_LABELS[item.action] || item.action}</div>
+              <p className="text-xs text-zinc-500">{locked && item.reserved ? 'Exclusivo do Super Admin' : item.admin_only ? 'Operação administrativa' : 'Permissão por ação'}{item.module !== 'enrollment_tracking' ? ` · ${item.key}` : ''}</p>
             </div>
             <label className="text-xs">Regra
               <select aria-label={`Regra para ${item.key}`} className="mt-1 block border rounded-lg p-2 text-sm" value={choice}
