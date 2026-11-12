@@ -2,7 +2,7 @@ import React,{useState} from 'react';
 import {EnrollmentInvitationTracking} from '../components/EnrollmentInvitationTracking';
 import {EnrollmentSuccess} from '../components/EnrollmentSuccess';
 import {openEnrollmentReceipt} from '../utils/enrollmentReceipt';
-import {readTrackingApprovedRequest,readDigitalTermAudit,type DigitalRequest,type DigitalTermAudit} from '../services/digitalEnrollment';
+import {readTrackingApprovedRequest,readTrackingApprovedTerm,type DigitalRequest,type DigitalTermAudit} from '../services/digitalEnrollment';
 
 export function EnrollmentTrackingPage({canMarkSent,onNavigate}:{canMarkSent:boolean;onNavigate:(view:'students'|'enrollments')=>void}):React.ReactElement{
  const [approved,setApproved]=useState<DigitalRequest|null>(null);
@@ -22,7 +22,7 @@ export function EnrollmentTrackingPage({canMarkSent,onNavigate}:{canMarkSent:boo
   if(!approved)return;
   setBusy(true);setNotice('');
   try{
-   const result=audit||await readDigitalTermAudit(approved.id);
+   const result=audit||await readTrackingApprovedTerm(approved.id);
    setAudit(result);
    openEnrollmentReceipt(approved,result);
   }catch(e){setNotice(e instanceof Error?e.message:'Não foi possível emitir o comprovante');}
