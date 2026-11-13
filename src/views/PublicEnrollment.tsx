@@ -31,14 +31,14 @@ export function PublicEnrollment():React.ReactElement{
    try{await submitDigitalOffer(token,{...student,instrument:offer?.instrument||student.instrument});setSent(true);setStudent({name:'',email:'',phone:'',cpf:'',birth_date:'',instrument:'',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});}
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível enviar');}finally{setBusy(false)}
  };
- return <main className="max-w-2xl mx-auto p-6 space-y-5">
-   <h1 className="text-2xl font-bold">Matrícula digital — IACRA</h1>
+ return <main className="min-h-screen bg-[#f5f8fa] px-4 py-8 sm:px-6 print:bg-white print:p-0"><div className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[#dae6eb] bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
+   <header className="border-b border-[#d4e6ed] pb-6 text-center"><img src="/brand/iacra-logo.webp" alt="Instituto de Arte Cristã Raphael Augusto" className="mx-auto mb-4 h-auto w-full max-w-[330px] object-contain" onError={e=>{e.currentTarget.style.display="none";}}/><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#1688b7]">Instituto de Arte Cristã Raphael Augusto</p><h1 className="mt-3 text-2xl font-semibold text-[#0c5c78]">Termo de Matrícula</h1></header>
    <p className="text-sm text-zinc-600">Preencha os dados para enviar sua solicitação à secretaria. O envio não cria uma matrícula automaticamente.</p>
    {notice&&<p role="alert">{notice}</p>}
    {sent?<div role="status" className="p-4 border rounded-lg">Solicitação recebida e aguardando aprovação da secretaria. Aluno e matrícula ainda não foram criados.</div>:
    offer&&<form onSubmit={submit} autoComplete="off" className="space-y-4">
-     <section className="border rounded-lg p-4 bg-zinc-50 space-y-2">
-       <h2 className="font-semibold">Informações definidas pela secretaria (não editáveis)</h2>
+     <section className="space-y-2 rounded-xl border border-[#d4e6ed] bg-[#f3f9fb] p-5">
+       <h2 className="border-l-4 border-[#1aa2d1] pl-3 font-semibold text-[#0c5c78]">Informações da matrícula</h2><p className="text-xs text-[#52717e]">Dados definidos pela secretaria (não editáveis)</p>
        <p>Professor: {offer.teacher_name}</p><p>Plano: {offer.plan_name}</p>
        {offer.instrument&&<p><strong>Instrumento ou atividade:</strong> {offer.instrument} (definido pela secretaria)</p>}
        {offer.group_name&&<p>Grupo: {offer.group_name}</p>}
@@ -46,8 +46,8 @@ export function PublicEnrollment():React.ReactElement{
        <p className="font-semibold text-amber-800">Prazo para preenchimento e aceite: {new Date(offer.expires_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})} (Brasília)</p>
        <p>Mensalidade: {Number(offer.monthly_amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} · Vencimento dia {offer.due_day}</p>
      </section>
-     <section className="border rounded-lg p-4 space-y-3">
-       <h2 className="font-semibold">Dados do aluno</h2>
+     <section className="space-y-3 rounded-xl border border-[#d4e6ed] bg-white p-5">
+       <h2 className="border-l-4 border-[#1aa2d1] pl-3 font-semibold text-[#0c5c78]">Dados do aluno</h2>
        <label className="block">Nome completo<input className="block border p-2 w-full rounded-lg" required value={student.name} onChange={e=>set('name',e.target.value)}/></label>
        <label className="block">E-mail<input type="email" className="block border p-2 w-full rounded-lg" required value={student.email} onChange={e=>set('email',e.target.value)}/></label>
        <label className="block">Telefone com DDD<input className="block border p-2 w-full rounded-lg" required value={student.phone} onChange={e=>set('phone',e.target.value)}/></label>
@@ -55,7 +55,7 @@ export function PublicEnrollment():React.ReactElement{
        <label className="block">Data de nascimento<input type="date" className="block border p-2 w-full rounded-lg" required value={student.birth_date} onChange={e=>set('birth_date',e.target.value)}/></label>
        {offer.instrument?<div className="space-y-1"><p className="text-sm font-medium">Instrumento ou atividade</p><p className="border p-2 w-full rounded-lg bg-zinc-100 text-zinc-800">{offer.instrument}</p><p className="text-xs text-zinc-600">Informação definida pela secretaria. Não pode ser alterada neste formulário.</p></div>:<label className="block">Instrumento<input className="block border p-2 w-full rounded-lg" required value={student.instrument} onChange={e=>set('instrument',e.target.value)}/><span className="block text-xs text-zinc-600">Campo disponível somente em convites antigos.</span></label>}
        {isMinor&&<div className="border border-amber-200 rounded-lg p-3 space-y-3 bg-amber-50">
-         <h3 className="font-semibold">Dados do responsável legal (obrigatórios para menores de 18 anos)</h3>
+         <h3 className="font-semibold text-[#0c5c78]">Dados do responsável legal (obrigatórios para menores de 18 anos)</h3>
          <label className="block">Nome completo do responsável<input className="block border p-2 w-full rounded-lg" required value={student.guardian_name} onChange={e=>set('guardian_name',e.target.value)}/></label>
          <label className="block">Parentesco ou vínculo legal<input className="block border p-2 w-full rounded-lg" required value={student.guardian_relationship} onChange={e=>set('guardian_relationship',e.target.value)}/></label>
          <label className="block">E-mail do responsável<input type="email" className="block border p-2 w-full rounded-lg" required value={student.guardian_email} onChange={e=>set('guardian_email',e.target.value)}/></label>
@@ -65,12 +65,13 @@ export function PublicEnrollment():React.ReactElement{
        <p className="text-sm text-zinc-600">Se o aluno já estiver cadastrado, o termo e o aceite serão recebidos normalmente. A secretaria conferirá o cadastro antes de aprovar, sem alterar seus dados automaticamente.</p>
      </section>
      <section className="border rounded-lg p-4 space-y-3">
-       <h2 className="font-semibold">{offer.term_title}</h2>
+       <h2 className="border-l-4 border-[#1aa2d1] pl-3 font-semibold text-[#0c5c78]">{offer.term_title}</h2>
        <p className="text-sm text-zinc-600">Leia atentamente o documento antes de confirmar o aceite.</p>
        <div className="break-words max-h-72 overflow-y-auto text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6" dangerouslySetInnerHTML={{__html:termToSafeHtml(offer.term_body)}}/>
        <label className="flex gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> {isMinor?'Declaro que sou o responsável legal informado e que li e aceito os termos apresentados.':'Declaro que li e aceito os termos apresentados.'}</label>
-       <button disabled={!accepted||busy} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Enviar solicitação</button>
+       <button disabled={!accepted||busy} className="rounded-lg bg-[#0c6789] px-5 py-3 font-semibold text-white hover:bg-[#095675] disabled:opacity-40">Enviar solicitação</button>
      </section>
    </form>}
+ <footer className="border-t border-[#d4e6ed] pt-4 text-center text-xs text-[#52717e]">Instituto de Arte Cristã Raphael Augusto · Termo digital</footer></div>
  </main>;
 }
