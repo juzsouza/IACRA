@@ -258,6 +258,9 @@ export const Login: React.FC = () => {
                     Política de Privacidade
                   </a>
                 </div>
+                <p className="text-xs text-zinc-400">
+                  Desenvolvido por JS Consultoria Virtual
+                </p>
               </div>
             </form>
           )}
