@@ -259,7 +259,15 @@ export const Login: React.FC = () => {
                   </a>
                 </div>
                 <p className="text-xs text-zinc-400">
-                  Desenvolvido por JS Consultoria Virtual
+                  Desenvolvido por{' '}
+                  <a
+                    href="https://hostware.com.br/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-zinc-600 transition-colors"
+                  >
+                    Hostware Tecnologia e Soluções Digitais
+                  </a>
                 </p>
               </div>
             </form>
