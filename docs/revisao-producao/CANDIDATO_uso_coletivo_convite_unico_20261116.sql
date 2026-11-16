@@ -7,7 +7,8 @@
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS app_private.eavra_multi_use_offer_whitelist (
-  offer_id uuid PRIMARY KEY REFERENCES app_private.eavra_dev_enrollment_offers(id) ON DELETE RESTRICT,
+  offer_id uuid PRIMARY KEY REFERENCES app_private.eavra_dev_enrollment_offers(id) ON DELETE RESTRICT
+    CHECK (offer_id = 'ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid),
   active boolean NOT NULL DEFAULT false,
   activated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -46,7 +47,9 @@ begin
     and o.expires_at>now()
     and (o.submitted_at is null or exists (
       select 1 from app_private.eavra_multi_use_offer_whitelist w
-      where w.offer_id=o.id and w.active is true
+      where w.offer_id=o.id
+        and w.offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid
+        and w.active is true
     ));
   if not found then raise exception 'invalid_or_expired_link' using errcode='22023'; end if;
   return pg_catalog.jsonb_build_object(
@@ -94,7 +97,9 @@ begin
     raise exception 'invalid_or_expired_link' using errcode='22023'; end if;
   select exists (
     select 1 from app_private.eavra_multi_use_offer_whitelist w
-    where w.offer_id=v_offer.id and w.active is true
+    where w.offer_id=v_offer.id
+      and w.offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid
+      and w.active is true
   ) into v_multi_use;
   if v_offer.expires_at<=now() or (v_offer.submitted_at is not null and not v_multi_use)
     then raise exception 'invalid_or_expired_link' using errcode='22023'; end if;
@@ -125,6 +130,14 @@ begin
     then raise exception 'guardian_required' using errcode='22023'; end if;
   if v_guardian_cpf is not null and length(v_guardian_cpf)<>11 then
     raise exception 'invalid_guardian_cpf' using errcode='22023'; end if;
+  -- A oferta foi bloqueada FOR UPDATE; pedidos concorrentes no mesmo link
+  -- ficam serializados. Impede aceite duplicado do mesmo CPF.
+  if v_multi_use and exists (
+    select 1 from app_private.eavra_dev_enrollment_submissions s
+    where s.offer_id=v_offer.id and s.student_data->>'cpf'=v_cpf
+  ) then
+    raise exception 'student_already_submitted_for_this_link' using errcode='22023';
+  end if;
   insert into app_private.eavra_dev_enrollment_submissions
     (offer_id,student_data,is_multi_use)
   values (v_offer.id,pg_catalog.jsonb_build_object(
@@ -139,6 +152,9 @@ begin
 end
 $function$;
 
+-- Esta versao mantem as RPCs originais, exceto pela checagem rigorosa
+-- do UUID permitido e pela repeticao controlada do mesmo convite.
+-- O aceite anterior permanece imutavel.
 -- O único convite habilitado; ao terminar, desativar via UPDATE abaixo.
 INSERT INTO app_private.eavra_multi_use_offer_whitelist (offer_id,active)
 SELECT id,true FROM app_private.eavra_dev_enrollment_offers
