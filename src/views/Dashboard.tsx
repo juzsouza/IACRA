@@ -6,18 +6,27 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { SchoolGrowthChart } from "../components/SchoolGrowthChart";
+import { getSchoolClock, isFutureScheduledClass } from "../utils/dashboardUpcomingClasses";
 
 export const Dashboard: React.FC = () => {
   const { state, currentUserProfile } = useAppStore();
 
   const isSuperAdmin = currentUserProfile?.role === "super_admin";
+  const [currentTime, setCurrentTime] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const schoolClock = getSchoolClock(currentTime);
 
   const activeStudents = state.students.filter(
     (s) => s.status === "active" && !s.not_eligible,
   ).length;
   const activeTeachers = state.teachers.filter(t => t.status === 'active').length;
   const upcomingClasses = state.classes.filter((c) => {
-    if (c.status !== "scheduled") return false;
+    if (!isFutureScheduledClass(c, schoolClock)) return false;
     if (c.student_ids && c.student_ids.length > 0) {
       const activeDirectStudents = c.student_ids.filter((sId) => {
         const s = state.students.find((st) => st.id === sId);
@@ -44,7 +53,7 @@ export const Dashboard: React.FC = () => {
       bg: "bg-emerald-100",
     },
     {
-      label: "Aulas Agendadas",
+      label: "Aulas futuras agendadas",
       value: upcomingClasses,
       icon: CalendarDays,
       color: "text-amber-600",
