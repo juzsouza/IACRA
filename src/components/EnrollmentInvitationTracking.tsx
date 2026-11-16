@@ -93,7 +93,7 @@ export function EnrollmentInvitationTracking({canMarkSent,revision,onShowConfirm
   {shown.length===0&&<p className="text-sm text-zinc-600">Nenhum convite encontrado.</p>}
   <div className="text-xs text-zinc-600">Mostrando {shown.length===0?0:(currentPage-1)*PAGE_SIZE+1}–{Math.min(currentPage*PAGE_SIZE,shown.length)} de {shown.length} convites</div>
   <div className="space-y-1.5">
-  {pageRows.map(r=><details key={r.id} className="group border rounded-lg px-3 py-2 text-sm">
+  {pageRows.map(r=><details key={r.submission_id||r.id} className="group border rounded-lg px-3 py-2 text-sm">
     <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
      <div className="min-w-0 flex-1"><strong className="block truncate">{r.term_title}</strong>
       <span className="text-xs text-zinc-600">{r.student_name||r.recipient_label||'Destinatário não identificado'} · {r.group_name||r.plan_name}</span>
