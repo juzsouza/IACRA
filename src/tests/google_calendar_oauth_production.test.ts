@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import {
   PROD_REDIRECT_URI,
+  LEGACY_PROD_REDIRECT_URI,
   DEV_REDIRECT_URI,
   PRE_REDIRECT_URI,
   ALLOWED_OAUTH_HOSTS,
@@ -59,6 +60,28 @@ async function runOAuthProductionTests() {
   testAssert(
     ALLOWED_REDIRECT_URIS.has(PRE_REDIRECT_URI),
     'ALLOWED_REDIRECT_URIS inclui PRE_REDIRECT_URI'
+  );
+
+  // Novo host oficial da plataforma: autorizacao deve voltar ao backend do sistema.
+  testAssert(
+    PROD_REDIRECT_URI === 'https://sistema.institutoiacra.com.br/api/google/oauth/callback',
+    'Callback oficial da plataforma aponta para sistema.institutoiacra.com.br'
+  );
+  testAssert(
+    resolveOAuthRedirectUri({ headers: { host: 'sistema.institutoiacra.com.br' } }) === PROD_REDIRECT_URI,
+    'Novo host da plataforma autorizado para OAuth'
+  );
+  testAssert(
+    resolveOAuthRedirectUri({ headers: { origin: 'https://sistema.institutoiacra.com.br', host: 'sistema.institutoiacra.com.br' } }) === PROD_REDIRECT_URI,
+    'Nova origem da plataforma autorizada para OAuth'
+  );
+  testAssert(
+    ALLOWED_REDIRECT_URIS.has(LEGACY_PROD_REDIRECT_URI),
+    'Callback legado continua permitido para fluxos em andamento'
+  );
+  testAssert(
+    ALLOWED_OAUTH_HOSTS['institutoiacra.com.br'] === LEGACY_PROD_REDIRECT_URI,
+    'Host legado preserva seu callback antigo'
   );
 
   // 2. Resolução Determinística para Produção (institutoiacra.com.br)
