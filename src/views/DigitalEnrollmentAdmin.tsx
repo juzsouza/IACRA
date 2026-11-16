@@ -26,6 +26,7 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
  const [expiresOn,setExpiresOn]=useState('');
  const [term,setTerm]=useState<TermDraft>({title:TERM_MODELS[0].label,body:''});
  const [url,setUrl]=useState('');
+ const [copyFeedback,setCopyFeedback]=useState('');
  const [notice,setNotice]=useState('');
  const [records,setRecords]=useState<DigitalRequest[]>([]);
  const [busy,setBusy]=useState(false);
@@ -54,13 +55,36 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
  if(!active)return <div role="alert">Sem permissão para Matrícula Digital.</div>;
  const issue=async()=>{
    if(!access.digital_enrollment.create||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(groupTerm)||!expiresOn||instrument.trim().length<2)return;
-   setBusy(true);setUrl('');setNotice('');
+   setBusy(true);setUrl('');setCopyFeedback('');setNotice('');
    try{
      if(!validTermForIssue(groupTerm))throw new Error('Preencha e revise o texto do termo antes de enviar o convite.');
      const result=await createDigitalOffer({modelId:model,teacherId:teacher.id,planId:plan.id,groupId:group?.id||null,
        startDate:start,enrollmentDate:date,dueDay:Number(due),monthlyAmount:amount,term:groupTerm,expiresOn,instrument:instrument.trim()});
      setUrl(result);setNotice('Convite criado. Confira o link antes de enviar ao aluno.');
    }catch(e){setNotice(e instanceof Error?e.message:'Falha ao criar convite');}finally{setBusy(false)}
+ };
+ const copyEnrollmentLink=async()=>{
+   if(!url)return;
+   let copied=false;
+   try{
+     if(navigator.clipboard?.writeText){
+       await navigator.clipboard.writeText(url);
+       copied=true;
+     }
+   }catch(_){ /* Tenta o método alternativo abaixo. */ }
+   if(!copied){
+     const temporary=document.createElement('textarea');
+     temporary.value=url;
+     temporary.setAttribute('readonly','');
+     temporary.style.position='fixed';
+     temporary.style.left='-9999px';
+     document.body.appendChild(temporary);
+     temporary.focus();
+     temporary.select();
+     try{copied=document.execCommand('copy');}catch(_){copied=false;}
+     temporary.remove();
+   }
+   setCopyFeedback(copied?'Link copiado!':'Cópia automática indisponível. Selecione o endereço acima e pressione Ctrl+C.');
  };
  const viewAudit=async(id:string)=>{
    setAudit(null);setAuditId(id);setAuditBusy(true);setNotice('');
@@ -102,7 +126,7 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
    <label className="block">Data de validade do link para preenchimento <span className="text-red-700">*</span><input className="block w-full border p-2" type="date" required min={new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} value={expiresOn} onChange={e=>{setExpiresOn(e.target.value);setUrl('')}}/><span className="text-sm text-zinc-600">O preenchimento e aceite ficam disponíveis até 23h59 (horário de Brasília) na data escolhida.</span></label>
    {conflict&&<p role="alert" className="text-red-700">Professor do grupo e professor exclusivo do plano não coincidem.</p>}
    <button type="button" disabled={!access.digital_enrollment.create||busy||!teacher||!plan||(isGroupModel(model)&&!group)||!validAmount||conflict||!validTermForIssue(groupTerm)||instrument.trim().length<2||!expiresOn||expiresOn<new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'})} onClick={issue} className="bg-indigo-700 text-white rounded-lg px-4 py-2 disabled:opacity-40">Gerar link de matrícula</button>
-   {url&&<div className="space-y-2"><p className="text-xs">O link é individual e confidencial. Envie apenas ao destinatário correto.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir formulário de matrícula</a><button type="button" onClick={()=>void navigator.clipboard.writeText(url)} className="border px-3 py-2 rounded-lg">Copiar link</button></div>}
+   {url&&<div className="space-y-2"><p className="text-xs">O link é individual e confidencial. Envie apenas ao destinatário correto.</p><a href={url} target="_blank" rel="noopener noreferrer" className="block text-indigo-700 underline">Abrir formulário de matrícula</a><label className="block text-xs text-zinc-600">Endereço do formulário<input type="text" value={url} readOnly aria-label="Link de matrícula" onFocus={e=>e.currentTarget.select()} onClick={e=>e.currentTarget.select()} className="block w-full border rounded-lg p-2 mt-1 text-sm bg-zinc-50" /></label><button type="button" onClick={()=>void copyEnrollmentLink()} className="border px-3 py-2 rounded-lg">Copiar link</button>{copyFeedback&&<p role="status" className="text-sm text-indigo-800">{copyFeedback}</p>}</div>}
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
