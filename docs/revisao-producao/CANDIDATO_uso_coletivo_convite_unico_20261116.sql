@@ -14,17 +14,15 @@ CREATE TABLE IF NOT EXISTS app_private.eavra_multi_use_offer_whitelist (
 );
 REVOKE ALL ON app_private.eavra_multi_use_offer_whitelist FROM PUBLIC, anon, authenticated;
 
-ALTER TABLE app_private.eavra_dev_enrollment_submissions
- ADD COLUMN IF NOT EXISTS is_multi_use boolean NOT NULL DEFAULT false;
-
--- Preserva a unicidade das submissões regulares; as novas do convite
--- excepcional são marcadas true exclusivamente pela função de envio.
-CREATE UNIQUE INDEX IF NOT EXISTS eavra_dev_enrollment_single_offer_unique
+-- A restricao atual impede mais de uma submissao por convite.
+-- O novo indice parcial mantem unicidade para todas as outras ofertas,
+-- sem criar colunas controlaveis na tabela de aceites.
+CREATE UNIQUE INDEX eavra_dev_enrollment_single_offer_unique_20261116
  ON app_private.eavra_dev_enrollment_submissions (offer_id)
- WHERE is_multi_use IS FALSE;
+ WHERE offer_id <> 'ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid;
 
 ALTER TABLE app_private.eavra_dev_enrollment_submissions
- DROP CONSTRAINT IF EXISTS eavra_dev_enrollment_submissions_offer_id_key;
+ DROP CONSTRAINT eavra_dev_enrollment_submissions_offer_id_key;
 
 CREATE OR REPLACE FUNCTION public.eavra_dev_get_enrollment_offer(p_token text)
  RETURNS jsonb
@@ -139,14 +137,14 @@ begin
     raise exception 'student_already_submitted_for_this_link' using errcode='22023';
   end if;
   insert into app_private.eavra_dev_enrollment_submissions
-    (offer_id,student_data,is_multi_use)
+    (offer_id,student_data)
   values (v_offer.id,pg_catalog.jsonb_build_object(
     'name',v_name,'email',v_email,'phone',v_phone,'cpf',v_cpf,
     'birth_date',v_birth,'instrument',v_instrument,
     'guardian_name',v_guardian,'guardian_email',v_guardian_email,
     'guardian_phone',v_guardian_phone,'guardian_relationship',v_guardian_relationship,
     'guardian_cpf',v_guardian_cpf
-  ),v_multi_use) returning id into v_id;
+  )) returning id into v_id;
   update app_private.eavra_dev_enrollment_offers set submitted_at=coalesce(submitted_at,now()) where id=v_offer.id;
   return pg_catalog.jsonb_build_object('submitted',true,'request_id',v_id);
 end
@@ -173,7 +171,7 @@ BEGIN
   END IF;
   SELECT count(*) INTO v_previous
   FROM app_private.eavra_dev_enrollment_submissions
-  WHERE offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid AND status='approved' AND is_multi_use IS FALSE;
+  WHERE offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid AND status='approved';
   IF v_previous<>1 THEN
     RAISE EXCEPTION 'Aceite aprovado original nao encontrado ou modificado';
   END IF;
