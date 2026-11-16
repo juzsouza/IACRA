@@ -83,7 +83,7 @@ export const Login: React.FC = () => {
       if (lower.includes('banned') || lower.includes('suspended') || lower.includes('blocked') || (err.status === 400 && lower.includes('grant'))) {
         setError('Acesso bloqueado pela administração da escola. Entre em contato com a coordenação.');
       } else if (msg.includes('Email not confirmed') || msg.includes('Invalid login credentials')) {
-        setError('E-mail ou senha incorretos. Se esqueceu sua senha, utilize a opção de redefinição por e-mail abaixo.');
+        setError('E-mail ou senha incorretos. Para redefinir sua senha, entre em contato com o Superadmin.');
       } else if (msg.includes('User already registered')) {
         setError('Este e-mail já está cadastrado. Tente fazer login.');
       } else {
@@ -211,18 +211,7 @@ export const Login: React.FC = () => {
                   <label className="block text-sm font-medium text-zinc-700">
                     Senha
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setSuccess(null);
-                      setResetEmail(email);
-                      setMode('reset');
-                    }}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
-                  >
-                    Esqueceu sua senha?
-                  </button>
+
                 </div>
                 <div className="mt-1 relative rounded-xl shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
