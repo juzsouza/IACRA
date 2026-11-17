@@ -271,6 +271,24 @@ export function resolveCreditEnrollmentId(
 }
 
 /**
+ * Um crédito originado no grupo pode ser alocado a UMA matrícula de participante.
+ * Os quatro vínculos são obrigatórios: grupo + aluno + matrícula + status.
+ * Não transforma crédito coletivo genérico em crédito individual.
+ */
+export function isAllocatedGroupMemberCredit(
+  credit: Credit,
+  enrollment: Pick<Enrollment, "id" | "student_id" | "group_id">
+): boolean {
+  return Boolean(
+    enrollment.group_id &&
+    enrollment.student_id &&
+    credit.group_id === enrollment.group_id &&
+    credit.student_id === enrollment.student_id &&
+    credit.enrollment_id === enrollment.id
+  );
+}
+
+/**
  * Validação de segurança antes de consumir um crédito.
  * Proteção contra consumo cruzado:
  * - Se for matrícula individual: credit.enrollment_id deve ser estritamente igual à enrollment.id e sem group_id.
@@ -278,7 +296,9 @@ export function resolveCreditEnrollmentId(
  */
 export function validateCreditConsumptionEntity(
   credit: Credit,
-  target: { type: "individual"; enrollmentId: string } | { type: "group"; groupId: string }
+  target:
+    | { type: "individual"; enrollmentId: string; studentId?: string; groupId?: string | null }
+    | { type: "group"; groupId: string }
 ): { allowed: boolean; reason?: string } {
   if (credit.status !== "available") {
     return { allowed: false, reason: "Crédito não está disponível" };
@@ -286,10 +306,16 @@ export function validateCreditConsumptionEntity(
 
   if (target.type === "individual") {
     if (credit.group_id) {
-      return {
-        allowed: false,
-        reason: `Crédito pertence ao grupo ${credit.group_id} e não pode ser consumido em matrícula individual`,
-      };
+      if (!credit.student_id || !credit.enrollment_id ||
+        !target.studentId || !target.groupId ||
+        credit.group_id !== target.groupId ||
+        credit.student_id !== target.studentId ||
+        credit.enrollment_id !== target.enrollmentId) {
+        return {
+          allowed: false,
+          reason: "Crédito de grupo vinculado a outro aluno, matrícula ou turma",
+        };
+      }
     }
     if (credit.enrollment_id && credit.enrollment_id !== target.enrollmentId) {
       return {
@@ -301,7 +327,8 @@ export function validateCreditConsumptionEntity(
   }
 
   if (target.type === "group") {
-    if (credit.enrollment_id) {
+    // Crédito já atribuído a aluno não pode ser usado de novo pelo caixa coletivo.
+    if (credit.enrollment_id || credit.student_id) {
       return {
         allowed: false,
         reason: `Crédito individual da matrícula ${credit.enrollment_id} não pode ser consumido em grupo`,
@@ -459,10 +486,11 @@ export function calculateRaphaelRealStudentBilling(params: {
     if (c.teacher_id && c.teacher_id !== RAPHAEL_TEACHER_ID) return false;
     if (monthStr && (c.competency_month || "") >= monthStr) return false;
 
-    // Regra: Crédito de grupo NUNCA abate matrícula individual
-    if (c.group_id) return false;
+    // Crédito de aula de grupo pode ser abatido individualmente SOMENTE
+    // quando foi alocado de forma explícita a este participante e matrícula.
+    if (c.group_id) return isAllocatedGroupMemberCredit(c, enrollment);
 
-    // Regra: Matrícula vinculada a grupo não recebe créditos individuais
+    // Um crédito de matrícula particular não deve migrar para uma turma.
     if (enrollment.group_id) return false;
 
     // Vínculo estrito com a matrícula (Entidade Financeira)
@@ -652,6 +680,8 @@ export function calculateRaphaelRealGroupBilling(params: {
   const availableCredits = credits.filter(
     (c) =>
       c.group_id === group.id &&
+      !c.student_id &&
+      !c.enrollment_id &&
       c.teacher_id === RAPHAEL_TEACHER_ID &&
       c.status === "available" &&
       (c.competency_month || "") < monthStr
