@@ -1075,23 +1075,26 @@ export const Payments: React.FC = () => {
           0, amountToPay - teacherShareOnPayment - Number(eb.plan.secretary_fee_value || 0)
         );
 
-        // Consume credits if Raphael
-        if (isRaphael && eb.raphaelRealBilling) {
-          for (const cred of eb.raphaelRealBilling.creditsConsumedList) {
-            // Validação estrita de isolamento de crédito por matrícula (Etapa 5)
-            const validation = validateCreditConsumptionEntity(cred, { type: 'individual', enrollmentId: eb.enrollment.id });
-            if (!validation.allowed) {
-              console.error(`[Segurança] Bloqueio de consumo cruzado na matrícula ${eb.enrollment.id}: ${validation.reason}`);
-              continue;
-            }
-            const currentCredit = (state.credits || []).find(c => c.id === cred.id);
-            if (currentCredit && currentCredit.status === 'available') {
-              updateCredit(cred.id, {
-                status: 'used',
-                used_date: paymentDate,
-                notes: `Utilizado no pagamento da matrícula ${eb.plan.name} (${eb.monthStr}/${eb.yearStr})`,
-              });
-            }
+        // Antes de registrar qualquer receita, validar todos os créditos elegíveis.
+        // Não marcar um crédito como consumido antes da transação persistir.
+        const creditsToConsume = isRaphael && eb.raphaelRealBilling
+          ? eb.raphaelRealBilling.creditsConsumedList
+          : [];
+        for (const cred of creditsToConsume) {
+          const validation = validateCreditConsumptionEntity(cred, {
+            type: 'individual',
+            enrollmentId: eb.enrollment.id,
+            studentId: student.id,
+            groupId: eb.enrollment.group_id || null,
+          });
+          if (!validation.allowed) {
+            window.alert(`Crédito incompatível com a matrícula: ${validation.reason}`);
+            return;
+          }
+          const current = (state.credits || []).find(c => c.id === cred.id);
+          if (!current || current.status !== 'available') {
+            window.alert('Crédito indisponível. Atualize a página antes da baixa.');
+            return;
           }
         }
 
@@ -1175,6 +1178,20 @@ export const Payments: React.FC = () => {
           console.error('[Financeiro] Transação salva mas confirmação da matrícula falhou:', snapErr);
           window.alert('Transação registrada, mas a baixa não foi concluída no banco. Não repita; faça conciliação.');
           return;
+        }
+
+        // A transação e o snapshot já foram persistidos; concluir o consumo
+        // uma única vez e interromper com aviso se o Supabase não confirmar.
+        for (const cred of creditsToConsume) {
+          const updated = await updateCredit(cred.id, {
+            status: 'used',
+            used_date: paymentDate,
+            notes: `Crédito de aula desmarcada aplicado na matrícula ${eb.enrollment.id} (${eb.monthStr}/${eb.yearStr})`,
+          });
+          if (!updated.success) {
+            window.alert('Pagamento registrado, mas o crédito não foi confirmado. Não repita a baixa; faça conciliação: ' + (updated.error || 'erro desconhecido'));
+            return;
+          }
         }
       }
     }
