@@ -27,6 +27,7 @@ import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
 import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
+import { getInitialPaymentSelection, pickSinglePaymentCompetence, hasRecordedGroupPayment } from '../utils/paymentCompetenceSelection';
 
 // ============================================================================
 // Helper de Elegibilidade de Matrículas para Cobrança Mensal
@@ -749,18 +750,18 @@ export const Payments: React.FC = () => {
   const filteredBillingItems = filterBillingItemsForView(allBillingItems, statusFilter, searchTerm);
 
   const openPaymentModal = (id: string, type: 'student' | 'group') => {
-    const monthStr = String(selectedMonth).padStart(2, '0');
-    const yearStr = String(selectedYear);
-    const nextSelection: Record<string, boolean> = {};
-    if (type === 'student') {
-      const billing = getStudentBilling(id);
-      // Meses antigos aparecem para conferência, mas não são baixados por padrão.
-      for (const item of [...(billing?.enrollmentsBilling || []), ...(billing?.choirBilling || [])]) {
-        if (!item.isPaid && item.monthStr === monthStr && item.yearStr === yearStr) {
-          nextSelection[item.itemKey] = true;
-        }
-      }
-    }
+    const nextSelection = type === 'student' ? getInitialPaymentSelection(
+      [
+        ...(getStudentBilling(id)?.enrollmentsBilling || []).map(eb => ({
+          itemKey: eb.itemKey, monthStr: eb.monthStr, yearStr: eb.yearStr, isPaid: eb.isPaid,
+          groupId: eb.enrollment.group_id as string | null | undefined,
+        })),
+        ...(getStudentBilling(id)?.choirBilling || []).map(cb => ({
+          itemKey: cb.itemKey, monthStr: cb.monthStr, yearStr: cb.yearStr, isPaid: cb.isPaid,
+        })),
+      ],
+      selectedMonth, selectedYear, state.transactions,
+    ) : {};
     setSelectedPaymentItems(nextSelection);
     if (type === 'group') {
       setSelectedGroupId(id);
@@ -1012,9 +1013,8 @@ export const Payments: React.FC = () => {
     for (const eb of enrollmentsBilling) {
       if (!eb.isPaid && !!selectedPaymentItems[eb.itemKey]) {
         // Não criar segunda entrada para mês já quitado na modalidade coletiva.
-        const groupAlreadyReceived = !!eb.enrollment.group_id && state.transactions.some(t =>
-          t.type === 'income' && t.status === 'completed' &&
-          t.description.includes(`Mensalidade Grupo | ${eb.enrollment.group_id} | ${eb.monthStr}/${eb.yearStr}`)
+        const groupAlreadyReceived = hasRecordedGroupPayment(
+          state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
         );
         if (groupAlreadyReceived) {
           window.alert('Esta competência já tem recebimento coletivo no grupo. Faça conciliação histórica, sem lançar uma nova receita.');
@@ -2257,9 +2257,8 @@ export const Payments: React.FC = () => {
                           </p>
                           <div className={`space-y-3 ${isRaphaelTarget ? '' : 'max-h-[250px] overflow-y-auto pr-1'}`}>
                             {unpaidEnrollments.map(eb => {
-                              const groupAlreadyReceived = !!eb.enrollment.group_id && state.transactions.some(t =>
-                                t.type === 'income' && t.status === 'completed' &&
-                                t.description.includes(`Mensalidade Grupo | ${eb.enrollment.group_id} | ${eb.monthStr}/${eb.yearStr}`)
+                              const groupAlreadyReceived = hasRecordedGroupPayment(
+                                state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
                               );
                               if (groupAlreadyReceived) {
                                 return <div key={eb.itemKey} className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
@@ -2271,7 +2270,7 @@ export const Payments: React.FC = () => {
                                   <div key={eb.itemKey} className="rounded-lg border border-purple-200 bg-purple-50/40 p-2 space-y-2">
                                     <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                       <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
-                                        onChange={e=>setSelectedPaymentItems(e.target.checked ? {[eb.itemKey]: true} : {})}/>
+                                        onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(eb.itemKey, e.target.checked))}/>
                                       Baixar competência {eb.refLabel}
                                     </label>
                                     {!!selectedPaymentItems[eb.itemKey] && (
@@ -2295,7 +2294,7 @@ export const Payments: React.FC = () => {
                                 <div key={eb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
                                   <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                     <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
-                                      onChange={e=>setSelectedPaymentItems(e.target.checked ? {[eb.itemKey]: true} : {})}/>
+                                      onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(eb.itemKey, e.target.checked))}/>
                                     Baixar competência {eb.refLabel}
                                   </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
@@ -2348,7 +2347,7 @@ export const Payments: React.FC = () => {
                                 <div key={cb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
                                   <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                     <input type="checkbox" checked={!!selectedPaymentItems[cb.itemKey]}
-                                      onChange={e=>setSelectedPaymentItems(e.target.checked ? {[cb.itemKey]: true} : {})}/>
+                                      onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(cb.itemKey, e.target.checked))}/>
                                     Baixar competência {cb.refLabel}
                                   </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
