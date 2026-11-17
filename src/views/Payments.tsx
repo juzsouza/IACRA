@@ -2244,7 +2244,7 @@ export const Payments: React.FC = () => {
                           </div>
 
                           <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-                            Somente as competências marcadas serão baixadas. Se um mês anterior já foi pago no grupo, concilie esse recebimento antes de marcá-lo.
+                            Apenas uma competência por baixa. Meses já pagos coletivamente precisam de conciliação, sem nova entrada de dinheiro.
                           </p>
                           <div className={`space-y-3 ${isRaphaelTarget ? '' : 'max-h-[250px] overflow-y-auto pr-1'}`}>
                             {unpaidEnrollments.map(eb => {
@@ -2253,7 +2253,7 @@ export const Payments: React.FC = () => {
                                   <div key={eb.itemKey} className="rounded-lg border border-purple-200 bg-purple-50/40 p-2 space-y-2">
                                     <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                       <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
-                                        onChange={e=>setSelectedPaymentItems(old=>({...old,[eb.itemKey]:e.target.checked}))}/>
+                                        onChange={e=>setSelectedPaymentItems(e.target.checked ? {[eb.itemKey]: true} : {})}/>
                                       Baixar competência {eb.refLabel}
                                     </label>
                                     {!!selectedPaymentItems[eb.itemKey] && (
@@ -2277,7 +2277,7 @@ export const Payments: React.FC = () => {
                                 <div key={eb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
                                   <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                     <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
-                                      onChange={e=>setSelectedPaymentItems(old=>({...old,[eb.itemKey]:e.target.checked}))}/>
+                                      onChange={e=>setSelectedPaymentItems(e.target.checked ? {[eb.itemKey]: true} : {})}/>
                                     Baixar competência {eb.refLabel}
                                   </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
@@ -2330,7 +2330,7 @@ export const Payments: React.FC = () => {
                                 <div key={cb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
                                   <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
                                     <input type="checkbox" checked={!!selectedPaymentItems[cb.itemKey]}
-                                      onChange={e=>setSelectedPaymentItems(old=>({...old,[cb.itemKey]:e.target.checked}))}/>
+                                      onChange={e=>setSelectedPaymentItems(e.target.checked ? {[cb.itemKey]: true} : {})}/>
                                     Baixar competência {cb.refLabel}
                                   </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
