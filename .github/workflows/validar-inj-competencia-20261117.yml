@@ -27,5 +27,7 @@ jobs:
         run: npm run test:billings
       - name: Testar regras de pagamentos
         run: npm run test:choir-balance
+      - name: Conferir tipos e variaveis
+        run: npm run lint
       - name: Compilar sem publicar
         run: npm run build
