@@ -1,10 +1,57 @@
--- CANDIDATO, NAO EXECUTAR EM PRODUCAO SEM APROVACAO E VALIDACAO.
+-- MIGRACAO APROVADA: somente UM convite em IACRA producao.
+-- Aplicar exclusivamente via Supabase apply_migration (transacional).
+-- BACKUP: estruturas e definicoes de funcao preservadas no GitHub; nenhuma linha
+-- de cadastro, pagamento, oferta, termo ou aceite e atualizada ou excluida.
+-- Refazer preflight antes de aplicar; nao executar diretamente em SQL Editor.
 -- Convite unico aprovado para excecao: UUID ad09e268-a476-463f-95fd-19b2b8f5a228
 -- O token confidencial NAO consta neste arquivo.
 -- Objetivo: preservar o primeiro aceite aprovado e habilitar aceitacoes
 -- independentes, sempre com aprovacao manual, SOMENTE nesse convite.
 -- Verificar backup, auditoria e homologacao antes de executar.
-BEGIN;
+-- PRE-FLIGHT: se a estrutura, as funções ou o convite mudaram, abortar TUDO.
+DO $safety$
+DECLARE v_exists integer;
+BEGIN
+ IF to_regclass('app_private.eavra_multi_use_offer_whitelist') IS NOT NULL
+ OR to_regclass('app_private.eavra_dev_enrollment_submissions') IS NULL
+ OR to_regclass('app_private.eavra_dev_enrollment_offers') IS NULL
+ OR to_regclass('app_private.eavra_dev_enrollment_single_offer_unique_20261116') IS NOT NULL
+ THEN RAISE EXCEPTION 'migration_already_applied_or_structure_changed'; END IF;
+
+ IF (SELECT md5(pg_get_functiondef('public.eavra_dev_get_enrollment_offer(text)'::regprocedure)))
+    <> 'e298651a9a8273cfcad260ab1267e88f'
+ OR (SELECT md5(pg_get_functiondef('public.eavra_dev_submit_enrollment(text,jsonb,boolean)'::regprocedure)))
+    <> 'a34bef05fb4dd6c64c50a5b7bb5bc624'
+ THEN RAISE EXCEPTION 'public_functions_changed_since_review'; END IF;
+
+ IF NOT EXISTS (
+  SELECT 1 FROM pg_constraint WHERE conrelid='app_private.eavra_dev_enrollment_submissions'::regclass
+   AND conname='eavra_dev_enrollment_submissions_offer_id_key'
+   AND pg_get_constraintdef(oid)='UNIQUE (offer_id)'
+ ) THEN RAISE EXCEPTION 'single_use_constraint_not_as_expected'; END IF;
+
+ SELECT count(*) INTO v_exists
+ FROM app_private.eavra_dev_enrollment_offers o
+ WHERE o.id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid
+   AND o.expires_at>now() AND o.submitted_at IS NOT NULL
+   AND o.token_hash IS NOT NULL;
+ IF v_exists<>1 THEN RAISE EXCEPTION 'target_offer_not_available'; END IF;
+
+ SELECT count(*) INTO v_exists
+ FROM app_private.eavra_dev_enrollment_submissions s
+ WHERE s.offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid AND s.status='approved'
+   AND s.student_id IS NOT NULL AND s.enrollment_id IS NOT NULL;
+ IF v_exists<>1 THEN RAISE EXCEPTION 'original_approved_submission_not_as_expected'; END IF;
+
+ IF (SELECT count(*) FROM app_private.eavra_dev_enrollment_submissions
+     WHERE offer_id='ad09e268-a476-463f-95fd-19b2b8f5a228'::uuid)<>1
+ THEN RAISE EXCEPTION 'target_submission_count_changed'; END IF;
+
+ IF (SELECT count(*) FROM app_private.eavra_dev_enrollment_offers)<15
+ OR (SELECT count(*) FROM app_private.eavra_dev_enrollment_submissions)<7
+ THEN RAISE EXCEPTION 'unexpected_global_counts'; END IF;
+END;
+$safety$;
 
 CREATE TABLE IF NOT EXISTS app_private.eavra_multi_use_offer_whitelist (
   offer_id uuid PRIMARY KEY REFERENCES app_private.eavra_dev_enrollment_offers(id) ON DELETE RESTRICT
@@ -13,6 +60,7 @@ CREATE TABLE IF NOT EXISTS app_private.eavra_multi_use_offer_whitelist (
   activated_at timestamptz NOT NULL DEFAULT now()
 );
 REVOKE ALL ON app_private.eavra_multi_use_offer_whitelist FROM PUBLIC, anon, authenticated;
+ALTER TABLE app_private.eavra_multi_use_offer_whitelist ENABLE ROW LEVEL SECURITY;
 
 -- A restricao atual impede mais de uma submissao por convite.
 -- O novo indice parcial mantem unicidade para todas as outras ofertas,
@@ -177,7 +225,6 @@ BEGIN
   END IF;
 END;
 $validate$;
-COMMIT;
 
 -- ENCERRAMENTO DA EXCECAO: executar separadamente quando autorizado:
 -- UPDATE app_private.eavra_multi_use_offer_whitelist
