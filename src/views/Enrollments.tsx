@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { useAppStore, Enrollment, FinancialPlan } from '../store';
 import { findDuplicateActiveEnrollment, normalizeOptionalFk } from '../utils/enrollmentPersistence';
+import { matchesEnrollmentTeacher, normalizeTeacherName } from '../utils/enrollmentTeacherFilter';
 import { Plus, Search, Edit2, Trash2, X, FileText, ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const Enrollments: React.FC = () => {
   const { state, addEnrollment, updateEnrollment, deleteEnrollment, currentUserProfile } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [isTeacherOptionsOpen, setIsTeacherOptionsOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
@@ -27,15 +31,30 @@ export const Enrollments: React.FC = () => {
     affiliate_id: '',
   });
 
+  const teacherOptions = [...state.teachers]
+    .filter(teacher => normalizeTeacherName(teacher.name).includes(normalizeTeacherName(teacherSearch)))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+
+  // O texto livre filtra por nome; escolher uma opção fixa o ID do professor.
+  // Matrículas de grupo sem professor direto usam o professor do próprio grupo.
   const filteredEnrollments = state.enrollments.filter(e => {
     const student = state.students.find(s => s.id === e.student_id);
     if (student?.not_eligible || student?.status === 'inactive') return false;
     const plan = state.financialPlans.find(p => p.id === e.plan_id);
-    return (
-      (student?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (plan?.name || "").toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStudentOrPlan =
+      (student?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (plan?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    return matchesStudentOrPlan && matchesEnrollmentTeacher(
+      e, state.groups, state.teachers, selectedTeacherId, teacherSearch
     );
   });
+
+  const chooseTeacher = (teacherId: string, teacherName = '') => {
+    setSelectedTeacherId(teacherId);
+    setTeacherSearch(teacherName);
+    setIsTeacherOptionsOpen(false);
+  };
 
   const calculateBreakdown = (planId: string, studentId: string, currentEnrollmentId?: string, customPrice?: number) => {
     const plan = state.financialPlans.find(p => p.id === planId);
@@ -216,17 +235,84 @@ export const Enrollments: React.FC = () => {
 
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-zinc-100">
-          <div className="relative max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-zinc-400" />
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="relative w-full sm:max-w-md">
+              <label htmlFor="enrollment-search" className="block text-xs font-medium text-zinc-600 mb-1">Aluno ou plano</label>
+              <div className="relative">
+                <Search className="absolute inset-y-0 left-3 my-auto h-5 w-5 text-zinc-400 pointer-events-none" />
+                <input
+                  id="enrollment-search"
+                  type="search"
+                  placeholder="Buscar por aluno ou plano..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-2 border border-zinc-200 rounded-xl leading-5 bg-zinc-50 placeholder-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                />
+              </div>
             </div>
-            <input
-              type="text"
-              placeholder="Buscar por aluno ou plano..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-zinc-200 rounded-xl leading-5 bg-zinc-50 placeholder-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
-            />
+            <div className="relative w-full sm:max-w-xs" onBlur={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsTeacherOptionsOpen(false);
+            }}>
+              <label htmlFor="enrollment-teacher-search" className="block text-xs font-medium text-zinc-600 mb-1">Professor</label>
+              <div className="relative">
+                <Search className="absolute inset-y-0 left-3 my-auto h-5 w-5 text-zinc-400 pointer-events-none" />
+                <input
+                  id="enrollment-teacher-search"
+                  type="search"
+                  placeholder="Todos os professores"
+                  value={teacherSearch}
+                  onFocus={() => setIsTeacherOptionsOpen(true)}
+                  onChange={e => {
+                    setTeacherSearch(e.target.value);
+                    setSelectedTeacherId('');
+                    setIsTeacherOptionsOpen(true);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') setIsTeacherOptionsOpen(false);
+                    if (e.key === 'Enter' && teacherOptions.length === 1) {
+                      e.preventDefault();
+                      chooseTeacher(teacherOptions[0].id, teacherOptions[0].name);
+                    }
+                  }}
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-haspopup="listbox"
+                  aria-expanded={isTeacherOptionsOpen}
+                  aria-controls="enrollment-teacher-options"
+                  className="block w-full pl-10 pr-3 py-2 border border-zinc-200 rounded-xl leading-5 bg-zinc-50 placeholder-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
+                />
+              </div>
+              {isTeacherOptionsOpen && (
+                <div id="enrollment-teacher-options" role="listbox" aria-label="Professores cadastrados"
+                  className="absolute left-0 right-0 top-full mt-1 bg-white border border-zinc-200 rounded-xl shadow-lg z-30 max-h-56 overflow-y-auto py-1">
+                  {!teacherSearch.trim() && (
+                    <button type="button" role="option" aria-selected={!selectedTeacherId}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 text-zinc-700"
+                      onClick={() => chooseTeacher('')}>
+                      Todos os professores
+                    </button>
+                  )}
+                  {teacherOptions.map(teacher => (
+                    <button key={teacher.id} type="button" role="option"
+                      aria-selected={selectedTeacherId === teacher.id}
+                      onClick={() => chooseTeacher(teacher.id, teacher.name)}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 ${selectedTeacherId === teacher.id ? 'text-indigo-700 font-semibold' : 'text-zinc-700'}`}>
+                      {teacher.name}
+                    </button>
+                  ))}
+                  {teacherOptions.length === 0 && (
+                    <div className="px-3 py-3 text-sm text-zinc-500">Nenhum professor encontrado.</div>
+                  )}
+                </div>
+              )}
+            </div>
+            {(searchTerm || teacherSearch) && (
+              <button type="button" onClick={() => { setSearchTerm(''); chooseTeacher(''); }}
+                className="shrink-0 text-xs text-indigo-700 hover:underline py-2">
+                Limpar filtros
+              </button>
+            )}
           </div>
         </div>
 
