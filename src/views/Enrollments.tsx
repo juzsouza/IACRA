@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore, Enrollment, FinancialPlan } from '../store';
 import { findDuplicateActiveEnrollment, normalizeOptionalFk } from '../utils/enrollmentPersistence';
-import { matchesEnrollmentTeacher, normalizeTeacherName } from '../utils/enrollmentTeacherFilter';
+import { filterActiveTeacherOptions, matchesEnrollmentTeacher } from '../utils/enrollmentTeacherFilter';
 import { Plus, Search, Edit2, Trash2, X, FileText, ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,9 +31,9 @@ export const Enrollments: React.FC = () => {
     affiliate_id: '',
   });
 
-  const teacherOptions = [...state.teachers]
-    .filter(teacher => normalizeTeacherName(teacher.name).includes(normalizeTeacherName(teacherSearch)))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+  // O filtro oferece somente docentes ativos, sem ocultar matrículas históricas.
+  const activeTeachers = state.teachers.filter(teacher => teacher.status === 'active');
+  const teacherOptions = filterActiveTeacherOptions(state.teachers, teacherSearch);
 
   // O texto livre filtra por nome; escolher uma opção fixa o ID do professor.
   // Matrículas de grupo sem professor direto usam o professor do próprio grupo.
@@ -46,7 +46,7 @@ export const Enrollments: React.FC = () => {
       (plan?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     return matchesStudentOrPlan && matchesEnrollmentTeacher(
-      e, state.groups, state.teachers, selectedTeacherId, teacherSearch
+      e, state.groups, activeTeachers, selectedTeacherId, teacherSearch
     );
   });
 

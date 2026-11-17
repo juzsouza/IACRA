@@ -1,7 +1,7 @@
 /** Filtro exclusivamente visual de matrículas por professor, sem alterar dados. */
 export type TeacherLinkedEnrollment = { teacher_id?: string | null; group_id?: string | null };
 export type TeacherLinkedGroup = { id: string; teacher_id?: string | null };
-export type TeacherDirectoryEntry = { id: string; name?: string | null };
+export type TeacherDirectoryEntry = { id: string; name?: string | null; status?: string | null };
 
 export const normalizeTeacherName = (name?: string | null): string =>
   (name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -29,4 +29,16 @@ export function matchesEnrollmentTeacher(
   if (selectedTeacherId) return teacherId === selectedTeacherId;
   const teacher = teachers.find(item => item.id === teacherId);
   return Boolean(teacher && normalizeTeacherName(teacher.name).includes(normalizeTeacherName(teacherSearch)));
+}
+
+/** Opções de pesquisa: exclusivamente professores com cadastro ativo. */
+export function filterActiveTeacherOptions<T extends TeacherDirectoryEntry>(
+  teachers: T[],
+  query: string,
+): T[] {
+  const normalizedQuery = normalizeTeacherName(query);
+  return teachers
+    .filter(teacher => teacher.status === 'active' &&
+      normalizeTeacherName(teacher.name).includes(normalizedQuery))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
 }

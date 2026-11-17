@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { matchesEnrollmentTeacher, normalizeTeacherName, resolveEnrollmentTeacherId } from '../utils/enrollmentTeacherFilter';
+import { filterActiveTeacherOptions, matchesEnrollmentTeacher, normalizeTeacherName, resolveEnrollmentTeacherId } from '../utils/enrollmentTeacherFilter';
 
 const teachers = [
   {id:'t1',name:'Raphael Augusto'},
@@ -29,4 +29,18 @@ assert.equal(matchesEnrollmentTeacher(missing,groups,teachers,'','Raphael'),fals
 assert.equal(matchesEnrollmentTeacher(alone,groups,teachers,'t3',''),false,'IDs prevalecem sobre nomes iguais');
 assert.equal(normalizeTeacherName('  JOÃO '),'joao');
 assert.equal(matchesEnrollmentTeacher(fromGroup,groups,teachers,'','  '),true);
-console.log('Filtro de professor nas matrículas: 14 verificações aprovadas.');
+const statusTeachers = [
+  {id:'t1',name:'Raphael Augusto',status:'active'},
+  {id:'t2',name:'João de Deus',status:'inactive'},
+  {id:'t3',name:'Alan Ferreira',status:'active'},
+  {id:'t4',name:'Aluno Ex-Professor',status:'inactive'},
+  {id:'t5',name:'Sem status'},
+];
+const allOptions = filterActiveTeacherOptions(statusTeachers, '');
+assert.deepEqual(allOptions.map(t=>t.id), ['t3','t1'], 'lista contém apenas os ativos em ordem alfabética');
+assert.deepEqual(filterActiveTeacherOptions(statusTeachers, 'João'), [], 'inativos não aparecem mesmo com busca');
+assert.deepEqual(filterActiveTeacherOptions(statusTeachers, 'RAPHAEL').map(t=>t.id), ['t1'], 'busca por nome do ativo');
+assert.deepEqual(filterActiveTeacherOptions(statusTeachers, 'alan').map(t=>t.id), ['t3'], 'busca ignora acentos');
+assert.equal(matchesEnrollmentTeacher({teacher_id:'t2'},groups,allOptions,'','João'),false,'texto livre não encontra inativo');
+assert.equal(matchesEnrollmentTeacher({teacher_id:'t1'},groups,allOptions,'',''),true,'sem seleção mantém matrículas na lista');
+console.log('Filtro de professor nas matrículas: 20 verificações aprovadas.');
