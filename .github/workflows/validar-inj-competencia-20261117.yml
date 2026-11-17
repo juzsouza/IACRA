@@ -23,6 +23,8 @@ jobs:
         run: npm ci
       - name: Testar selecao exclusiva de competencia
         run: npx tsx src/tests/payment_competence_selection.test.ts
+      - name: Testar credito individualizado do grupo INJ
+        run: npx tsx src/tests/group_inj_credit_november.test.ts
       - name: Testar motor financeiro existente
         run: npm run test:billings
       - name: Testar regras de pagamentos
