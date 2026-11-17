@@ -1699,6 +1699,9 @@ export const Payments: React.FC = () => {
                   // Usar o resumo operacional, que não cobra de novo competências
                   // já recebidas no coletivo e ainda aguardando conciliação.
                   const { totalAmount, totalPaid, totalPending, paymentStatus } = item;
+                  const hasAnyPaid = enrollmentsBilling.some(eb => eb.isPaid) ||
+                    choirBilling.some(cb => cb.isPaid);
+                  const hasPendingToCollect = totalPending > 0;
 
                   return (
                     <tr key={`student_${item.id}`} className="hover:bg-zinc-50 transition-colors">
@@ -2007,7 +2010,7 @@ export const Payments: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         {canManagePayments && (
                           <div className="flex items-center justify-end space-x-2">
-                            {!allPaid && (
+                            {hasPendingToCollect && (
                               <button 
                                 onClick={() => openPaymentModal(item.id, 'student')} 
                                 className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-lg shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
@@ -2017,7 +2020,7 @@ export const Payments: React.FC = () => {
                                 Baixar
                               </button>
                             )}
-                            {anyPaid && (
+                            {hasAnyPaid && (
                               <button 
                                 onClick={() => {
                                   const paidEb = enrollmentsBilling.find(e => e.isPaid);
