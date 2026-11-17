@@ -180,6 +180,8 @@ export const Payments: React.FC = () => {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
   const [customDiscounts, setCustomDiscounts] = useState<Record<string, string>>({});
+  // A baixa individual só alcança competências selecionadas explicitamente.
+  const [selectedPaymentItems, setSelectedPaymentItems] = useState<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = useState<'to_pay' | 'paid' | 'all'>('to_pay');
   const [isSimulatorModalOpen, setIsSimulatorModalOpen] = useState(false);
   const [isCreditsModalOpen, setIsCreditsModalOpen] = useState(false);
@@ -747,6 +749,19 @@ export const Payments: React.FC = () => {
   const filteredBillingItems = filterBillingItemsForView(allBillingItems, statusFilter, searchTerm);
 
   const openPaymentModal = (id: string, type: 'student' | 'group') => {
+    const monthStr = String(selectedMonth).padStart(2, '0');
+    const yearStr = String(selectedYear);
+    const nextSelection: Record<string, boolean> = {};
+    if (type === 'student') {
+      const billing = getStudentBilling(id);
+      // Meses antigos aparecem para conferência, mas não são baixados por padrão.
+      for (const item of [...(billing?.enrollmentsBilling || []), ...(billing?.choirBilling || [])]) {
+        if (!item.isPaid && item.monthStr === monthStr && item.yearStr === yearStr) {
+          nextSelection[item.itemKey] = true;
+        }
+      }
+    }
+    setSelectedPaymentItems(nextSelection);
     if (type === 'group') {
       setSelectedGroupId(id);
       setSelectedStudentId(null);
@@ -764,6 +779,7 @@ export const Payments: React.FC = () => {
     setSelectedGroupId(null);
     setCustomAmounts({});
     setCustomDiscounts({});
+    setSelectedPaymentItems({});
   };
 
   const handleDiscountChange = (itemKey: string, refPrice: number, discountStr: string) => {
@@ -975,10 +991,26 @@ export const Payments: React.FC = () => {
     if (!billing) return;
 
     const { student, enrollmentsBilling, choirBilling } = billing;
+    const selectedUnpaid = [
+      ...enrollmentsBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
+      ...choirBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
+    ];
+    if (!selectedUnpaid.length) {
+      window.alert('Selecione ao menos uma competência para baixar.');
+      return;
+    }
+    for (const item of selectedUnpaid) {
+      const entered = customAmounts[item.itemKey];
+      const value = Number(entered);
+      if (entered === undefined || entered.trim() === '' || !Number.isFinite(value) || value < 0) {
+        window.alert('Confira o valor da competência selecionada antes de confirmar.');
+        return;
+      }
+    }
 
-    // Register transaction for each unpaid enrollment month
+    // Register transaction for each selected unpaid enrollment month
     for (const eb of enrollmentsBilling) {
-      if (!eb.isPaid) {
+      if (!eb.isPaid && !!selectedPaymentItems[eb.itemKey]) {
         const isRaphael = eb.isRaphael && eb.raphaelRealBilling;
 
         // Double-billing safety check
@@ -1112,7 +1144,7 @@ export const Payments: React.FC = () => {
 
     // Register transaction for each unpaid Choir month
     for (const cb of choirBilling) {
-      if (!cb.isPaid) {
+      if (!cb.isPaid && !!selectedPaymentItems[cb.itemKey]) {
         const descPattern = `Mensalidade Coral | ${cb.registration.id} | ${cb.monthStr}/${cb.yearStr}`;
         const alreadyPaid = state.transactions.some(t => 
           t.type === 'income' && 
@@ -2328,6 +2360,7 @@ export const Payments: React.FC = () => {
                             let totalDiscount = 0;
 
                             unpaidEnrollments.forEach(eb => {
+                              if (!selectedPaymentItems[eb.itemKey]) return;
                               const isEarly = eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
                               const standardRef = eb.priceWithDiscount - (isEarly ? eb.plan.early_discount_value : 0);
                               const refAmount = eb.isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.finalAmount : standardRef;
@@ -2339,6 +2372,7 @@ export const Payments: React.FC = () => {
                             });
 
                             unpaidChoir.forEach(cb => {
+                              if (!selectedPaymentItems[cb.itemKey]) return;
                               const refAmount = cb.monthlyFee;
                               const val = parseFloat(customAmounts[cb.itemKey] || '0');
                               const disc = parseFloat(customDiscounts[cb.itemKey] || '0');
@@ -2391,7 +2425,8 @@ export const Payments: React.FC = () => {
                       </button>
                       <button
                         type="submit"
-                        className={`px-4 py-2 text-sm font-bold text-white ${
+                        disabled={Boolean(selectedStudentId) && !Object.values(selectedPaymentItems).some(Boolean)}
+                        className={`px-4 py-2 text-sm font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed ${
                           isRaphaelTarget
                             ? 'bg-purple-700 hover:bg-purple-800 focus:ring-purple-500 shadow-sm'
                             : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
