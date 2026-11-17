@@ -1,0 +1,35 @@
+name: Validar baixa individual por competencia INJ (sem deploy)
+on:
+  push:
+    branches: [iacra-hotfix-inj-20261117]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validacao-financeira-isolada:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - name: Baixar codigo isolado
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Testar selecao exclusiva de competencia
+        run: npx tsx src/tests/payment_competence_selection.test.ts
+      - name: Testar credito individualizado do grupo INJ
+        run: npx tsx src/tests/group_inj_credit_november.test.ts
+      - name: Testar motor financeiro existente
+        run: npm run test:billings
+      - name: Testar regras de pagamentos
+        run: npm run test:choir-balance
+      - name: Conferir tipos e variaveis
+        run: npm run lint
+      - name: Compilar sem publicar
+        run: npm run build
