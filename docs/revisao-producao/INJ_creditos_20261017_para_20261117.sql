@@ -129,7 +129,7 @@ BEGIN
   IF v_count<>3 THEN RAISE EXCEPTION 'Available credits differ from 3'; END IF;
 
   SELECT count(*) INTO v_count FROM public.competence_billings
-   WHERE id='9386e9c4-fd43-4179-b272-62dc584985c5' AND status='paid' AND transaction_id='6bfa6d06-a367-4363-b875-9dcb04cd4128'::uuid
+   WHERE id='9386e9c4-fd43-4179-b272-62dc584985c5' AND status='paid' AND transaction_id='6bfa6d06-a367-4363-b875-9dcb04cd4128'
       AND is_frozen=true AND final_price=50 AND discount=50;
   IF v_count<>1 THEN RAISE EXCEPTION 'Historical settlement not linked'; END IF;
 END;
