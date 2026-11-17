@@ -695,10 +695,20 @@ export const Payments: React.FC = () => {
     let anyPaid = false;
     let hasPastPending = false;
 
+    let collectiveReconciliationCount = 0;
     enrollmentsBilling.forEach(eb => {
       const effectiveAmount = eb.isRaphael && eb.raphaelRealBilling
         ? eb.raphaelRealBilling.finalAmount
         : eb.priceWithDiscount;
+
+      // O recebimento coletivo não é uma nova cobrança individual.
+      // Aguardar conciliação sem alterar snapshots ou transações.
+      if (!eb.isPaid && hasRecordedGroupPayment(
+        state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+      )) {
+        collectiveReconciliationCount++;
+        return;
+      }
 
       totalAmount += effectiveAmount;
       if (eb.isPaid) {
@@ -739,6 +749,7 @@ export const Payments: React.FC = () => {
       totalPending,
       paymentStatus,
       hasPastPending,
+      collectiveReconciliationCount,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
 
@@ -749,7 +760,7 @@ export const Payments: React.FC = () => {
 
   const filteredBillingItems = filterBillingItemsForView(allBillingItems, statusFilter, searchTerm);
 
-  const openPaymentModal = (id: string, type: 'student' | 'group') => {
+  const openPaymentModal = (id: string, type: 'student' | 'group', requestedItemKey?: string) => {
     const nextSelection = type === 'student' ? getInitialPaymentSelection(
       [
         ...(getStudentBilling(id)?.enrollmentsBilling || []).map(eb => ({
@@ -762,7 +773,24 @@ export const Payments: React.FC = () => {
       ],
       selectedMonth, selectedYear, state.transactions,
     ) : {};
-    setSelectedPaymentItems(nextSelection);
+    if (type === 'student' && requestedItemKey) {
+      const b = getStudentBilling(id);
+      const requested = [
+        ...(b?.enrollmentsBilling || []),
+        ...(b?.choirBilling || []),
+      ].find(x => x.itemKey === requestedItemKey);
+      if (!requested || requested.isPaid ||
+        ('enrollment' in requested && hasRecordedGroupPayment(
+          state.transactions, requested.enrollment?.group_id,
+          requested.monthStr, requested.yearStr,
+        ))) {
+        window.alert('Essa competência já tem pagamento anterior ou precisa de conciliação.');
+        return;
+      }
+      setSelectedPaymentItems({ [requestedItemKey]: true });
+    } else {
+      setSelectedPaymentItems(nextSelection);
+    }
     if (type === 'group') {
       setSelectedGroupId(id);
       setSelectedStudentId(null);
@@ -1668,35 +1696,9 @@ export const Payments: React.FC = () => {
 
                   const { enrollmentsBilling, choirBilling } = billing;
 
-                  let totalAmount = 0;
-                  let totalPaid = 0;
-                  let totalPending = 0;
-                  let allPaid = true;
-                  let anyPaid = false;
-
-                  enrollmentsBilling.forEach(eb => {
-                    totalAmount += eb.priceWithDiscount;
-                    if (eb.isPaid) {
-                      totalPaid += eb.transaction?.amount || eb.priceWithDiscount;
-                      anyPaid = true;
-                    } else {
-                      totalPending += eb.priceWithDiscount;
-                      allPaid = false;
-                    }
-                  });
-
-                  choirBilling.forEach(cb => {
-                    totalAmount += cb.monthlyFee;
-                    if (cb.isPaid) {
-                      totalPaid += cb.transaction?.amount || cb.monthlyFee;
-                      anyPaid = true;
-                    } else {
-                      totalPending += cb.monthlyFee;
-                      allPaid = false;
-                    }
-                  });
-
-                  const paymentStatus = allPaid ? 'paid' : (anyPaid ? 'partial' : 'pending');
+                  // Usar o resumo operacional, que não cobra de novo competências
+                  // já recebidas no coletivo e ainda aguardando conciliação.
+                  const { totalAmount, totalPaid, totalPending, paymentStatus } = item;
 
                   return (
                     <tr key={`student_${item.id}`} className="hover:bg-zinc-50 transition-colors">
@@ -1756,7 +1758,13 @@ export const Payments: React.FC = () => {
                                     Raphael Etapa 5
                                   </span>
                                 )}
-                                {eb.isPaid ? (
+                                {(!eb.isPaid && hasRecordedGroupPayment(
+                                  state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+                                )) ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-900 border border-amber-300">
+                                    Recebido no grupo · conciliar
+                                  </span>
+                                ) : eb.isPaid ? (
                                   <div className="inline-flex items-center gap-1">
                                     <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                       Pago
@@ -1795,20 +1803,7 @@ export const Payments: React.FC = () => {
                                     </span>
                                     {canManagePayments && (
                                       <button
-                                        onClick={() => {
-                                          if (eb.isRaphael && eb.raphaelRealBilling) {
-                                            openPaymentModal(item.id, 'student');
-                                          } else {
-                                            openCorrectionModal({
-                                              studentName: item.name,
-                                              itemDescription: `${eb.plan.name} (Ref: ${eb.refLabel})`,
-                                              currentAmount: eb.priceWithDiscount,
-                                              transactionId: undefined,
-                                              transactionDate: new Date().toISOString().split('T')[0],
-                                              defaultDescription: `Mensalidade | ${eb.enrollment.id} | ${eb.monthStr}/${eb.yearStr} | ${item.name} - ${eb.plan.name}`
-                                            });
-                                          }
-                                        }}
+                                        onClick={() => openPaymentModal(item.id, 'student', eb.itemKey)}
                                         className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors inline-flex items-center gap-0.5 border border-emerald-200/60"
                                         title={eb.isRaphael ? "Baixar com confirmação e cálculo real Raphael" : "Registrar pagamento individual"}
                                       >
@@ -1966,14 +1961,7 @@ export const Payments: React.FC = () => {
                                   </span>
                                   {canManagePayments && (
                                     <button
-                                      onClick={() => openCorrectionModal({
-                                        studentName: item.name,
-                                        itemDescription: `Coral (Ref: ${cb.refLabel})`,
-                                        currentAmount: cb.monthlyFee,
-                                        transactionId: undefined,
-                                        transactionDate: new Date().toISOString().split('T')[0],
-                                        defaultDescription: `Mensalidade Coral | ${cb.registration.id} | ${cb.monthStr}/${cb.yearStr} | ${item.name}`
-                                      })}
+                                      onClick={() => openPaymentModal(item.id, 'student', cb.itemKey)}
                                       className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors inline-flex items-center gap-0.5 border border-emerald-200/60"
                                       title="Registrar pagamento do coral"
                                     >
@@ -1990,9 +1978,9 @@ export const Payments: React.FC = () => {
                         <div className="text-sm font-semibold text-zinc-900">
                           {formatCurrency(totalAmount)}
                         </div>
-                        {(enrollmentsBilling.length + choirBilling.length) > 1 && (
-                          <div className="text-[10px] text-zinc-400 mt-0.5">
-                            {enrollmentsBilling.length + choirBilling.length} atribuições somadas
+                        {item.collectiveReconciliationCount > 0 && (
+                          <div className="text-[10px] text-amber-800 mt-0.5">
+                            {item.collectiveReconciliationCount} competência(s) recebida(s) no coletivo; conciliação pendente
                           </div>
                         )}
                       </td>
