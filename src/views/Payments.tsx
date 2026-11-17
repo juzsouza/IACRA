@@ -2243,19 +2243,30 @@ export const Payments: React.FC = () => {
                             Baixando pagamentos para o aluno: <span className="font-bold text-zinc-950">{student.name}</span>
                           </div>
 
+                          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                            Somente as competências marcadas serão baixadas. Se um mês anterior já foi pago no grupo, concilie esse recebimento antes de marcá-lo.
+                          </p>
                           <div className={`space-y-3 ${isRaphaelTarget ? '' : 'max-h-[250px] overflow-y-auto pr-1'}`}>
                             {unpaidEnrollments.map(eb => {
                               if (eb.isRaphael && eb.raphaelRealBilling) {
                                 return (
-                                  <RaphaelPaymentConfirmationCard
-                                    key={eb.itemKey}
-                                    itemKey={eb.itemKey}
-                                    memory={eb.raphaelRealBilling}
-                                    customAmount={customAmounts[eb.itemKey] ?? ''}
-                                    customDiscount={customDiscounts[eb.itemKey] ?? ''}
-                                    onAmountChange={(val) => handleAmountChange(eb.itemKey, eb.raphaelRealBilling!.finalAmount, val)}
-                                    onDiscountChange={(val) => handleDiscountChange(eb.itemKey, eb.raphaelRealBilling!.grossAmount, val)}
-                                  />
+                                  <div key={eb.itemKey} className="rounded-lg border border-purple-200 bg-purple-50/40 p-2 space-y-2">
+                                    <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                      <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
+                                        onChange={e=>setSelectedPaymentItems(old=>({...old,[eb.itemKey]:e.target.checked}))}/>
+                                      Baixar competência {eb.refLabel}
+                                    </label>
+                                    {!!selectedPaymentItems[eb.itemKey] && (
+                                      <RaphaelPaymentConfirmationCard
+                                        itemKey={eb.itemKey}
+                                        memory={eb.raphaelRealBilling}
+                                        customAmount={customAmounts[eb.itemKey] ?? ''}
+                                        customDiscount={customDiscounts[eb.itemKey] ?? ''}
+                                        onAmountChange={(val) => handleAmountChange(eb.itemKey, eb.raphaelRealBilling!.finalAmount, val)}
+                                        onDiscountChange={(val) => handleDiscountChange(eb.itemKey, eb.raphaelRealBilling!.grossAmount, val)}
+                                      />
+                                    )}
+                                  </div>
                                 );
                               }
 
@@ -2264,6 +2275,11 @@ export const Payments: React.FC = () => {
 
                               return (
                                 <div key={eb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
+                                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                    <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
+                                      onChange={e=>setSelectedPaymentItems(old=>({...old,[eb.itemKey]:e.target.checked}))}/>
+                                    Baixar competência {eb.refLabel}
+                                  </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
                                     <span className="truncate max-w-[220px] font-semibold">
                                       {eb.plan.name} <span className="text-indigo-600">({eb.refLabel})</span> {isEarly && <span className="text-emerald-600 font-semibold">(Desconto Aplicado)</span>}
@@ -2312,6 +2328,11 @@ export const Payments: React.FC = () => {
                               const refAmount = cb.monthlyFee;
                               return (
                                 <div key={cb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
+                                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                    <input type="checkbox" checked={!!selectedPaymentItems[cb.itemKey]}
+                                      onChange={e=>setSelectedPaymentItems(old=>({...old,[cb.itemKey]:e.target.checked}))}/>
+                                    Baixar competência {cb.refLabel}
+                                  </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
                                     <span className="font-semibold">Mensalidade Coral <span className="text-indigo-600">({cb.refLabel})</span></span>
                                     <span className="font-bold">Ref: {formatCurrency(refAmount)}</span>
