@@ -1011,6 +1011,15 @@ export const Payments: React.FC = () => {
     // Register transaction for each selected unpaid enrollment month
     for (const eb of enrollmentsBilling) {
       if (!eb.isPaid && !!selectedPaymentItems[eb.itemKey]) {
+        // Não criar segunda entrada para mês já quitado na modalidade coletiva.
+        const groupAlreadyReceived = !!eb.enrollment.group_id && state.transactions.some(t =>
+          t.type === 'income' && t.status === 'completed' &&
+          t.description.includes(`Mensalidade Grupo | ${eb.enrollment.group_id} | ${eb.monthStr}/${eb.yearStr}`)
+        );
+        if (groupAlreadyReceived) {
+          window.alert('Esta competência já tem recebimento coletivo no grupo. Faça conciliação histórica, sem lançar uma nova receita.');
+          return;
+        }
         const isRaphael = eb.isRaphael && eb.raphaelRealBilling;
 
         // Double-billing safety check
@@ -2248,6 +2257,15 @@ export const Payments: React.FC = () => {
                           </p>
                           <div className={`space-y-3 ${isRaphaelTarget ? '' : 'max-h-[250px] overflow-y-auto pr-1'}`}>
                             {unpaidEnrollments.map(eb => {
+                              const groupAlreadyReceived = !!eb.enrollment.group_id && state.transactions.some(t =>
+                                t.type === 'income' && t.status === 'completed' &&
+                                t.description.includes(`Mensalidade Grupo | ${eb.enrollment.group_id} | ${eb.monthStr}/${eb.yearStr}`)
+                              );
+                              if (groupAlreadyReceived) {
+                                return <div key={eb.itemKey} className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                                  <strong>{eb.refLabel}:</strong> pagamento já registrado no grupo. Não fazer nova baixa individual; conciliar o histórico coletivo.
+                                </div>;
+                              }
                               if (eb.isRaphael && eb.raphaelRealBilling) {
                                 return (
                                   <div key={eb.itemKey} className="rounded-lg border border-purple-200 bg-purple-50/40 p-2 space-y-2">
