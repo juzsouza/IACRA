@@ -1,0 +1,26 @@
+name: Validar filtro por professor nas Matriculas (sem deploy)
+on:
+  push:
+    branches: [iacra-matriculas-filtro-professor-20261117]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar-filtro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Testar filtro de professor e matricula
+        run: npx tsx src/tests/enrollment_teacher_filter.test.ts
+      - name: Verificar tipos
+        run: npm run lint
+      - name: Compilar sem publicar
+        run: npm run build
