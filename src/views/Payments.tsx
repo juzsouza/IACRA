@@ -996,8 +996,8 @@ export const Payments: React.FC = () => {
       ...enrollmentsBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
       ...choirBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
     ];
-    if (!selectedUnpaid.length) {
-      window.alert('Selecione ao menos uma competência para baixar.');
+    if (selectedUnpaid.length !== 1) {
+      window.alert('Selecione exatamente uma competência por baixa.');
       return;
     }
     for (const item of selectedUnpaid) {
