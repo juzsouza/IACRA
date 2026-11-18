@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import {
   PROD_REDIRECT_URI,
+  LEGACY_PROD_REDIRECT_URI,
   DEV_REDIRECT_URI,
   PRE_REDIRECT_URI,
   ALLOWED_OAUTH_HOSTS,
@@ -32,17 +33,17 @@ async function runOAuthProductionTests() {
   // 1. Constantes e Configuração de Produção
   console.log('--- 1. Constantes e Allowlist de Hosts/URIs ---');
   testAssert(
-    PROD_REDIRECT_URI === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    LEGACY_PROD_REDIRECT_URI === 'https://institutoiacra.com.br/api/google/oauth/callback',
     'PROD_REDIRECT_URI aponta exatamente para https://institutoiacra.com.br/api/google/oauth/callback'
   );
 
   testAssert(
-    ALLOWED_OAUTH_HOSTS['institutoiacra.com.br'] === PROD_REDIRECT_URI,
+    ALLOWED_OAUTH_HOSTS['institutoiacra.com.br'] === LEGACY_PROD_REDIRECT_URI,
     'ALLOWED_OAUTH_HOSTS mapeia institutoiacra.com.br para PROD_REDIRECT_URI'
   );
 
   testAssert(
-    ALLOWED_OAUTH_HOSTS['www.institutoiacra.com.br'] === PROD_REDIRECT_URI,
+    ALLOWED_OAUTH_HOSTS['www.institutoiacra.com.br'] === LEGACY_PROD_REDIRECT_URI,
     'ALLOWED_OAUTH_HOSTS mapeia www.institutoiacra.com.br para PROD_REDIRECT_URI'
   );
 
@@ -61,35 +62,57 @@ async function runOAuthProductionTests() {
     'ALLOWED_REDIRECT_URIS inclui PRE_REDIRECT_URI'
   );
 
+  // Novo host oficial da plataforma: autorizacao deve voltar ao backend do sistema.
+  testAssert(
+    PROD_REDIRECT_URI === 'https://sistema.institutoiacra.com.br/api/google/oauth/callback',
+    'Callback oficial da plataforma aponta para sistema.institutoiacra.com.br'
+  );
+  testAssert(
+    resolveOAuthRedirectUri({ headers: { host: 'sistema.institutoiacra.com.br' } }) === PROD_REDIRECT_URI,
+    'Novo host da plataforma autorizado para OAuth'
+  );
+  testAssert(
+    resolveOAuthRedirectUri({ headers: { origin: 'https://sistema.institutoiacra.com.br', host: 'sistema.institutoiacra.com.br' } }) === PROD_REDIRECT_URI,
+    'Nova origem da plataforma autorizada para OAuth'
+  );
+  testAssert(
+    ALLOWED_REDIRECT_URIS.has(LEGACY_PROD_REDIRECT_URI),
+    'Callback legado continua permitido para fluxos em andamento'
+  );
+  testAssert(
+    ALLOWED_OAUTH_HOSTS['institutoiacra.com.br'] === LEGACY_PROD_REDIRECT_URI,
+    'Host legado preserva seu callback antigo'
+  );
+
   // 2. Resolução Determinística para Produção (institutoiacra.com.br)
   console.log('\n--- 2. Resolução Determinística para Produção ---');
   const reqProdHost = { headers: { host: 'institutoiacra.com.br' } };
   testAssert(
-    resolveOAuthRedirectUri(reqProdHost) === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    resolveOAuthRedirectUri(reqProdHost) === LEGACY_PROD_REDIRECT_URI,
     'Host institutoiacra.com.br resolve para callback de produção'
   );
 
   const reqProdHostPort = { headers: { host: 'institutoiacra.com.br:443' } };
   testAssert(
-    resolveOAuthRedirectUri(reqProdHostPort) === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    resolveOAuthRedirectUri(reqProdHostPort) === LEGACY_PROD_REDIRECT_URI,
     'Host institutoiacra.com.br com porta resolve para callback de produção'
   );
 
   const reqProdXForwarded = { headers: { 'x-forwarded-host': 'institutoiacra.com.br' } };
   testAssert(
-    resolveOAuthRedirectUri(reqProdXForwarded) === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    resolveOAuthRedirectUri(reqProdXForwarded) === LEGACY_PROD_REDIRECT_URI,
     'Header x-forwarded-host institutoiacra.com.br resolve para callback de produção'
   );
 
   const reqProdOrigin = { headers: { origin: 'https://institutoiacra.com.br' } };
   testAssert(
-    resolveOAuthRedirectUri(reqProdOrigin) === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    resolveOAuthRedirectUri(reqProdOrigin) === LEGACY_PROD_REDIRECT_URI,
     'Header origin https://institutoiacra.com.br resolve para callback de produção'
   );
 
   const reqProdWww = { headers: { host: 'www.institutoiacra.com.br' } };
   testAssert(
-    resolveOAuthRedirectUri(reqProdWww) === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    resolveOAuthRedirectUri(reqProdWww) === LEGACY_PROD_REDIRECT_URI,
     'Host www.institutoiacra.com.br resolve para callback de produção'
   );
 
@@ -135,7 +158,7 @@ async function runOAuthProductionTests() {
   const authUrlResult = generateGoogleAuthUrl(teacherId, prodRedirect);
 
   testAssert(
-    Boolean(authUrlResult.url && authUrlResult.url.includes(encodeURIComponent('https://institutoiacra.com.br/api/google/oauth/callback'))),
+    Boolean(authUrlResult.url && authUrlResult.url.includes(encodeURIComponent(LEGACY_PROD_REDIRECT_URI))),
     'URL gerada pelo backend utiliza deterministamente o callback de produção'
   );
 
@@ -152,7 +175,7 @@ async function runOAuthProductionTests() {
     'Parâmetro state codificado contém teacherId correto'
   );
   testAssert(
-    stateDecoded.redirectUri === 'https://institutoiacra.com.br/api/google/oauth/callback',
+    stateDecoded.redirectUri === LEGACY_PROD_REDIRECT_URI,
     'Parâmetro state codificado contém redirectUri validado da allowlist'
   );
 
