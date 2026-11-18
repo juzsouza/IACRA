@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import {refreshTokenNeedsReauthorization} from '../utils/googleRefreshStatus.js';
 
 export interface TeacherGoogleAccount {
   teacher_id: string;
@@ -600,7 +601,29 @@ export async function getValidAccessToken(
     });
 
     if (!res.ok) {
-      console.warn(`[GoogleCalendar] Erro ao renovar token do professor ${account.teacher_id} (HTTP ${res.status})`);
+      // Apenas invalid_grant (OAuth) significa autorizacao perdida.
+      // Erros de rede, servidor ou configuracao nao exigem nova autorizacao do professor.
+      let googleError: unknown = null;
+      if (res.status === 400) {
+        try { googleError = (await res.json())?.error; } catch { /* formato desconhecido */ }
+      }
+      if (refreshTokenNeedsReauthorization(res.status, googleError)) {
+        // Compara o refresh token usado para nao sobrescrever reautorizacao concorrente.
+        const {data: updated, error: updateError} = await supabaseAdmin
+          .from('teacher_google_accounts')
+          .update({connection_status: 'error', updated_at: new Date().toISOString()})
+          .eq('teacher_id', account.teacher_id)
+          .eq('connection_status', 'connected')
+          .eq('refresh_token', refreshToken)
+          .select('teacher_id')
+          .maybeSingle();
+        if (updateError) {
+          console.warn('[GoogleCalendar] Falha ao registrar status de autorizacao.');
+        } else if (updated) {
+          account.connection_status = 'error';
+        }
+      }
+      console.warn(`[GoogleCalendar] Renovacao do token nao concluida (HTTP ${res.status})`);
       return null;
     }
 
