@@ -1,0 +1,32 @@
+name: Verificar OAuth Google Agenda oficial sem publicar
+on:
+  push:
+    branches: [iacra-google-agenda-oauth-oficial-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOOGLE_CLIENT_ID: "iacra-unit-test.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET: "not-a-real-secret-for-tests-only"
+      GOOGLE_REDIRECT_URI: "https://sistema.institutoiacra.com.br/api/google/oauth/callback"
+      SUPABASE_URL: "https://ldumzwrwbhjtrnlioigg.supabase.co"
+      SUPABASE_KEY: "sb_publishable_non_secret_ci_only"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:oauth-prod
+      - run: npx tsx src/tests/google_calendar_batch_sync_errors.test.ts
+      # Resilience tests require an isolated populated test database; never connect CI to production.
+      - run: npx tsx src/tests/guardian_cpf_distinct.test.ts
+      - run: npx tsx src/tests/guardian_cpf_backend_contract.test.ts
+      - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - run: npm run lint
+      - run: npm run build

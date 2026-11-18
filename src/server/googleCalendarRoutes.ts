@@ -351,21 +351,25 @@ googleCalendarRouter.get('/config', (req, res) => {
 });
 
 export const PROD_REDIRECT_URI =
-  PROD_GOOGLE_REDIRECT_URI || 'https://institutoiacra.com.br/api/google/oauth/callback';
+  'https://sistema.institutoiacra.com.br/api/google/oauth/callback';
+// Mantem callback antigo permitido para autorizacoes iniciadas antes da migracao.
+export const LEGACY_PROD_REDIRECT_URI = PROD_GOOGLE_REDIRECT_URI;
 export const DEV_REDIRECT_URI =
   'https://ais-dev-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app/api/google/oauth/callback';
 export const PRE_REDIRECT_URI =
   'https://ais-pre-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app/api/google/oauth/callback';
 
 export const ALLOWED_OAUTH_HOSTS: Record<string, string> = {
-  'institutoiacra.com.br': PROD_REDIRECT_URI,
-  'www.institutoiacra.com.br': PROD_REDIRECT_URI,
+  'institutoiacra.com.br': LEGACY_PROD_REDIRECT_URI,
+  'www.institutoiacra.com.br': LEGACY_PROD_REDIRECT_URI,
+  'sistema.institutoiacra.com.br': PROD_REDIRECT_URI,
   'ais-dev-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app': DEV_REDIRECT_URI,
   'ais-pre-dtbuosbavtkbqwldnldzbe-39716750309.us-east1.run.app': PRE_REDIRECT_URI,
 };
 
 export const ALLOWED_REDIRECT_URIS = new Set([
   PROD_REDIRECT_URI,
+  LEGACY_PROD_REDIRECT_URI,
   DEV_REDIRECT_URI,
   PRE_REDIRECT_URI,
 ]);
