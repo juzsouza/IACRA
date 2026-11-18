@@ -1,0 +1,48 @@
+name: Validar pacote restauracao modulos INJ professores dashboard
+on:
+  push:
+    branches: [iacra-release-segura-modulos-dashboard-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Preservar modulos e configuracao do build
+        run: npx tsx src/tests/release_modules_smoke.test.ts
+      - name: Validar navegacao do acompanhamento
+        run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - name: Validar compartilhamento dos termos
+        run: npx tsx src/tests/enrollment_share_group_test.ts
+      - name: Validar contagem de aulas futuras no Dashboard
+        run: npx tsx src/tests/dashboard_upcoming_classes.test.ts
+      - name: Validar pagamentos do INJ
+        run: |
+          npx tsx src/tests/payment_competence_selection.test.ts
+          npx tsx src/tests/group_inj_credit_november.test.ts
+      - name: Validar professores ativos nas matriculas
+        run: npx tsx src/tests/enrollment_teacher_filter.test.ts
+      - name: Validar faturamento
+        run: |
+          npm run test:billings
+          npm run test:choir-balance
+      - name: Tipos
+        run: npm run lint
+      - name: Compilar com modulos habilitados como na producao
+        env:
+          VITE_IACRA_FEATURES_ENABLED: 'true'
+          VITE_IACRA_PRODUCTION_PROJECT_REF: ldumzwrwbhjtrnlioigg
+          VITE_SUPABASE_URL: https://ldumzwrwbhjtrnlioigg.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_D3KsTVDO7vls5m-IMueu6A_VS7GJTpH
+          VITE_IACRA_BUILD_TARGET: production
+        run: npm run build

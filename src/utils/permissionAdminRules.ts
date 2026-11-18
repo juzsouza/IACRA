@@ -39,7 +39,7 @@ export function validateMutation(input: PermissionMutation, snapshot: Permission
   if (role !== 'admin' && role !== 'teacher') throw new Error('Não é possível autorizar esse usuário.');
   if (input.decision === 'allow') {
     if (!['all', 'own'].includes(input.scope)) throw new Error('Escopo inválido.');
-    if ((item.module === 'digital_enrollment' || item.module === 'rooms') &&
+    if ((item.module === 'digital_enrollment' || item.module === 'enrollment_tracking' || item.module === 'rooms') &&
         input.scope !== 'all') {
       throw new Error('Essas operações administrativas exigem permissão geral explícita.');
     }
