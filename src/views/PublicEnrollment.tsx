@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {readDigitalOffer,submitDigitalOffer,trackDigitalOfferOpened,type DigitalOffer} from '../services/digitalEnrollment';
 import {termToSafeHtml} from '../utils/richTermMarkup';
+import {validateMinorGuardianCpf} from '../utils/guardianCpfValidation';
 export function PublicEnrollment():React.ReactElement{
  const [token]=useState(()=>new URLSearchParams(window.location.search).get('convite')||'');
  const [offer,setOffer]=useState<DigitalOffer|null>(null);
@@ -18,6 +19,7 @@ export function PublicEnrollment():React.ReactElement{
    const age=y-birth.getUTCFullYear()-((m<birth.getUTCMonth()+1||(m===birth.getUTCMonth()+1&&d<birth.getUTCDate()))?1:0);
    return age<18;
  })();
+ const guardianCpfError=validateMinorGuardianCpf(isMinor,student.cpf,student.guardian_cpf);
  const set=(field:keyof typeof student,value:string)=>setStudent(prev=>({...prev,[field]:value}));
  useEffect(()=>{if(!/^[0-9a-f]{64}$/.test(token)){setNotice('Link inválido.');return;}
    let active=true;
@@ -27,6 +29,7 @@ export function PublicEnrollment():React.ReactElement{
  const submit=async(event:React.FormEvent)=>{
    event.preventDefault();
    if(!accepted||busy)return;
+   if(guardianCpfError){setNotice(guardianCpfError);return;}
    setBusy(true);setNotice('');
    try{await submitDigitalOffer(token,{...student,instrument:offer?.instrument||student.instrument});setSent(true);setStudent({name:'',email:'',phone:'',cpf:'',birth_date:'',instrument:'',guardian_name:'',guardian_email:'',guardian_phone:'',guardian_relationship:'',guardian_cpf:''});}
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível enviar');}finally{setBusy(false)}
@@ -51,7 +54,7 @@ export function PublicEnrollment():React.ReactElement{
        <label className="block">Nome completo<input className="block border p-2 w-full rounded-lg" required value={student.name} onChange={e=>set('name',e.target.value)}/></label>
        <label className="block">E-mail<input type="email" className="block border p-2 w-full rounded-lg" required value={student.email} onChange={e=>set('email',e.target.value)}/></label>
        <label className="block">Telefone com DDD<input className="block border p-2 w-full rounded-lg" required value={student.phone} onChange={e=>set('phone',e.target.value)}/></label>
-       <label className="block">CPF<input className="block border p-2 w-full rounded-lg" required value={student.cpf} onChange={e=>set('cpf',e.target.value)}/></label>
+       <label className="block">CPF do aluno<input className="block border p-2 w-full rounded-lg" required value={student.cpf} onChange={e=>set('cpf',e.target.value)}/></label>
        <label className="block">Data de nascimento<input type="date" className="block border p-2 w-full rounded-lg" required value={student.birth_date} onChange={e=>set('birth_date',e.target.value)}/></label>
        {offer.instrument?<div className="space-y-1"><p className="text-sm font-medium">Instrumento ou atividade</p><p className="border p-2 w-full rounded-lg bg-zinc-100 text-zinc-800">{offer.instrument}</p><p className="text-xs text-zinc-600">Informação definida pela secretaria. Não pode ser alterada neste formulário.</p></div>:<label className="block">Instrumento<input className="block border p-2 w-full rounded-lg" required value={student.instrument} onChange={e=>set('instrument',e.target.value)}/><span className="block text-xs text-zinc-600">Campo disponível somente em convites antigos.</span></label>}
        {isMinor&&<div className="border border-amber-200 rounded-lg p-3 space-y-3 bg-amber-50">
@@ -60,7 +63,8 @@ export function PublicEnrollment():React.ReactElement{
          <label className="block">Parentesco ou vínculo legal<input className="block border p-2 w-full rounded-lg" required value={student.guardian_relationship} onChange={e=>set('guardian_relationship',e.target.value)}/></label>
          <label className="block">E-mail do responsável<input type="email" className="block border p-2 w-full rounded-lg" required value={student.guardian_email} onChange={e=>set('guardian_email',e.target.value)}/></label>
          <label className="block">Telefone do responsável<input type="tel" className="block border p-2 w-full rounded-lg" required value={student.guardian_phone} onChange={e=>set('guardian_phone',e.target.value)}/></label>
-         <label className="block">CPF do responsável (opcional)<input className="block border p-2 w-full rounded-lg" inputMode="numeric" value={student.guardian_cpf} onChange={e=>set('guardian_cpf',e.target.value)}/></label>
+         <label className="block">CPF do responsável legal (obrigatório)<input className="block border p-2 w-full rounded-lg" inputMode="numeric" required maxLength={18} aria-invalid={Boolean(guardianCpfError&&student.guardian_cpf)} value={student.guardian_cpf} onChange={e=>set('guardian_cpf',e.target.value)}/></label>
+         {guardianCpfError&&student.guardian_cpf&&<p role="alert" className="text-sm text-red-700">{guardianCpfError}</p>}
        </div>}
        <p className="text-sm text-zinc-600">Se o aluno já estiver cadastrado, o termo e o aceite serão recebidos normalmente. A secretaria conferirá o cadastro antes de aprovar, sem alterar seus dados automaticamente.</p>
      </section>
@@ -69,7 +73,7 @@ export function PublicEnrollment():React.ReactElement{
        <p className="text-sm text-zinc-600">Leia atentamente o documento antes de confirmar o aceite.</p>
        <div className="break-words max-h-72 overflow-y-auto text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6" dangerouslySetInnerHTML={{__html:termToSafeHtml(offer.term_body)}}/>
        <label className="flex gap-2"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> {isMinor?'Declaro que sou o responsável legal informado e que li e aceito os termos apresentados.':'Declaro que li e aceito os termos apresentados.'}</label>
-       <button disabled={!accepted||busy} className="rounded-lg bg-[#0c6789] px-5 py-3 font-semibold text-white hover:bg-[#095675] disabled:opacity-40">Enviar solicitação</button>
+       <button disabled={!accepted||busy||Boolean(guardianCpfError)} className="rounded-lg bg-[#0c6789] px-5 py-3 font-semibold text-white hover:bg-[#095675] disabled:opacity-40">Enviar solicitação</button>
      </section>
    </form>}
  <footer className="border-t border-[#d4e6ed] pt-4 text-center text-xs text-[#52717e]">Instituto de Arte Cristã Raphael Augusto · Termo digital</footer></div>

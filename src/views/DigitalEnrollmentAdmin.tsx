@@ -133,7 +133,7 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
    {records.every(r=>r.status==='approved')&&<p>Nenhuma solicitação aguardando análise. As aprovadas ficam em Acompanhamento de Termos.</p>}
    {records.filter(r=>r.status!=='approved').map(r=><div key={r.id} className="border rounded-lg p-4 space-y-2">
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
-     <p className="text-sm">Situação: {r.status} · CPF: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
+     <p className="text-sm">Situação: {r.status} · CPF do aluno: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
      <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
      {r.status==='pending'&&access.digital_enrollment.approve&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
    </div>)}
