@@ -1,0 +1,27 @@
+name: Validar Coral sem alterar dados
+on:
+  push:
+    branches: [iacra-coral-auditoria-conferencia-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/choir_monthly_finance.test.ts
+      - run: npx tsx src/tests/choir_monthly_closing_contract.test.ts
+      - run: npx tsx src/tests/choir_finance_contract.test.ts
+      - run: npx tsx src/tests/choir_and_operational_payments_balance.test.ts
+      - run: npx tsx src/tests/login_sem_recuperacao_email.test.ts
+      - run: npx tsx src/tests/guardian_cpf_distinct.test.ts
+      - run: npx tsx src/tests/google_calendar_reauth_status.test.ts
+      - run: npm run lint
+      - run: npm run build

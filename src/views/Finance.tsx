@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { useAppStore, parseAttendance } from "../store";
+import { useAppStore } from "../store";
+import {calculateChoirMonthlyFinance} from "../utils/choirMonthlyFinance";
 import { isEnrollmentActiveForMonth, isEnrollmentFinanciallyRelevantForMonth } from "../utils/dateUtils";
 import { resolveCompetenceBilling, ResolveBillingContext } from "../utils/competenceBillingResolver";
 import * as XLSX from "xlsx";
@@ -463,73 +464,25 @@ export const Finance: React.FC = () => {
       }, 0);
       const approvedChoirStudentsCount = approvedChoirRegs.length;
 
-      let choirCollaboratorPayoutsTotal = 0;
-      // Filtrar estritamente ensaios da competência selecionada
-      const rehearsals = (state.choirRehearsals || []).filter(
-        r => r.date && r.date.startsWith(comp)
+      // Uma regra de repasse por mes, identica ao extrato do Coral e fechamento.
+      const choirSummary = calculateChoirMonthlyFinance(
+        state.choirCollaborators || [], state.choirRehearsals || [], comp
       );
-      const totalRehearsalsCount = rehearsals.length;
-
-      (state.choirCollaborators || []).forEach(collab => {
-        // Regra Canônica: colaborador inativo (active === false OU teacher.status === 'inactive')
-        // só recebe repasse se tiver presença comprovada em ensaio do mês selecionado
-        const linkedTeacher = collab.teacher_id ? state.teachers.find(t => t.id === collab.teacher_id) : undefined;
-        const isInactive = collab.active === false || (linkedTeacher && linkedTeacher.status === 'inactive');
-
-        const presentRehearsals = rehearsals.filter(r => {
-          const attList = parseAttendance(r.attendance);
-          const rec = attList.find(a => a.person_id === collab.id && a.type === 'collaborator');
-          return rec?.status === 'present';
+      const choirCollaboratorPayoutsTotal = choirSummary.totalPayoutAmount;
+      choirSummary.rows.forEach(row => {
+        const collab=row.collaborator;
+        if (!collab.teacher_id || row.payout<=0) return;
+        // Sem vinculo confirmado nao creditar o valor ao professor errado.
+        if (!state.teachers.some(t=>t.id===collab.teacher_id)) return;
+        teacherPayouts[collab.teacher_id]=(teacherPayouts[collab.teacher_id]||0)+row.payout;
+        if (!teacherBreakdowns[collab.teacher_id]) teacherBreakdowns[collab.teacher_id]=[];
+        teacherBreakdowns[collab.teacher_id].push({
+          studentName: `Colaborador: ${collab.name}`,
+          planName: `Coral: ${row.presentCount} presença(s) x R$ ${row.rate.toFixed(2)}`,
+          totalPrice: 0,
+          teacherShare: row.payout,
+          status: 'Apurado (Coral, pagamento não confirmado)'
         });
-        const presentCount = presentRehearsals.length;
-
-        if (isInactive && presentCount === 0) {
-          return;
-        }
-
-        let payout = 0;
-        if (collab.remuneration_type === 'per_rehearsal') {
-          payout = presentCount * (collab.remuneration_value || 0);
-        } else if (collab.remuneration_type === 'fixed') {
-          if (totalRehearsalsCount > 0) {
-            payout = (collab.remuneration_value || 0) * (presentCount / totalRehearsalsCount);
-          } else {
-            payout = collab.remuneration_value || 0;
-          }
-        } else if (collab.remuneration_type === 'percentage') {
-          const basePayout = (choirRevenueTotal * (collab.remuneration_value || 0)) / 100;
-          payout = totalRehearsalsCount > 0 ? basePayout * (presentCount / totalRehearsalsCount) : basePayout;
-        } else if (collab.remuneration_type === 'per_student') {
-          if (totalRehearsalsCount > 0) {
-            let totalStudentPresents = 0;
-            presentRehearsals.forEach(r => {
-              const attList = parseAttendance(r.attendance);
-              const studentPresentsInRehearsal = attList.filter(
-                a => a.type === 'singer' && a.status === 'present'
-              ).length;
-              totalStudentPresents += studentPresentsInRehearsal;
-            });
-            payout = totalStudentPresents * (collab.remuneration_value || 0);
-          } else {
-            payout = approvedChoirStudentsCount * (collab.remuneration_value || 0);
-          }
-        }
-
-        choirCollaboratorPayoutsTotal += payout;
-
-        if (collab.teacher_id && payout > 0) {
-          teacherPayouts[collab.teacher_id] = (teacherPayouts[collab.teacher_id] || 0) + payout;
-          if (!teacherBreakdowns[collab.teacher_id]) {
-            teacherBreakdowns[collab.teacher_id] = [];
-          }
-          teacherBreakdowns[collab.teacher_id].push({
-            studentName: 'Coral (Colaborador)',
-            planName: `Coral - ${collab.role}`,
-            totalPrice: choirRevenueTotal,
-            teacherShare: payout,
-            status: 'Projetado (Coral)'
-          });
-        }
       });
 
       totalRevenue += choirRevenueTotal;
@@ -658,6 +611,13 @@ export const Finance: React.FC = () => {
   };
 
   const financials = calculateFinancials();
+  const choirCompetence = `${selectedYear}-${String(selectedMonth).padStart(2,'0')}`;
+  const choirMonthlySummary = calculateChoirMonthlyFinance(
+    state.choirCollaborators || [], state.choirRehearsals || [], choirCompetence
+  );
+  const choirUnlinkedPayouts = choirMonthlySummary.rows.filter(row=>row.payout>0 && (
+    !row.collaborator.teacher_id || !state.teachers.some(t=>t.id===row.collaborator.teacher_id)
+  ));
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -1641,7 +1601,19 @@ export const Finance: React.FC = () => {
           {activeTab === 'teachers' && (
             <div className="space-y-4">
               <div className="text-sm text-zinc-500 mb-2">
-                Selecione um professor para visualizar o extrato detalhado de seus alunos e os respectivos repasses.
+                Selecione um professor para visualizar o extrato detalhado. Valores de Coral são devidos por presença e não confirmam pagamento.
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm">
+                <p className="font-semibold text-indigo-950">Coral — competência {choirCompetence}</p>
+                <p className="mt-1">Repasses apurados: <strong>{formatCurrency(choirMonthlySummary.totalPayoutAmount)}</strong> ({choirMonthlySummary.totalPresentsCount} presença(s) em {choirMonthlySummary.validRehearsals.length} ensaio(s))</p>
+                <p className="mt-1 text-xs text-indigo-800">{reportType==='actual'
+                   ? 'Valores devidos por presença. Não foram incluídos no total de pagamentos realizados e não comprovam quitação.'
+                   : 'Valores devidos por presença incluídos na projeção de repasses. Não significa pagamento realizado.'}</p>
+                {choirUnlinkedPayouts.length>0&&<div className="mt-3 border border-amber-300 bg-amber-50 rounded-lg p-3">
+                  <strong className="text-amber-900">Colaboradores sem vínculo com professor ({choirUnlinkedPayouts.length})</strong>
+                  <p className="text-xs text-amber-900">Os valores estão apurados, mas ainda não estão atribuídos a professores. Confira o cadastro antes de repassar.</p>
+                  {choirUnlinkedPayouts.map(row=><p key={row.collaborator.id} className="text-xs mt-1">{row.collaborator.name}: {row.presentCount} presença(s) — {formatCurrency(row.payout)}</p>)}
+                </div>}
               </div>
               <div className="divide-y divide-zinc-200 border border-zinc-200 rounded-2xl overflow-hidden bg-white">
                 {Object.entries(financials.teacherPayouts).map(([teacherId, amount]) => {

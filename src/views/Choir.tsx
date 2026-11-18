@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChoirMonthlyClosingTab } from '../components/ChoirMonthlyClosingTab';
+import {calculateChoirMonthlyFinance, nowInSaoPaulo} from '../utils/choirMonthlyFinance';
 import { ChoirAttendanceTestsModal } from '../components/ChoirAttendanceTestsModal';
 
 export const isChoirRegistrationActive = (r: { active?: boolean; status?: string } | null | undefined): boolean => {
@@ -63,6 +64,8 @@ export const Choir: React.FC = () => {
   const [collaboratorStatusFilter, setCollaboratorStatusFilter] = useState<'active' | 'inactive' | 'all'>('active');
   const [rehearsalSearch, setRehearsalSearch] = useState('');
   const [statementFilterStatus, setStatementFilterStatus] = useState<'approved' | 'all'>('approved');
+  const [statementMonth,setStatementMonth] = useState(nowInSaoPaulo().slice(0,7));
+  const [collaboratorSaveError,setCollaboratorSaveError] = useState<string | null>(null);
 
   // Student registration dropdown search
   const [studentSearch, setStudentSearch] = useState('');
@@ -322,18 +325,23 @@ export const Choir: React.FC = () => {
     setVoiceTypeError(null);
   };
 
-  const handleCollaboratorSubmit = (e: React.FormEvent) => {
+  const handleCollaboratorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCollaboratorSaveError(null);
     if (!collaboratorFormData.name.trim()) {
+      setCollaboratorSaveError('Informe o nome do colaborador.');
       return;
     }
-
-    if (editingCollaborator) {
-      updateChoirCollaborator(editingCollaborator.id, collaboratorFormData);
-    } else {
-      addChoirCollaborator(collaboratorFormData);
+    try {
+      if (editingCollaborator) {
+        await updateChoirCollaborator(editingCollaborator.id, collaboratorFormData);
+      } else {
+        await addChoirCollaborator(collaboratorFormData);
+      }
+      closeCollaboratorModal();
+    } catch(err:any) {
+      setCollaboratorSaveError(err?.message || 'Não foi possível salvar no banco. Nenhum cadastro foi alterado.');
     }
-    closeCollaboratorModal();
   };
 
   const handleRehearsalSubmit = (e: React.FormEvent) => {
@@ -502,6 +510,7 @@ export const Choir: React.FC = () => {
   };
 
   const openCollaboratorModal = (collaborator?: ChoirCollaborator) => {
+    setCollaboratorSaveError(null);
     setImportSearchQuery('');
     setIsImportDropdownOpen(false);
     setImportFeedback('');
@@ -534,6 +543,7 @@ export const Choir: React.FC = () => {
   };
 
   const closeCollaboratorModal = () => {
+    setCollaboratorSaveError(null);
     setIsCollaboratorModalOpen(false);
     setEditingCollaborator(null);
     setIsImportDropdownOpen(false);
@@ -588,107 +598,37 @@ export const Choir: React.FC = () => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
   };
 
-  // --- Financial & Remuneration Calculations ---
-  const activeStatementRegistrations = statementFilterStatus === 'approved'
-    ? state.choirRegistrations.filter(r => r.status === 'approved')
-    : state.choirRegistrations.filter(r => r.status !== 'rejected');
-
-  const approvedCountForCalc = state.choirRegistrations.filter(r => r.status === 'approved').length;
-  const totalStudentsForCalc = activeStatementRegistrations.length;
-
-  const totalChoirRevenue = activeStatementRegistrations.reduce((acc, r) => acc + (r.monthly_fee || 0), 0);
-
-  // Calculate remuneration for each collaborator based on attendance and rule
-  const calculateCollaboratorPayout = (collab: ChoirCollaborator) => {
-    const rehearsals = state.choirRehearsals || [];
-    const totalRehearsalsCount = rehearsals.length;
-
-    // Filter rehearsals where collaborator was present
-    const presentRehearsals = rehearsals.filter(r => {
-      const attendance = parseAttendance(r.attendance);
-      const rec = attendance.find(a => a.person_id === collab.id && a.type === 'collaborator');
-      return rec?.status === 'present';
-    });
-    const presentCount = presentRehearsals.length;
-
-    if (collab.remuneration_type === 'per_rehearsal') {
-      const payout = presentCount * (collab.remuneration_value || 0);
-      return {
-        payout,
-        presentCount,
-        totalRehearsalsCount,
-        explain: totalRehearsalsCount > 0
-          ? `${presentCount} de ${totalRehearsalsCount} ensaios com presença (R$ ${collab.remuneration_value || 0} / ensaio)`
-          : `R$ ${collab.remuneration_value || 0} por ensaio presente (nenhum ensaio realizado)`
-      };
-    } else if (collab.remuneration_type === 'fixed') {
-      if (totalRehearsalsCount > 0) {
-        const ratio = presentCount / totalRehearsalsCount;
-        const payout = (collab.remuneration_value || 0) * ratio;
-        return {
-          payout,
-          presentCount,
-          totalRehearsalsCount,
-          explain: `${presentCount}/${totalRehearsalsCount} ensaios presentes (${Math.round(ratio * 100)}% de R$ ${collab.remuneration_value || 0})`
-        };
-      }
-      return {
-        payout: collab.remuneration_value || 0,
-        presentCount,
-        totalRehearsalsCount,
-        explain: `Valor fixo mensal: ${formatCurrency(collab.remuneration_value || 0)}`
-      };
-    } else if (collab.remuneration_type === 'percentage') {
-      const basePayout = (totalChoirRevenue * (collab.remuneration_value || 0)) / 100;
-      if (totalRehearsalsCount > 0) {
-        const ratio = presentCount / totalRehearsalsCount;
-        return {
-          payout: basePayout * ratio,
-          presentCount,
-          totalRehearsalsCount,
-          explain: `${collab.remuneration_value}% da receita (${presentCount}/${totalRehearsalsCount} ensaios presentes)`
-        };
-      }
-      return {
-        payout: basePayout,
-        presentCount,
-        totalRehearsalsCount,
-        explain: `${collab.remuneration_value}% sobre a receita do coral`
-      };
-    } else if (collab.remuneration_type === 'per_student') {
-      let totalStudentPresents = 0;
-      if (totalRehearsalsCount > 0) {
-        presentRehearsals.forEach(r => {
-          const attendance = parseAttendance(r.attendance);
-          const studentPresentsInRehearsal = attendance.filter(
-            a => a.type === 'singer' && a.status === 'present'
-          ).length;
-          totalStudentPresents += studentPresentsInRehearsal;
-        });
-        return {
-          payout: totalStudentPresents * (collab.remuneration_value || 0),
-          presentCount,
-          totalRehearsalsCount,
-          explain: `${totalStudentPresents} presenças de alunos em ${presentCount} ensaio(s) x ${formatCurrency(collab.remuneration_value || 0)}`
-        };
-      }
-      const count = statementFilterStatus === 'approved' ? approvedCountForCalc : totalStudentsForCalc;
-      return {
-        payout: (collab.remuneration_value || 0) * count,
-        presentCount,
-        totalRehearsalsCount,
-        explain: `${count} alunos x ${formatCurrency(collab.remuneration_value || 0)}`
-      };
-    }
-
-    return { payout: 0, presentCount: 0, totalRehearsalsCount: 0, explain: '-' };
-  };
-
-  const totalCollaboratorPayouts = (state.choirCollaborators || []).reduce(
-    (acc, c) => acc + calculateCollaboratorPayout(c).payout, 0
+  // Calculado por competencia, compartilhado com fechamento e financeiro.
+  const statementSummary = calculateChoirMonthlyFinance(
+    state.choirCollaborators || [], state.choirRehearsals || [], statementMonth
   );
-  const netSchoolShare = totalChoirRevenue - totalCollaboratorPayouts;
-  const marginPercent = totalChoirRevenue > 0 ? (netSchoolShare / totalChoirRevenue) * 100 : 0;
+  const statementBillings = (state.competenceBillings || []).filter(b=>b.category==='choir'&&b.competence===statementMonth);
+  const activeStatementRegistrations = statementFilterStatus==='approved'
+    ? state.choirRegistrations.filter(r=>r.status==='approved')
+    : state.choirRegistrations.filter(r=>r.status==='approved'||r.status==='pending');
+  const totalStudentsForCalc = statementBillings.length
+    ? statementBillings.filter(b=>b.is_paying && Number(b.final_price)>0).length
+    : activeStatementRegistrations.filter(r=>Number(r.monthly_fee)>0).length;
+  const totalChoirRevenue = statementBillings.length
+    ? statementBillings.reduce((sum,b)=>sum+(b.is_paying?Number(b.final_price||0):0),0)
+    : activeStatementRegistrations.reduce((sum,r)=>sum+Number(r.monthly_fee||0),0);
+  const statementUsesCurrentRegistrations = statementBillings.length===0;
+  const statementReceivedInMonth = (state.transactions || [])
+    .filter(t=>t.type==='income'&&t.status==='completed'&&t.date?.startsWith(statementMonth)&&/coral/i.test(t.description||''))
+    .reduce((sum,t)=>sum+Number(t.amount||0),0);
+  const calculateCollaboratorPayout = (collab: ChoirCollaborator) => {
+    const row = statementSummary.rows.find(r=>r.collaborator.id===collab.id);
+    const count = row?.presentCount || 0;
+    return {
+      payout: row?.payout || 0,
+      presentCount: count,
+      totalRehearsalsCount: statementSummary.validRehearsals.length,
+      explain: `${count} presença(s) na competência ${statementMonth} x ${formatCurrency(Number(collab.remuneration_value||0))}`
+    };
+  };
+  const totalCollaboratorPayouts = statementSummary.totalPayoutAmount;
+  const netSchoolShare = totalChoirRevenue-totalCollaboratorPayouts;
+  const marginPercent = totalChoirRevenue>0 ? 100*netSchoolShare/totalChoirRevenue : 0;
 
   const getRemunerationRuleText = (collab: ChoirCollaborator) => {
     const valFormatted = formatCurrency(collab.remuneration_value !== undefined && collab.remuneration_value !== null ? collab.remuneration_value : 0);
@@ -1363,15 +1303,15 @@ export const Choir: React.FC = () => {
 
               <div className="hidden lg:flex text-xs text-zinc-500 bg-indigo-50/70 p-2 rounded-xl border border-indigo-100 items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-                <span>Remunerações calculadas por presença</span>
+                <span>Valores por ensaio, sem gerar pagamentos</span>
               </div>
             </div>
           </div>
 
+          {collaboratorSaveError && <p role="alert" className="rounded-lg bg-rose-50 border border-rose-200 text-rose-700 p-3 text-sm">{collaboratorSaveError}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCollaborators.length > 0 ? (
               filteredCollaborators.map((collab) => {
-                const payoutData = calculateCollaboratorPayout(collab);
                 const isInactive = collab.active === false;
 
                 return (
@@ -1415,7 +1355,7 @@ export const Choir: React.FC = () => {
                           {isInactive ? (
                             <button
                               onClick={() => {
-                                updateChoirCollaborator(collab.id, { active: true });
+                                updateChoirCollaborator(collab.id, { active: true }).catch(err=>setCollaboratorSaveError(err?.message || 'Não foi possível reativar.'));
                               }}
                               title="Reativar colaborador"
                               className="p-1.5 text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
@@ -1424,7 +1364,7 @@ export const Choir: React.FC = () => {
                             </button>
                           ) : (
                             <button
-                              onClick={() => setCollaboratorToDeactivate(collab)}
+                              onClick={() => { setCollaboratorSaveError(null); setCollaboratorToDeactivate(collab); }}
                               title="Desativar colaborador"
                               className="p-1.5 text-zinc-400 hover:text-rose-600 transition-colors"
                             >
@@ -1465,30 +1405,9 @@ export const Choir: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Calculated Remuneration Box */}
-                    {isCanManage ? (
-                      <div className="bg-gradient-to-br from-indigo-50 to-emerald-50/50 p-3.5 rounded-xl border border-indigo-100/80 space-y-1">
-                        <p className="text-[11px] font-semibold text-indigo-900 uppercase tracking-wider flex items-center justify-between">
-                          <span>Remuneração Calculada</span>
-                          <span className="text-xs text-emerald-700 font-bold">
-                            {payoutData.presentCount} presenças
-                          </span>
-                        </p>
-                        <p className="text-xl font-bold text-indigo-950">
-                          {formatCurrency(payoutData.payout)}
-                        </p>
-                        <p className="text-[11px] text-zinc-600">
-                          {payoutData.explain}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 flex items-center justify-between">
-                        <span className="text-xs font-semibold text-indigo-900">Presenças Gravadas</span>
-                        <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-2.5 py-1 rounded-full">
-                          {payoutData.presentCount} presenças
-                        </span>
-                      </div>
-                    )}
+                    <p className="text-xs text-zinc-500 bg-zinc-50 border border-zinc-100 rounded-lg p-3">
+                      Cadastro de colaborador: o valor por ensaio é apenas uma regra. Presenças e repasses aparecem no fechamento mensal.
+                    </p>
                   </div>
                 );
               })
@@ -1518,6 +1437,9 @@ export const Choir: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-zinc-600">Competência:</span>
+              <input type="month" value={statementMonth} onChange={e=>setStatementMonth(e.target.value)}
+                className="px-3 py-1.5 border border-zinc-200 rounded-xl text-xs font-semibold bg-white" />
               <span className="text-xs font-semibold text-zinc-600">Filtrar inscrições:</span>
               <select
                 value={statementFilterStatus}
@@ -1533,30 +1455,35 @@ export const Choir: React.FC = () => {
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Receita Total de Mensalidades</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Mensalidades previstas na competência</p>
               <p className="text-2xl font-bold text-emerald-600 mt-2">{formatCurrency(totalChoirRevenue)}</p>
-              <p className="text-xs text-zinc-400 mt-1">{totalStudentsForCalc} alunos pagantes considerados</p>
+              <p className="text-xs text-zinc-400 mt-1">{totalStudentsForCalc} inscrições com mensalidade prevista</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Total Repasses a Colaboradores</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Repasses por presenças na competência</p>
               <p className="text-2xl font-bold text-rose-600 mt-2">{formatCurrency(totalCollaboratorPayouts)}</p>
-              <p className="text-xs text-zinc-400 mt-1">{(state.choirCollaborators || []).length} colaboradores (ajustado por presença)</p>
+              <p className="text-xs text-zinc-400 mt-1">{statementSummary.totalPresentsCount} presença(s) em {statementSummary.validRehearsals.length} ensaio(s) realizado(s)</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Resultado Líquido Escola</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Resultado previsto da competência</p>
               <p className="text-2xl font-bold text-indigo-600 mt-2">{formatCurrency(netSchoolShare)}</p>
-              <p className="text-xs text-zinc-400 mt-1">Sobra do coral retida pela escola</p>
+              <p className="text-xs text-zinc-400 mt-1">Previsão, não resultado contábil confirmado</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Margem de Retenção</p>
               <p className="text-2xl font-bold text-zinc-900 mt-2">{marginPercent.toFixed(1)}%</p>
-              <p className="text-xs text-zinc-400 mt-1">Percentual mantido pela escola</p>
+              <p className="text-xs text-zinc-400 mt-1">Margem prevista, não confirmada</p>
             </div>
           </div>
 
+          <div className="bg-white border border-zinc-200 rounded-xl px-5 py-3 text-sm">
+            <strong>Recebimentos registrados no mês:</strong> {formatCurrency(statementReceivedInMonth)}
+            <p className="mt-1 text-xs text-zinc-500">Recebimentos por data da transação, que podem se referir a outras competências. Não confundir com mensalidades previstas.
+            {statementUsesCurrentRegistrations ? ' Sem snapshot da competência: previsão de mensalidade baseada no cadastro atual, não no histórico.' : ''}</p>
+          </div>
           {/* Breakdown Table */}
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-zinc-100 font-bold text-zinc-900 text-sm">
@@ -1574,7 +1501,7 @@ export const Choir: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-zinc-200">
-                  {(state.choirCollaborators || []).map((collab) => {
+                  {statementSummary.rows.map(({collaborator: collab}) => {
                     const payoutData = calculateCollaboratorPayout(collab);
                     return (
                       <tr key={collab.id} className="hover:bg-zinc-50 transition-colors">
@@ -1610,6 +1537,9 @@ export const Choir: React.FC = () => {
         <ChoirMonthlyClosingTab
           collaborators={state.choirCollaborators || []}
           rehearsals={state.choirRehearsals || []}
+          registrations={state.choirRegistrations || []}
+          billings={state.competenceBillings || []}
+          transactions={state.transactions || []}
           formatCurrency={formatCurrency}
         />
       )}
@@ -1947,6 +1877,7 @@ export const Choir: React.FC = () => {
               </button>
             </div>
 
+            {collaboratorSaveError && <p role="alert" className="border border-rose-200 bg-rose-50 text-rose-700 rounded-lg p-3 text-sm">{collaboratorSaveError}</p>}
             <form onSubmit={handleCollaboratorSubmit} className="space-y-4">
               <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100/90 space-y-2 relative">
                 <div className="flex items-center justify-between">
@@ -2787,6 +2718,7 @@ export const Choir: React.FC = () => {
               </div>
             </div>
 
+            {collaboratorSaveError && <p role="alert" className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700">{collaboratorSaveError}</p>}
             <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
               <p className="font-semibold flex items-center gap-1.5 text-amber-950">
                 <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />
@@ -2816,6 +2748,7 @@ export const Choir: React.FC = () => {
                     await updateChoirCollaborator(collaboratorToDeactivate.id, { active: false });
                     setCollaboratorToDeactivate(null);
                   } catch (err: any) {
+                    setCollaboratorSaveError(err?.message || 'Não foi possível inativar. Dados preservados.');
                     console.error('Erro ao desativar colaborador:', err);
                   } finally {
                     setIsDeactivatingCollaborator(false);

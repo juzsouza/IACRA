@@ -3668,10 +3668,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
                 } else console.log('Successfully synced prospects');
               }
 
-              // 12. Choir Collaborators
-              if (s.choirCollaborators && s.choirCollaborators.length > 0) {
-                await syncCollaboratorsToSupabase(s.choirCollaborators);
-              }
+              // O banco e a fonte de verdade dos colaboradores. NUNCA sobrescrever
+              // estados ativos/inativos com cache antigo do navegador ao abrir o app.
             } catch (err) {
               console.error('Unexpected error during syncToSupabase:', err);
             }
@@ -4125,10 +4123,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           );
 
           if (deletedCollabIds.length > 0) {
-            supabase.from('choir_collaborators').delete().in('id', deletedCollabIds).then(({ error }) => {
-              if (error) console.warn('Error deleting duplicate choir collaborators:', error);
-            });
-            syncCollaboratorsToSupabase(deduplicatedCollabs);
+            // Deduplicacao historica apenas para a visualizacao nesta carga.
+            // Nunca excluir ou regravar colaboradores automaticamente durante o login.
+            console.warn('[Coral] Registros com nomes repetidos encontrados. Conferencia manual necessaria.');
           }
 
           const parsedTeachers = teachers && teachers.length > 0
@@ -5945,86 +5942,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const addChoirCollaborator = async (collaborator: Omit<ChoirCollaborator, "id">) => {
-    let nextCollabs: ChoirCollaborator[] = [];
-    let deletedCollabIds: string[] = [];
-
-    setState((s) => {
-      const existingIdx = (s.choirCollaborators || []).findIndex(c => {
-        if (collaborator.teacher_id && c.teacher_id && c.teacher_id.trim() === collaborator.teacher_id.trim()) {
-          return true;
-        }
-        return c.name && collaborator.name && c.name.trim().toLowerCase() === collaborator.name.trim().toLowerCase();
+    const cleanName = (collaborator.name || '').trim();
+    if (!cleanName) throw new Error('Informe o nome do colaborador.');
+    // Cadastro e apenas configuracao: nao gera pagamentos/ensaios automaticamente.
+    const existing = (state.choirCollaborators || []).find(c =>
+      (collaborator.teacher_id && c.teacher_id && c.teacher_id === collaborator.teacher_id) ||
+      c.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (existing) {
+      await updateChoirCollaborator(existing.id, {
+        ...collaborator,
+        active: existing.active === false ? false : collaborator.active !== false,
       });
-
-      let updatedList = [...(s.choirCollaborators || [])];
-      if (existingIdx !== -1) {
-        const existing = updatedList[existingIdx];
-        updatedList[existingIdx] = {
-          ...existing,
-          ...collaborator,
-          active: collaborator.active !== undefined ? collaborator.active : (existing.active !== false),
-          id: existing.id
-        };
-      } else {
-        const newCollaborator: ChoirCollaborator = {
-          ...collaborator,
-          active: collaborator.active !== undefined ? collaborator.active : true,
-          id: generateId()
-        };
-        updatedList.push(newCollaborator);
-      }
-
-      const dedup = mergeAndDeduplicateCollaborators(updatedList, s.choirRehearsals || []);
-      nextCollabs = dedup.cleanCollabs;
-      deletedCollabIds = dedup.deletedIds;
-
-      return {
-        ...s,
-        choirCollaborators: nextCollabs,
-        choirRehearsals: dedup.cleanRehearsals
-      };
-    });
-
-    if (deletedCollabIds.length > 0) {
-      try {
-        await supabase.from('choir_collaborators').delete().in('id', deletedCollabIds);
-      } catch (e) {
-        console.warn('Error deleting duplicate collaborator:', e);
-      }
+      return;
     }
-
-    await syncCollaboratorsToSupabase(nextCollabs);
+    const row = {
+      id: generateId(),
+      name: cleanName,
+      role: collaborator.role || 'Colaborador',
+      teacher_id: collaborator.teacher_id || null,
+      remuneration_type: collaborator.remuneration_type || 'per_rehearsal',
+      remuneration_value: Number(collaborator.remuneration_value || 0),
+      phone: collaborator.phone || '',
+      email: collaborator.email || '',
+      notes: collaborator.notes || '',
+      active: collaborator.active !== false,
+    };
+    const {data, error} = await supabase.from('choir_collaborators').insert(row).select('*').single();
+    if (error || !data) throw new Error(error?.message || 'Falha ao salvar colaborador.');
+    setState(s => ({
+      ...s,
+      choirCollaborators: [...(s.choirCollaborators || []).filter(c => c.id !== data.id), data as ChoirCollaborator],
+    }));
   };
 
   const updateChoirCollaborator = async (id: string, updates: Partial<ChoirCollaborator>) => {
-    let nextCollabs: ChoirCollaborator[] = [];
-    let deletedCollabIds: string[] = [];
-
-    setState((s) => {
-      const updatedList = (s.choirCollaborators || []).map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      );
-
-      const dedup = mergeAndDeduplicateCollaborators(updatedList, s.choirRehearsals || []);
-      nextCollabs = dedup.cleanCollabs;
-      deletedCollabIds = dedup.deletedIds;
-
-      return {
-        ...s,
-        choirCollaborators: nextCollabs,
-        choirRehearsals: dedup.cleanRehearsals
-      };
-    });
-
-    if (deletedCollabIds.length > 0) {
-      try {
-        await supabase.from('choir_collaborators').delete().in('id', deletedCollabIds);
-      } catch (e) {
-        console.warn('Error deleting duplicate collaborator:', e);
+    if (!id) throw new Error('Colaborador invalido.');
+    const allowed: (keyof ChoirCollaborator)[] = [
+      'name', 'role', 'teacher_id', 'remuneration_type',
+      'remuneration_value', 'phone', 'email', 'notes', 'active'
+    ];
+    const changes: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(updates, key) && updates[key] !== undefined) {
+        changes[key] = updates[key];
       }
     }
-
-    await syncCollaboratorsToSupabase(nextCollabs);
+    if (!Object.keys(changes).length) return;
+    // Confirma no Supabase antes de atualizar a tela; erro nao pode parecer sucesso.
+    // Nunca regravar a lista inteira, pois outro dispositivo pode ter inativado alguem.
+    const {data, error} = await supabase.from('choir_collaborators')
+      .update(changes).eq('id', id).select('*').single();
+    if (error || !data) throw new Error(error?.message || 'Alteracao nao confirmada no banco.');
+    setState(s => ({
+      ...s,
+      choirCollaborators: (s.choirCollaborators || []).map(c =>
+        c.id === id ? {...c, ...data} as ChoirCollaborator : c
+      ),
+    }));
   };
 
   const deleteChoirCollaborator = async (id: string) => {
