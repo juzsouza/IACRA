@@ -10,8 +10,11 @@ ARG VITE_SUPABASE_URL=https://ldumzwrwbhjtrnlioigg.supabase.co
 ARG VITE_SUPABASE_ANON_KEY=sb_publishable_D3KsTVDO7vls5m-IMueu6A_VS7GJTpH
 ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 ENV VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
-# Default OFF; only a separately validated production build may explicitly enable these tools.
-ARG VITE_IACRA_FEATURES_ENABLED=false
+# Versao candidata de restauracao: os modulos ja aprovados em producao precisam
+# permanecer ligados na compilacao do Docker feita por Cloud Run --source.
+# Protegido por referencia exata do Supabase PROD e permissoes por usuario.
+# Nao propagar esta alteracao para o Dockerfile base sem nova revisao.
+ARG VITE_IACRA_FEATURES_ENABLED=true
 ENV VITE_IACRA_FEATURES_ENABLED=${VITE_IACRA_FEATURES_ENABLED}
 ENV VITE_IACRA_PRODUCTION_PROJECT_REF=ldumzwrwbhjtrnlioigg
 ENV VITE_IACRA_BUILD_TARGET=production

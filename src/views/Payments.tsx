@@ -27,6 +27,7 @@ import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
 import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
+import { getInitialPaymentSelection, pickSinglePaymentCompetence, hasRecordedGroupPayment } from '../utils/paymentCompetenceSelection';
 
 // ============================================================================
 // Helper de Elegibilidade de Matrículas para Cobrança Mensal
@@ -180,6 +181,8 @@ export const Payments: React.FC = () => {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
   const [customDiscounts, setCustomDiscounts] = useState<Record<string, string>>({});
+  // A baixa individual só alcança competências selecionadas explicitamente.
+  const [selectedPaymentItems, setSelectedPaymentItems] = useState<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = useState<'to_pay' | 'paid' | 'all'>('to_pay');
   const [isSimulatorModalOpen, setIsSimulatorModalOpen] = useState(false);
   const [isCreditsModalOpen, setIsCreditsModalOpen] = useState(false);
@@ -692,10 +695,20 @@ export const Payments: React.FC = () => {
     let anyPaid = false;
     let hasPastPending = false;
 
+    let collectiveReconciliationCount = 0;
     enrollmentsBilling.forEach(eb => {
       const effectiveAmount = eb.isRaphael && eb.raphaelRealBilling
         ? eb.raphaelRealBilling.finalAmount
         : eb.priceWithDiscount;
+
+      // O recebimento coletivo não é uma nova cobrança individual.
+      // Aguardar conciliação sem alterar snapshots ou transações.
+      if (!eb.isPaid && hasRecordedGroupPayment(
+        state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+      )) {
+        collectiveReconciliationCount++;
+        return;
+      }
 
       totalAmount += effectiveAmount;
       if (eb.isPaid) {
@@ -736,6 +749,7 @@ export const Payments: React.FC = () => {
       totalPending,
       paymentStatus,
       hasPastPending,
+      collectiveReconciliationCount,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
 
@@ -746,7 +760,37 @@ export const Payments: React.FC = () => {
 
   const filteredBillingItems = filterBillingItemsForView(allBillingItems, statusFilter, searchTerm);
 
-  const openPaymentModal = (id: string, type: 'student' | 'group') => {
+  const openPaymentModal = (id: string, type: 'student' | 'group', requestedItemKey?: string) => {
+    const nextSelection = type === 'student' ? getInitialPaymentSelection(
+      [
+        ...(getStudentBilling(id)?.enrollmentsBilling || []).map(eb => ({
+          itemKey: eb.itemKey, monthStr: eb.monthStr, yearStr: eb.yearStr, isPaid: eb.isPaid,
+          groupId: eb.enrollment.group_id as string | null | undefined,
+        })),
+        ...(getStudentBilling(id)?.choirBilling || []).map(cb => ({
+          itemKey: cb.itemKey, monthStr: cb.monthStr, yearStr: cb.yearStr, isPaid: cb.isPaid,
+        })),
+      ],
+      selectedMonth, selectedYear, state.transactions,
+    ) : {};
+    if (type === 'student' && requestedItemKey) {
+      const b = getStudentBilling(id);
+      const requested = [
+        ...(b?.enrollmentsBilling || []),
+        ...(b?.choirBilling || []),
+      ].find(x => x.itemKey === requestedItemKey);
+      if (!requested || requested.isPaid ||
+        ('enrollment' in requested && hasRecordedGroupPayment(
+          state.transactions, requested.enrollment?.group_id,
+          requested.monthStr, requested.yearStr,
+        ))) {
+        window.alert('Essa competência já tem pagamento anterior ou precisa de conciliação.');
+        return;
+      }
+      setSelectedPaymentItems({ [requestedItemKey]: true });
+    } else {
+      setSelectedPaymentItems(nextSelection);
+    }
     if (type === 'group') {
       setSelectedGroupId(id);
       setSelectedStudentId(null);
@@ -764,6 +808,7 @@ export const Payments: React.FC = () => {
     setSelectedGroupId(null);
     setCustomAmounts({});
     setCustomDiscounts({});
+    setSelectedPaymentItems({});
   };
 
   const handleDiscountChange = (itemKey: string, refPrice: number, discountStr: string) => {
@@ -975,10 +1020,34 @@ export const Payments: React.FC = () => {
     if (!billing) return;
 
     const { student, enrollmentsBilling, choirBilling } = billing;
+    const selectedUnpaid = [
+      ...enrollmentsBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
+      ...choirBilling.filter(item => !item.isPaid && !!selectedPaymentItems[item.itemKey]),
+    ];
+    if (selectedUnpaid.length !== 1) {
+      window.alert('Selecione exatamente uma competência por baixa.');
+      return;
+    }
+    for (const item of selectedUnpaid) {
+      const entered = customAmounts[item.itemKey];
+      const value = Number(entered);
+      if (entered === undefined || entered.trim() === '' || !Number.isFinite(value) || value < 0) {
+        window.alert('Confira o valor da competência selecionada antes de confirmar.');
+        return;
+      }
+    }
 
-    // Register transaction for each unpaid enrollment month
+    // Register transaction for each selected unpaid enrollment month
     for (const eb of enrollmentsBilling) {
-      if (!eb.isPaid) {
+      if (!eb.isPaid && !!selectedPaymentItems[eb.itemKey]) {
+        // Não criar segunda entrada para mês já quitado na modalidade coletiva.
+        const groupAlreadyReceived = hasRecordedGroupPayment(
+          state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+        );
+        if (groupAlreadyReceived) {
+          window.alert('Esta competência já tem recebimento coletivo no grupo. Faça conciliação histórica, sem lançar uma nova receita.');
+          return;
+        }
         const isRaphael = eb.isRaphael && eb.raphaelRealBilling;
 
         // Double-billing safety check
@@ -1006,23 +1075,26 @@ export const Payments: React.FC = () => {
           0, amountToPay - teacherShareOnPayment - Number(eb.plan.secretary_fee_value || 0)
         );
 
-        // Consume credits if Raphael
-        if (isRaphael && eb.raphaelRealBilling) {
-          for (const cred of eb.raphaelRealBilling.creditsConsumedList) {
-            // Validação estrita de isolamento de crédito por matrícula (Etapa 5)
-            const validation = validateCreditConsumptionEntity(cred, { type: 'individual', enrollmentId: eb.enrollment.id });
-            if (!validation.allowed) {
-              console.error(`[Segurança] Bloqueio de consumo cruzado na matrícula ${eb.enrollment.id}: ${validation.reason}`);
-              continue;
-            }
-            const currentCredit = (state.credits || []).find(c => c.id === cred.id);
-            if (currentCredit && currentCredit.status === 'available') {
-              updateCredit(cred.id, {
-                status: 'used',
-                used_date: paymentDate,
-                notes: `Utilizado no pagamento da matrícula ${eb.plan.name} (${eb.monthStr}/${eb.yearStr})`,
-              });
-            }
+        // Antes de registrar qualquer receita, validar todos os créditos elegíveis.
+        // Não marcar um crédito como consumido antes da transação persistir.
+        const creditsToConsume = isRaphael && eb.raphaelRealBilling
+          ? eb.raphaelRealBilling.creditsConsumedList
+          : [];
+        for (const cred of creditsToConsume) {
+          const validation = validateCreditConsumptionEntity(cred, {
+            type: 'individual',
+            enrollmentId: eb.enrollment.id,
+            studentId: student.id,
+            groupId: eb.enrollment.group_id || null,
+          });
+          if (!validation.allowed) {
+            window.alert(`Crédito incompatível com a matrícula: ${validation.reason}`);
+            return;
+          }
+          const current = (state.credits || []).find(c => c.id === cred.id);
+          if (!current || current.status !== 'available') {
+            window.alert('Crédito indisponível. Atualize a página antes da baixa.');
+            return;
           }
         }
 
@@ -1107,12 +1179,26 @@ export const Payments: React.FC = () => {
           window.alert('Transação registrada, mas a baixa não foi concluída no banco. Não repita; faça conciliação.');
           return;
         }
+
+        // A transação e o snapshot já foram persistidos; concluir o consumo
+        // uma única vez e interromper com aviso se o Supabase não confirmar.
+        for (const cred of creditsToConsume) {
+          const updated = await updateCredit(cred.id, {
+            status: 'used',
+            used_date: paymentDate,
+            notes: `Crédito de aula desmarcada aplicado na matrícula ${eb.enrollment.id} (${eb.monthStr}/${eb.yearStr})`,
+          });
+          if (!updated.success) {
+            window.alert('Pagamento registrado, mas o crédito não foi confirmado. Não repita a baixa; faça conciliação: ' + (updated.error || 'erro desconhecido'));
+            return;
+          }
+        }
       }
     }
 
     // Register transaction for each unpaid Choir month
     for (const cb of choirBilling) {
-      if (!cb.isPaid) {
+      if (!cb.isPaid && !!selectedPaymentItems[cb.itemKey]) {
         const descPattern = `Mensalidade Coral | ${cb.registration.id} | ${cb.monthStr}/${cb.yearStr}`;
         const alreadyPaid = state.transactions.some(t => 
           t.type === 'income' && 
@@ -1627,35 +1713,12 @@ export const Payments: React.FC = () => {
 
                   const { enrollmentsBilling, choirBilling } = billing;
 
-                  let totalAmount = 0;
-                  let totalPaid = 0;
-                  let totalPending = 0;
-                  let allPaid = true;
-                  let anyPaid = false;
-
-                  enrollmentsBilling.forEach(eb => {
-                    totalAmount += eb.priceWithDiscount;
-                    if (eb.isPaid) {
-                      totalPaid += eb.transaction?.amount || eb.priceWithDiscount;
-                      anyPaid = true;
-                    } else {
-                      totalPending += eb.priceWithDiscount;
-                      allPaid = false;
-                    }
-                  });
-
-                  choirBilling.forEach(cb => {
-                    totalAmount += cb.monthlyFee;
-                    if (cb.isPaid) {
-                      totalPaid += cb.transaction?.amount || cb.monthlyFee;
-                      anyPaid = true;
-                    } else {
-                      totalPending += cb.monthlyFee;
-                      allPaid = false;
-                    }
-                  });
-
-                  const paymentStatus = allPaid ? 'paid' : (anyPaid ? 'partial' : 'pending');
+                  // Usar o resumo operacional, que não cobra de novo competências
+                  // já recebidas no coletivo e ainda aguardando conciliação.
+                  const { totalAmount, totalPaid, totalPending, paymentStatus } = item;
+                  const hasAnyPaid = enrollmentsBilling.some(eb => eb.isPaid) ||
+                    choirBilling.some(cb => cb.isPaid);
+                  const hasPendingToCollect = totalPending > 0;
 
                   return (
                     <tr key={`student_${item.id}`} className="hover:bg-zinc-50 transition-colors">
@@ -1715,7 +1778,13 @@ export const Payments: React.FC = () => {
                                     Raphael Etapa 5
                                   </span>
                                 )}
-                                {eb.isPaid ? (
+                                {(!eb.isPaid && hasRecordedGroupPayment(
+                                  state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+                                )) ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-900 border border-amber-300">
+                                    Recebido no grupo · conciliar
+                                  </span>
+                                ) : eb.isPaid ? (
                                   <div className="inline-flex items-center gap-1">
                                     <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                       Pago
@@ -1754,20 +1823,7 @@ export const Payments: React.FC = () => {
                                     </span>
                                     {canManagePayments && (
                                       <button
-                                        onClick={() => {
-                                          if (eb.isRaphael && eb.raphaelRealBilling) {
-                                            openPaymentModal(item.id, 'student');
-                                          } else {
-                                            openCorrectionModal({
-                                              studentName: item.name,
-                                              itemDescription: `${eb.plan.name} (Ref: ${eb.refLabel})`,
-                                              currentAmount: eb.priceWithDiscount,
-                                              transactionId: undefined,
-                                              transactionDate: new Date().toISOString().split('T')[0],
-                                              defaultDescription: `Mensalidade | ${eb.enrollment.id} | ${eb.monthStr}/${eb.yearStr} | ${item.name} - ${eb.plan.name}`
-                                            });
-                                          }
-                                        }}
+                                        onClick={() => openPaymentModal(item.id, 'student', eb.itemKey)}
                                         className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors inline-flex items-center gap-0.5 border border-emerald-200/60"
                                         title={eb.isRaphael ? "Baixar com confirmação e cálculo real Raphael" : "Registrar pagamento individual"}
                                       >
@@ -1925,14 +1981,7 @@ export const Payments: React.FC = () => {
                                   </span>
                                   {canManagePayments && (
                                     <button
-                                      onClick={() => openCorrectionModal({
-                                        studentName: item.name,
-                                        itemDescription: `Coral (Ref: ${cb.refLabel})`,
-                                        currentAmount: cb.monthlyFee,
-                                        transactionId: undefined,
-                                        transactionDate: new Date().toISOString().split('T')[0],
-                                        defaultDescription: `Mensalidade Coral | ${cb.registration.id} | ${cb.monthStr}/${cb.yearStr} | ${item.name}`
-                                      })}
+                                      onClick={() => openPaymentModal(item.id, 'student', cb.itemKey)}
                                       className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors inline-flex items-center gap-0.5 border border-emerald-200/60"
                                       title="Registrar pagamento do coral"
                                     >
@@ -1949,9 +1998,9 @@ export const Payments: React.FC = () => {
                         <div className="text-sm font-semibold text-zinc-900">
                           {formatCurrency(totalAmount)}
                         </div>
-                        {(enrollmentsBilling.length + choirBilling.length) > 1 && (
-                          <div className="text-[10px] text-zinc-400 mt-0.5">
-                            {enrollmentsBilling.length + choirBilling.length} atribuições somadas
+                        {item.collectiveReconciliationCount > 0 && (
+                          <div className="text-[10px] text-amber-800 mt-0.5">
+                            {item.collectiveReconciliationCount} competência(s) recebida(s) no coletivo; conciliação pendente
                           </div>
                         )}
                       </td>
@@ -1978,7 +2027,7 @@ export const Payments: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         {canManagePayments && (
                           <div className="flex items-center justify-end space-x-2">
-                            {!allPaid && (
+                            {hasPendingToCollect && (
                               <button 
                                 onClick={() => openPaymentModal(item.id, 'student')} 
                                 className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-lg shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
@@ -1988,7 +2037,7 @@ export const Payments: React.FC = () => {
                                 Baixar
                               </button>
                             )}
-                            {anyPaid && (
+                            {hasAnyPaid && (
                               <button 
                                 onClick={() => {
                                   const paidEb = enrollmentsBilling.find(e => e.isPaid);
@@ -2211,19 +2260,38 @@ export const Payments: React.FC = () => {
                             Baixando pagamentos para o aluno: <span className="font-bold text-zinc-950">{student.name}</span>
                           </div>
 
+                          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                            Apenas uma competência por baixa. Meses já pagos coletivamente precisam de conciliação, sem nova entrada de dinheiro.
+                          </p>
                           <div className={`space-y-3 ${isRaphaelTarget ? '' : 'max-h-[250px] overflow-y-auto pr-1'}`}>
                             {unpaidEnrollments.map(eb => {
+                              const groupAlreadyReceived = hasRecordedGroupPayment(
+                                state.transactions, eb.enrollment.group_id, eb.monthStr, eb.yearStr,
+                              );
+                              if (groupAlreadyReceived) {
+                                return <div key={eb.itemKey} className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                                  <strong>{eb.refLabel}:</strong> pagamento já registrado no grupo. Não fazer nova baixa individual; conciliar o histórico coletivo.
+                                </div>;
+                              }
                               if (eb.isRaphael && eb.raphaelRealBilling) {
                                 return (
-                                  <RaphaelPaymentConfirmationCard
-                                    key={eb.itemKey}
-                                    itemKey={eb.itemKey}
-                                    memory={eb.raphaelRealBilling}
-                                    customAmount={customAmounts[eb.itemKey] ?? ''}
-                                    customDiscount={customDiscounts[eb.itemKey] ?? ''}
-                                    onAmountChange={(val) => handleAmountChange(eb.itemKey, eb.raphaelRealBilling!.finalAmount, val)}
-                                    onDiscountChange={(val) => handleDiscountChange(eb.itemKey, eb.raphaelRealBilling!.grossAmount, val)}
-                                  />
+                                  <div key={eb.itemKey} className="rounded-lg border border-purple-200 bg-purple-50/40 p-2 space-y-2">
+                                    <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                      <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
+                                        onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(eb.itemKey, e.target.checked))}/>
+                                      Baixar competência {eb.refLabel}
+                                    </label>
+                                    {!!selectedPaymentItems[eb.itemKey] && (
+                                      <RaphaelPaymentConfirmationCard
+                                        itemKey={eb.itemKey}
+                                        memory={eb.raphaelRealBilling}
+                                        customAmount={customAmounts[eb.itemKey] ?? ''}
+                                        customDiscount={customDiscounts[eb.itemKey] ?? ''}
+                                        onAmountChange={(val) => handleAmountChange(eb.itemKey, eb.raphaelRealBilling!.finalAmount, val)}
+                                        onDiscountChange={(val) => handleDiscountChange(eb.itemKey, eb.raphaelRealBilling!.grossAmount, val)}
+                                      />
+                                    )}
+                                  </div>
                                 );
                               }
 
@@ -2232,6 +2300,11 @@ export const Payments: React.FC = () => {
 
                               return (
                                 <div key={eb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
+                                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                    <input type="checkbox" checked={!!selectedPaymentItems[eb.itemKey]}
+                                      onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(eb.itemKey, e.target.checked))}/>
+                                    Baixar competência {eb.refLabel}
+                                  </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
                                     <span className="truncate max-w-[220px] font-semibold">
                                       {eb.plan.name} <span className="text-indigo-600">({eb.refLabel})</span> {isEarly && <span className="text-emerald-600 font-semibold">(Desconto Aplicado)</span>}
@@ -2280,6 +2353,11 @@ export const Payments: React.FC = () => {
                               const refAmount = cb.monthlyFee;
                               return (
                                 <div key={cb.itemKey} className="p-3 border border-zinc-100 bg-zinc-50 rounded-xl space-y-2">
+                                  <label className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
+                                    <input type="checkbox" checked={!!selectedPaymentItems[cb.itemKey]}
+                                      onChange={e=>setSelectedPaymentItems(pickSinglePaymentCompetence(cb.itemKey, e.target.checked))}/>
+                                    Baixar competência {cb.refLabel}
+                                  </label>
                                   <div className="flex justify-between text-xs text-zinc-600 font-medium">
                                     <span className="font-semibold">Mensalidade Coral <span className="text-indigo-600">({cb.refLabel})</span></span>
                                     <span className="font-bold">Ref: {formatCurrency(refAmount)}</span>
@@ -2328,6 +2406,7 @@ export const Payments: React.FC = () => {
                             let totalDiscount = 0;
 
                             unpaidEnrollments.forEach(eb => {
+                              if (!selectedPaymentItems[eb.itemKey]) return;
                               const isEarly = eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
                               const standardRef = eb.priceWithDiscount - (isEarly ? eb.plan.early_discount_value : 0);
                               const refAmount = eb.isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.finalAmount : standardRef;
@@ -2339,6 +2418,7 @@ export const Payments: React.FC = () => {
                             });
 
                             unpaidChoir.forEach(cb => {
+                              if (!selectedPaymentItems[cb.itemKey]) return;
                               const refAmount = cb.monthlyFee;
                               const val = parseFloat(customAmounts[cb.itemKey] || '0');
                               const disc = parseFloat(customDiscounts[cb.itemKey] || '0');
@@ -2391,7 +2471,8 @@ export const Payments: React.FC = () => {
                       </button>
                       <button
                         type="submit"
-                        className={`px-4 py-2 text-sm font-bold text-white ${
+                        disabled={Boolean(selectedStudentId) && !Object.values(selectedPaymentItems).some(Boolean)}
+                        className={`px-4 py-2 text-sm font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed ${
                           isRaphaelTarget
                             ? 'bg-purple-700 hover:bg-purple-800 focus:ring-purple-500 shadow-sm'
                             : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'

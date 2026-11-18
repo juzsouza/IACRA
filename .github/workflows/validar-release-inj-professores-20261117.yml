@@ -1,0 +1,27 @@
+name: IACRA - release INJ e professores (validacao sem deploy)
+on:
+  push:
+    branches: [iacra-release-inj-professores-20261117]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/payment_competence_selection.test.ts
+      - run: npx tsx src/tests/group_inj_credit_november.test.ts
+      - run: npx tsx src/tests/enrollment_teacher_filter.test.ts
+      - run: npm run test:billings
+      - run: npm run test:choir-balance
+      - run: npm run lint
+      - run: npm run build
