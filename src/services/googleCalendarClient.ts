@@ -14,6 +14,7 @@ export interface GoogleAccountStatus {
   googleEmail: string | null;
   connectedAt: string | null;
   connectionStatus: string;
+  reauthorizationRequired?: boolean;
   calendarId?: string;
 }
 
@@ -120,15 +121,22 @@ export async function getTeacherGoogleStatus(teacherId: string): Promise<GoogleA
     if (res.ok) {
       return await res.json();
     }
+    throw new Error('Nao foi possivel consultar o status da conta Google.');
   } catch (e) {
-    console.warn(`[GoogleCalendarClient] Erro ao consultar conta do professor ${teacherId}:`, e);
+    console.warn('[GoogleCalendarClient] Falha ao consultar a conta Google.');
+    throw e;
   }
-  return {
-    connected: false,
-    googleEmail: null,
-    connectedAt: null,
-    connectionStatus: 'disconnected',
-  };
+}
+
+export async function verifyTeacherGoogleConnection(teacherId: string):
+  Promise<{verified: boolean; reauthorizationRequired: boolean}> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`/api/google/account/${encodeURIComponent(teacherId)}/verify`, {
+    method: 'POST',
+    headers: authHeaders,
+  });
+  if (!res.ok) throw new Error('Nao foi possivel verificar a conexao agora.');
+  return await res.json();
 }
 
 /**

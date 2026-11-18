@@ -12,6 +12,7 @@ import {
   generateGoogleAuthUrl,
   handleGoogleOAuthCallback,
   getTeacherGoogleAccount,
+  getValidAccessToken,
   deleteTeacherGoogleAccount,
   saveTeacherGoogleAccount,
   syncClassToGoogle,
@@ -621,24 +622,47 @@ googleCalendarRouter.get('/account/:teacherId', async (req, res) => {
 
     const account = await getTeacherGoogleAccount(teacherId);
 
-    if (!account || account.connection_status !== 'connected') {
+    if (!account || !['connected', 'error'].includes(account.connection_status)) {
       return res.json({
         connected: false,
         googleEmail: null,
         connectedAt: null,
         connectionStatus: 'disconnected',
+        reauthorizationRequired: false,
       });
     }
-
     res.json({
-      connected: true,
+      connected: true, // conta vinculada; erro de autorizacao informado separadamente
       googleEmail: account.google_email,
       connectedAt: account.connected_at,
       connectionStatus: account.connection_status,
+      reauthorizationRequired: account.connection_status === 'error',
       calendarId: account.google_calendar_id || 'primary',
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Erro ao consultar conta.' });
+  }
+});
+
+// Verifica somente a renovacao do token (nenhuma alteracao de evento Google).
+// Operacao opt-in, disponivel exclusivamente ao proprio professor autenticado.
+googleCalendarRouter.post('/account/:teacherId/verify', async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUser(req);
+    if (!auth) return res.status(401).json({error: 'Autenticacao necessaria.'});
+    const {teacherId} = req.params;
+    if (auth.role !== 'teacher' || auth.teacherId !== teacherId)
+      return res.status(403).json({error: 'Somente o proprio professor pode verificar a conta.'});
+    const account = await getTeacherGoogleAccount(teacherId);
+    if (!account || account.connection_status === 'disconnected')
+      return res.status(404).json({error: 'Conta Google nao conectada.'});
+    if (account.connection_status === 'error')
+      return res.json({verified: false, reauthorizationRequired: true});
+    const accessToken = await getValidAccessToken(account, {forceRefresh: true});
+    const refreshedAccount = await getTeacherGoogleAccount(teacherId);
+    return res.json({verified: Boolean(accessToken), reauthorizationRequired: refreshedAccount?.connection_status === 'error'});
+  } catch {
+    return res.status(503).json({error: 'Nao foi possivel verificar a conexao agora.'});
   }
 });
 

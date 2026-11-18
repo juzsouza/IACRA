@@ -4,6 +4,7 @@ import {
   getGoogleConfig,
   getGoogleAuthUrl,
   getTeacherGoogleStatus,
+  verifyTeacherGoogleConnection,
   disconnectTeacherGoogle,
   syncTeacherFutureClasses,
   pullGoogleEvents,
@@ -37,6 +38,7 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [fallbackAuthUrl, setFallbackAuthUrl] = useState<string | null>(null);
 
+  const reauthorizationRequired = status.reauthorizationRequired === true || status.connectionStatus === 'error';
   const isSelfTeacher = currentUserProfile?.role === 'teacher' && currentUserProfile?.teacher_id === teacherId;
   const isSuperAdminOrAdmin = currentUserProfile?.role === 'super_admin' || currentUserProfile?.role === 'admin';
 
@@ -148,6 +150,29 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
     }
   };
 
+  const handleVerifyConnection = async () => {
+    if (isActionLoading || !isSelfTeacher) return;
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    setSyncFeedback(null);
+    try {
+      const result = await verifyTeacherGoogleConnection(teacherId);
+      const freshStatus = await getTeacherGoogleStatus(teacherId);
+      setStatus(freshStatus);
+      if (result.reauthorizationRequired) {
+        setErrorMessage('O Google recusou a renovação automática. Reautorize sua conta.');
+      } else if (result.verified) {
+        setSyncFeedback('Renovação automática verificada com sucesso.');
+      } else {
+        setErrorMessage('Não foi possível verificar a conexão agora. Tente novamente mais tarde; não é necessário reautorizar.');
+      }
+    } catch {
+      setErrorMessage('Falha temporária ao verificar a conexão. Tente novamente mais tarde.');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   const handleDisconnect = () => {
     setErrorMessage(null);
     setShowDisconnectModal(true);
@@ -238,11 +263,10 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
         return;
       }
 
-      // 3. Resposta onde todas as tentativas falharam (ex.: token Google expirado ou revogado)
+      // Falha em lote nao comprova que o professor perdeu a autorizacao.
       if (res.failed > 0 && res.synced === 0 && res.skipped === 0) {
-        setErrorMessage(
-          `Falha na sincronização: nenhuma das ${res.failed} aula(s) pôde ser gravada no Google. A conta Google vinculada precisa de reautorização. Clique em "Reautorizar Google Agenda".`
-        );
+        try { setStatus(await getTeacherGoogleStatus(teacherId)); } catch { /* preservar estado anterior */ }
+        setErrorMessage(`Falha na sincronização de ${res.failed} aula(s). Verifique a conexão. Reautorize somente se o sistema indicar autorização perdida.`);
         return;
       }
 
@@ -312,7 +336,7 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
             <div className="flex items-center gap-1.5 text-emerald-900 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200" />
               <span className="font-semibold">Google Agenda</span>
-              <span className="text-emerald-700 font-semibold">• Conectado</span>
+              <span className={reauthorizationRequired ? 'text-amber-800 font-semibold' : 'text-emerald-700 font-semibold'}>{reauthorizationRequired ? '• Reautorização necessária' : '• Conectado'}</span>
               {status.googleEmail && (
                 <span
                   className="text-emerald-700/80 hidden md:inline truncate max-w-[150px]"
@@ -322,13 +346,13 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
                 </span>
               )}
             </div>
-            {isSelfTeacher && (
+            {isSelfTeacher && reauthorizationRequired && (
               <button
                 type="button"
                 onClick={handleConnect}
                 disabled={isActionLoading || isConfigured === false}
                 className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-lg hover:bg-white/80 border border-transparent hover:border-indigo-200 transition-colors disabled:opacity-50"
-                title="Reautorizar e atualizar permissões do Google Agenda sem desconectar"
+                title="Reautorizar apenas após perda confirmada de acesso"
               >
                 Reautorizar Google Agenda
               </button>
@@ -494,8 +518,8 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
               Google Agenda
               {status.connected ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                  Conectado
+                  {reauthorizationRequired ? <AlertCircle className="w-3 h-3 mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                  {reauthorizationRequired ? 'Reautorização necessária' : 'Conectado'}
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-600">
@@ -511,16 +535,27 @@ export const TeacherGoogleCalendarCard: React.FC<TeacherGoogleCalendarCardProps>
 
         {status.connected ? (
           <div className="flex items-center gap-2">
-            {isSelfTeacher && (
+            {isSelfTeacher && reauthorizationRequired && (
               <button
                 type="button"
                 onClick={handleConnect}
                 disabled={isActionLoading || isConfigured === false}
                 className="inline-flex items-center px-3 py-1.5 border border-indigo-200 text-xs font-semibold rounded-xl text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100/70 transition-colors disabled:opacity-50"
-                title="Reautorizar Google Agenda sem desconectar a conta"
+                title="Reautorizar após perda confirmada de acesso"
               >
                 <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isActionLoading ? 'animate-spin' : ''}`} />
                 Reautorizar Google Agenda
+              </button>
+            )}
+            {isSelfTeacher && !reauthorizationRequired && (
+              <button
+                type="button"
+                onClick={handleVerifyConnection}
+                disabled={isActionLoading}
+                className="inline-flex items-center px-3 py-1.5 border border-zinc-200 text-xs font-medium rounded-xl text-zinc-700 disabled:opacity-40"
+                title="Verificar apenas a renovação da conexão, sem sincronizar aulas"
+              >
+                Verificar conexão
               </button>
             )}
             <button
