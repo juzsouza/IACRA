@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const login=readFileSync(new URL('../views/Login.tsx',import.meta.url),'utf8');
+assert.match(login,/signInWithPassword/);
+assert.match(login,/signOut/);
+assert.match(login,/access_status === 'blocked'/);
+assert.match(login,/Para redefinir o acesso, procure a administração do Instituto/);
+assert.match(login,/onSubmit=\{handleAuth\}/);
+assert.match(login,/Política de Privacidade/);
+assert.doesNotMatch(login,/Esqueceu sua senha\?|resetPasswordForEmail|handleReset|handleUpdatePassword|update_password|setMode/);
+const googleUI=readFileSync(new URL('../components/TeacherGoogleCalendarCard.tsx',import.meta.url),'utf8');
+assert.match(googleUI,/reauthorizationRequired/);
+const cpfUI=readFileSync(new URL('../views/PublicEnrollment.tsx',import.meta.url),'utf8');
+assert.match(cpfUI,/validateMinorGuardianCpf/);
+console.log('PASS: login sem recuperacao por email, permissao e modulos anteriores mantidos');
