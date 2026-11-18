@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../components/ChoirMonthlyClosingTab.tsx',import.meta.url),'utf8');
+assert.match(s,/calculateChoirMonthlyFinance\(collaborators,rehearsals,selectedMonth\)/);
+assert.doesNotMatch(s,/JULY_2026_CANONICAL_COLLABORATOR_IDS|DEPRECATED_DUPLICATE_IDS|selectedMonth === '2026-07'/);
+assert.match(s,/Modo conferência/);
+assert.match(s,/Recebido no mês/);
+assert.match(s,/sem vínculo com professor/);
+assert.match(s,/sem lançamentos ou pagamentos automáticos/);
+console.log('PASS: fechamento por competência sem IDs fixos, separado de receita recebida');

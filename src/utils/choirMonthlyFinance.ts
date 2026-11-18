@@ -16,7 +16,7 @@ export type ChoirMonthSummary = {
   totalPayoutAmount: number;
   eligibleCount: number;
 };
-function nowInSaoPaulo(): string {
+export function nowInSaoPaulo(): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
   }).formatToParts(new Date());
