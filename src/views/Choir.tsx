@@ -1354,7 +1354,7 @@ export const Choir: React.FC = () => {
                           {isInactive ? (
                             <button
                               onClick={() => {
-                                updateChoirCollaborator(collab.id, { active: true });
+                                updateChoirCollaborator(collab.id, { active: true }).catch(err=>setCollaboratorSaveError(err?.message || 'Não foi possível reativar.'));
                               }}
                               title="Reativar colaborador"
                               className="p-1.5 text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
@@ -1876,6 +1876,7 @@ export const Choir: React.FC = () => {
               </button>
             </div>
 
+            {collaboratorSaveError && <p role="alert" className="border border-rose-200 bg-rose-50 text-rose-700 rounded-lg p-3 text-sm">{collaboratorSaveError}</p>}
             <form onSubmit={handleCollaboratorSubmit} className="space-y-4">
               <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100/90 space-y-2 relative">
                 <div className="flex items-center justify-between">
@@ -2745,6 +2746,7 @@ export const Choir: React.FC = () => {
                     await updateChoirCollaborator(collaboratorToDeactivate.id, { active: false });
                     setCollaboratorToDeactivate(null);
                   } catch (err: any) {
+                    setCollaboratorSaveError(err?.message || 'Não foi possível inativar. Dados preservados.');
                     console.error('Erro ao desativar colaborador:', err);
                   } finally {
                     setIsDeactivatingCollaborator(false);

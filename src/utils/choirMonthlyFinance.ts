@@ -70,7 +70,6 @@ export function calculateChoirMonthlyFinance(
     for (const rehearsal of validRehearsals) {
       const records=attendanceOf(rehearsal);
       const isPresent=records.some(a=>a.person_id===collaborator.id && a.type==='collaborator' && a.status==='present');
-      const hadRecord=records.some(a=>a.person_id===collaborator.id && a.type==='collaborator');
       attendancePerDate[rehearsal.date] = {status: isPresent ? 'present' : 'absent',isPresent};
       if(isPresent) presentCount++;
     }

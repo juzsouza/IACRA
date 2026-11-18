@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const src=(p:string)=>readFileSync(new URL(p,import.meta.url),'utf8');
+const choir=src('../views/Choir.tsx'),finance=src('../views/Finance.tsx'),store=src('../store.tsx');
+assert.match(choir,/calculateChoirMonthlyFinance/);
+assert.match(choir,/statementMonth/);
+assert.match(choir,/collaboratorSaveError/);
+assert.doesNotMatch(choir,/Remuneração Calculada/);
+assert.match(choir,/billings=\{state.competenceBillings/);
+assert.match(finance,/const choirSummary = calculateChoirMonthlyFinance/);
+assert.match(finance,/choirMonthlySummary = calculateChoirMonthlyFinance/);
+assert.match(finance,/Colaboradores sem vínculo com professor/);
+assert.match(finance,/pagamento não confirmado/);
+assert.match(store,/\.update\(changes\)\.eq\('id', id\)\.select\('\*'\)\.single\(\)/);
+assert.doesNotMatch(store,/await syncCollaboratorsToSupabase\(s.choirCollaborators\)/);
+console.log('PASS: fechamento por competencia e colaboradores persistidos individualmente');
