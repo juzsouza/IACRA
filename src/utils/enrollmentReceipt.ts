@@ -27,7 +27,7 @@ const field = (label: string, value: unknown) =>
 /** Montagem local, sem transmissão de dados a serviços de PDF.
  * Todo valor do banco é tratado como texto puro, jamais HTML.
  */
-export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: DigitalTermAudit): string {
+export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: DigitalTermAudit, brandLogoUrl = '/brand/iacra-logo.webp'): string {
   if (request.status !== 'approved' || audit.status !== 'approved' ||
       !request.enrollment_id || !audit.enrollment_id ||
       request.enrollment_id !== audit.enrollment_id ||
@@ -47,6 +47,9 @@ export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: Digit
   button { padding: 10px 16px; border: 0; border-radius: 8px; background: #4438bb; color: white; font: bold 14px Arial; cursor: pointer; }
   .controls span { color: #3d4160; font-size: 13px; }
   .sheet { max-width: 210mm; margin: 0 auto; padding: 18mm 16mm; }
+  .brand-header { text-align: center; margin: 0 0 20px; padding-bottom: 18px; border-bottom: 1px solid #d4e6ed; }
+  .brand-header img { display: block; width: 100%; max-width: 330px; height: auto; margin: 0 auto 8px; object-fit: contain; }
+  .brand-header .brand-caption { color: #0c5c78; font-size: 9pt; font-weight: 600; letter-spacing: .7px; }
   .dev { color: #4338ca; font-weight: 700; font-size: 10pt; letter-spacing: 1px; }
   h1 { font-size: 21pt; margin: 6px 0; }
   h2 { font-size: 13pt; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #cfd3e3; }
@@ -61,10 +64,11 @@ export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: Digit
   .term ol { list-style: decimal; padding-left: 22px; }
   .term p { margin: 8px 0; }
   .footer { margin-top: 30px; border-top: 1px solid #d4d8e5; padding-top: 12px; font-size: 9pt; color: #61687a; }
-  @media print { .controls { display: none; } .sheet { margin: 0; padding: 0; max-width: unset; } .warning { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+  @media print { .controls { display: none; } .sheet { margin: 0; padding: 0; max-width: unset; } .brand-header { break-inside: avoid; } .brand-header img { max-width: 80mm; } .warning { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style></head><body>
 <div class="controls"><button type="button" onclick="window.print()">Imprimir / Salvar em PDF</button><span>Na impressão, escolha “Salvar como PDF”.</span></div>
 <main class="sheet">
+  <header class="brand-header"><img src="${safe(brandLogoUrl)}" alt="Instituto de Arte Cristã Raphael Augusto" /><div class="brand-caption">INSTITUTO DE ARTE CRISTÃ RAPHAEL AUGUSTO</div></header>
   <div class="dev">IACRA · REGISTRO DE ACEITE</div>
   <h1>Comprovante de matrícula</h1>
   <div class="sub">Registro de aceite e aprovação no sistema. Não é certificado de assinatura digital.</div>
@@ -98,7 +102,9 @@ export function buildEnrollmentReceiptHtml(request: DigitalRequest, audit: Digit
 }
 
 export function openEnrollmentReceipt(request: DigitalRequest, audit: DigitalTermAudit): void {
-  const html = buildEnrollmentReceiptHtml(request, audit);
+  // O comprovante abre em about:blank; URL absoluta evita perder a imagem na impressão.
+  const logoUrl = new URL('/brand/iacra-logo.webp', window.location.origin).href;
+  const html = buildEnrollmentReceiptHtml(request, audit, logoUrl);
   const page = window.open('', '_blank');
   if (!page) throw new Error('O navegador bloqueou a janela do comprovante. Permita pop-ups para o Codespaces e tente novamente.');
   page.opener = null;

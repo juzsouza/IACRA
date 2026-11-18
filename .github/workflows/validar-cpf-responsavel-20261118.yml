@@ -1,0 +1,23 @@
+name: Validar CPFs distintos na matricula digital
+on:
+  push:
+    branches: [iacra-cpf-responsavel-distinto-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/guardian_cpf_distinct.test.ts
+      - run: npx tsx src/tests/guardian_cpf_backend_contract.test.ts
+      - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - run: npm run lint
+      - run: npm run build

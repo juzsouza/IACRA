@@ -4,14 +4,17 @@ import { supabase } from '../lib/supabase';
 export type IacraFeaturePermissions = {
   digital_enrollment: { view: boolean; create: boolean; approve: boolean };
   rooms: { view: boolean; assign: boolean; unassign: boolean };
+  enrollment_tracking: { view: boolean; mark_sent: boolean };
 };
 const EMPTY: IacraFeaturePermissions = {
   digital_enrollment: { view: false, create: false, approve: false },
   rooms: { view: false, assign: false, unassign: false },
+  enrollment_tracking: { view: false, mark_sent: false },
 };
 const FULL: IacraFeaturePermissions = {
   digital_enrollment: { view: true, create: true, approve: true },
   rooms: { view: true, assign: true, unassign: true },
+  enrollment_tracking: { view: true, mark_sent: true },
 };
 
 /** UI only. Authorization is repeated inside each PostgreSQL RPC.
@@ -44,6 +47,7 @@ export function useIacraFeaturePermissions(profile?: {
       const result = data as Record<string, unknown>;
       const digital = (result.digital_enrollment || {}) as Record<string, unknown>;
       const rooms = (result.rooms || {}) as Record<string, unknown>;
+      const tracking = (result.enrollment_tracking || {}) as Record<string, unknown>;
       setState({ id, permissions: {
         digital_enrollment: {
           view: digital.view === true,
@@ -54,6 +58,10 @@ export function useIacraFeaturePermissions(profile?: {
           view: rooms.view === true,
           assign: rooms.view === true && rooms.assign === true,
           unassign: rooms.view === true && rooms.unassign === true,
+        },
+        enrollment_tracking: {
+          view: tracking.view === true,
+          mark_sent: tracking.view === true && tracking.mark_sent === true,
         },
       } });
     })();

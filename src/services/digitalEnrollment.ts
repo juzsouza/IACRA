@@ -11,6 +11,58 @@ export type DigitalOffer = {
  start_date:string; enrollment_date:string; due_day:number; monthly_amount:number;
  term_title:string; term_body:string; expires_at:string;
 };
+export type DigitalOfferTracking = {
+ id:string;
+ created_at:string;
+ expires_at:string;
+ first_opened_at:string|null;
+ sent_at:string|null;
+ recipient_label:string|null;
+ submitted_at:string|null;
+ term_title:string;
+ model_id:TermModelId;
+ plan_name:string;
+ teacher_name:string;
+ group_name:string|null;
+ submission_status:'pending'|'approved'|'changes_requested'|null;
+ submission_id:string|null;
+ student_id:string|null;
+ student_name:string|null;
+ enrollment_id:string|null;
+};
+export async function readTrackingApprovedTerm(id:string):Promise<DigitalTermAudit>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_tracking_read_approved_term',{p_submission_id:id});
+ if(error)throw error;
+ if(!data||data.status!=='approved'||!data.enrollment_id||!data.student_id)throw new Error('Termo aprovado não encontrado.');
+ return data as DigitalTermAudit;
+}
+export async function readTrackingApprovedRequest(id:string):Promise<DigitalRequest>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_tracking_read_approved_request',{p_submission_id:id});
+ if(error)throw error;
+ if(!data?.id||data.status!=='approved'||!data?.enrollment_id||!data?.student_id)throw new Error('Confirmação não encontrada.');
+ return data as DigitalRequest;
+}
+export async function readDigitalOfferTracking():Promise<DigitalOfferTracking[]>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_admin_enrollment_offers');
+ if(error)throw error;
+ return (data||[]) as DigitalOfferTracking[];
+}
+export async function markDigitalOfferSent(id:string,label:string):Promise<void>{
+ requireFeature();
+ const {data,error}=await supabase.rpc('eavra_dev_admin_mark_enrollment_sent',{p_offer_id:id,p_recipient_label:label.trim()||null});
+ if(error)throw error;
+ if(!data?.updated)throw new Error('Não foi possível registrar o envio.');
+}
+/** Called only after the active enrollment form was actually rendered in the browser. */
+export async function trackDigitalOfferOpened(token:string):Promise<void>{
+ requireFeature();
+ if(!/^[0-9a-f]{64}$/.test(token))return;
+ // Tracking is best-effort. Viewing and accepting a term do not depend on telemetry.
+ await supabase.rpc('eavra_dev_track_enrollment_open',{p_token:token});
+}
 export type DigitalRequest = {
  id:string; status:'pending'|'approved'|'changes_requested'; student:Record<string,string>;
  plan_name:string;teacher_name:string;group_name:string|null;monthly_amount:number;
@@ -45,7 +97,11 @@ export async function readDigitalOffer(token:string):Promise<DigitalOffer>{
 export async function submitDigitalOffer(token:string,student:Record<string,string>):Promise<void>{
  requireFeature();
  const {data,error}=await supabase.rpc('eavra_dev_submit_enrollment',{p_token:token,p_student:student,p_accepted:true});
- if(error)throw error;
+ if(error){
+   if(error.message?.includes('guardian_cpf_required'))throw new Error('Informe o CPF do responsável legal para continuar.');
+   if(error.message?.includes('guardian_cpf_matches_student'))throw new Error('O CPF do responsável não pode ser igual ao CPF do aluno.');
+   throw error;
+ }
  if(!data?.submitted)throw new Error('Solicitação não recebida');
 }
 export async function readDigitalInbox():Promise<DigitalRequest[]>{

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {sameStudentGuardianCpf,validateMinorGuardianCpf} from '../utils/guardianCpfValidation';
+assert.equal(sameStudentGuardianCpf('294.069.069-69','29406906969'),true);
+assert.equal(sameStudentGuardianCpf('29406906969','111.222.333-44'),false);
+assert.match(validateMinorGuardianCpf(true,'294.069.069-69','29406906969')||'',/não pode ser igual/);
+assert.match(validateMinorGuardianCpf(true,'11122233344','')||'',/Informe o CPF/);
+assert.equal(validateMinorGuardianCpf(true,'11122233344','55566677788'),null);
+assert.equal(validateMinorGuardianCpf(false,'11122233344',''),null);
+const front=readFileSync(new URL('../views/PublicEnrollment.tsx',import.meta.url),'utf8');
+const admin=readFileSync(new URL('../views/DigitalEnrollmentAdmin.tsx',import.meta.url),'utf8');
+assert.match(front,/CPF do responsável legal \(obrigatório\)/);
+assert.match(front,/disabled=\{!accepted\|\|busy\|\|Boolean\(guardianCpfError\)\}/);
+assert.match(front,/if\(guardianCpfError\)/);
+assert.match(admin,/CPF do aluno: \{r.student\?\.cpf\}/);
+console.log('PASS: CPFs distintos e responsavel obrigatorio na matricula digital');
