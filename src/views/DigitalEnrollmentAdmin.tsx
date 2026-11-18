@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {sameStudentGuardianCpf} from '../utils/guardianCpfValidation';
 import {useAppStore} from '../store';
 import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../utils/enrollmentTermModels';
 
@@ -37,6 +38,9 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
  const [match,setMatch]=useState<DigitalStudentMatch|null>(null);
  const [updateExisting,setUpdateExisting]=useState(false);
  const [forceNewEnrollment,setForceNewEnrollment]=useState(false);
+ const reviewingRequest=records.find(r=>r.id===reviewId);
+ const reviewGuardianCpfConflict=Boolean(reviewingRequest&&sameStudentGuardianCpf(reviewingRequest.student?.cpf||'',reviewingRequest.student?.guardian_cpf||''));
+
  const plans=state.financialPlans.filter(p=>p.is_active);
  const teachers=state.teachers.filter(t=>t.status==='active');
  const groups=state.groups.filter(g=>g.status!=='inactive');
@@ -98,7 +102,7 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível conferir o aluno');}finally{setBusy(false)}
  };
  const approve=async()=>{
-   if(!access.digital_enrollment.approve||!reviewId||!match||match.match_count>1)return;
+   if(!access.digital_enrollment.approve||!reviewId||!match||match.match_count>1||reviewGuardianCpfConflict)return;
    if(!window.confirm('Confirmar aprovação do termo no IACRA? O cadastro será reutilizado quando houver aluno com o mesmo CPF.'))return;
    setBusy(true);
    try{
@@ -141,6 +145,13 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
   {reviewId&&match&&<section className="fixed inset-0 z-50 bg-black/50 p-3 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Revisar cadastro e termo">
     <div className="bg-white p-5 rounded-xl max-w-xl w-full max-h-full overflow-y-auto space-y-3">
       <h2 className="text-lg font-bold">Conferir aluno e aprovar termo</h2>
+      {reviewingRequest&&<div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 space-y-1 text-sm">
+        <p><strong>Aluno:</strong> {reviewingRequest.student?.name||'Não informado'}</p>
+        <p><strong>CPF do aluno:</strong> {reviewingRequest.student?.cpf||'Não informado'}</p>
+        {reviewingRequest.student?.guardian_name&&<><p><strong>Responsável legal:</strong> {reviewingRequest.student.guardian_name} ({reviewingRequest.student.guardian_relationship||'vínculo não informado'})</p>
+        <p><strong>CPF do responsável:</strong> {reviewingRequest.student.guardian_cpf||'Não informado'}</p></>}
+      </div>}
+      {reviewGuardianCpfConflict&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800 text-sm">O CPF do aluno e do responsável são iguais. Não aprove este termo. Solicite a correção dos dados à família.</p>}
       {match.match_count===0&&<p>Nenhum aluno encontrado com esse CPF. Ao aprovar, o sistema criará um cadastro novo.</p>}
       {match.match_count===1&&<div className="space-y-2">
         <p className="font-semibold">Aluno já cadastrado: {match.student?.name}</p>
@@ -155,7 +166,7 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
       </div>}
       <div className="flex gap-2">
         <button type="button" className="border rounded-lg px-3 py-2" onClick={()=>{setReviewId(null);setMatch(null)}}>Cancelar</button>
-        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={!access.digital_enrollment.approve||busy||match.match_count>1} onClick={()=>void approve()}>Confirmar aprovação</button>
+        <button type="button" className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40" disabled={!access.digital_enrollment.approve||busy||match.match_count>1||reviewGuardianCpfConflict} onClick={()=>void approve()}>Confirmar aprovação</button>
       </div>
     </div>
   </section>}

@@ -97,7 +97,11 @@ export async function readDigitalOffer(token:string):Promise<DigitalOffer>{
 export async function submitDigitalOffer(token:string,student:Record<string,string>):Promise<void>{
  requireFeature();
  const {data,error}=await supabase.rpc('eavra_dev_submit_enrollment',{p_token:token,p_student:student,p_accepted:true});
- if(error)throw error;
+ if(error){
+   if(error.message?.includes('guardian_cpf_required'))throw new Error('Informe o CPF do responsável legal para continuar.');
+   if(error.message?.includes('guardian_cpf_matches_student'))throw new Error('O CPF do responsável não pode ser igual ao CPF do aluno.');
+   throw error;
+ }
  if(!data?.submitted)throw new Error('Solicitação não recebida');
 }
 export async function readDigitalInbox():Promise<DigitalRequest[]>{

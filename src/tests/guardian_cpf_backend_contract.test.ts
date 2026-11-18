@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const sql=readFileSync(new URL('../../docs/revisao-producao/CANDIDATO_cpf_responsavel_distinto_20261118.sql',import.meta.url),'utf8');
+const ui=readFileSync(new URL('../views/DigitalEnrollmentAdmin.tsx',import.meta.url),'utf8');
+const service=readFileSync(new URL('../services/digitalEnrollment.ts',import.meta.url),'utf8');
+assert.match(sql,/if v_guardian_cpf is null then\s+raise exception 'guardian_cpf_required'/);
+assert.match(sql,/if v_guardian_cpf = v_cpf then\s+raise exception 'guardian_cpf_matches_student'/);
+assert.match(sql,/if v_birth::date > \(current_date - interval '18 years'\)::date then/);
+assert.match(sql,/insert into app_private\.eavra_dev_enrollment_submissions/);
+assert.match(sql,/INSERT|insert/);
+assert.doesNotMatch(sql,/where\s+guardian_cpf\s*=|where\s+cpf\s*=\s*v_guardian_cpf/i);
+assert.match(ui,/CPF do respons[aá]vel:/);
+assert.match(ui,/reviewGuardianCpfConflict/);
+assert.match(service,/guardian_cpf_matches_student/);
+console.log('PASS: CPF obrigatorio/distinto no backend; responsavel pode ter CPF cadastrado no Instituto; revisao administrativa segura');
