@@ -24,7 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run test:oauth-prod
       - run: npx tsx src/tests/google_calendar_batch_sync_errors.test.ts
-      - run: npx tsx src/tests/google_calendar_resilience.test.ts
+      # Resilience tests require an isolated populated test database; never connect CI to production.
       - run: npx tsx src/tests/guardian_cpf_distinct.test.ts
       - run: npx tsx src/tests/guardian_cpf_backend_contract.test.ts
       - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
