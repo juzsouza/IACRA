@@ -1303,11 +1303,12 @@ export const Choir: React.FC = () => {
 
               <div className="hidden lg:flex text-xs text-zinc-500 bg-indigo-50/70 p-2 rounded-xl border border-indigo-100 items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-                <span>Remunerações calculadas por presença</span>
+                <span>Valores por ensaio, sem gerar pagamentos</span>
               </div>
             </div>
           </div>
 
+          {collaboratorSaveError && <p role="alert" className="rounded-lg bg-rose-50 border border-rose-200 text-rose-700 p-3 text-sm">{collaboratorSaveError}</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCollaborators.length > 0 ? (
               filteredCollaborators.map((collab) => {
@@ -1363,7 +1364,7 @@ export const Choir: React.FC = () => {
                             </button>
                           ) : (
                             <button
-                              onClick={() => setCollaboratorToDeactivate(collab)}
+                              onClick={() => { setCollaboratorSaveError(null); setCollaboratorToDeactivate(collab); }}
                               title="Desativar colaborador"
                               className="p-1.5 text-zinc-400 hover:text-rose-600 transition-colors"
                             >
@@ -2717,6 +2718,7 @@ export const Choir: React.FC = () => {
               </div>
             </div>
 
+            {collaboratorSaveError && <p role="alert" className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700">{collaboratorSaveError}</p>}
             <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
               <p className="font-semibold flex items-center gap-1.5 text-amber-950">
                 <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />
