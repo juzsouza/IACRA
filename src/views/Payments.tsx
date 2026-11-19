@@ -1393,7 +1393,7 @@ export const Payments: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="relative w-full max-w-full overflow-x-auto overscroll-x-contain" aria-label="Tabela de pagamentos com coluna Ações fixa à direita">
           <table className="min-w-full divide-y divide-zinc-200">
             <thead className="bg-zinc-50">
               <tr>
@@ -1401,7 +1401,7 @@ export const Payments: React.FC = () => {
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Atribuições / Valores</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Total Geral</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider">Ações</th>
+                <th scope="col" className="sticky right-0 z-20 min-w-[128px] border-l border-zinc-200 bg-zinc-50 px-3 py-3 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wider shadow-md">Ações</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-zinc-200">
@@ -1669,7 +1669,7 @@ export const Payments: React.FC = () => {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <td className="sticky right-0 z-10 min-w-[128px] whitespace-nowrap border-l border-zinc-200 bg-white px-3 py-4 text-right text-sm font-medium shadow-md">
                           {canManagePayments && (
                             <div className="flex items-center justify-end space-x-2">
                               {!item.isPaid && (
@@ -2024,7 +2024,7 @@ export const Payments: React.FC = () => {
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <td className="sticky right-0 z-10 min-w-[128px] whitespace-nowrap border-l border-zinc-200 bg-white px-3 py-4 text-right text-sm font-medium shadow-md">
                         {canManagePayments && (
                           <div className="flex items-center justify-end space-x-2">
                             {hasPendingToCollect && (
