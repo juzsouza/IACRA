@@ -1,0 +1,25 @@
+name: Validar botoes de pagamento em tela estreita
+on:
+  push:
+    branches: [iacra-pagamentos-acoes-fixas-20261119]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/payment_actions_responsive.test.ts
+      - run: npx tsx src/tests/payment_competence_selection.test.ts
+      - run: npx tsx src/tests/group_inj_credit_november.test.ts
+      - run: npx tsx src/tests/choir_monthly_finance.test.ts
+      - run: npx tsx src/tests/login_sem_recuperacao_email.test.ts
+      - run: npm run lint
+      - run: npm run build

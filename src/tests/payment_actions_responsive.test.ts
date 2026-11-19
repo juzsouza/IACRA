@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../views/Payments.tsx',import.meta.url),'utf8');
+const tableStart=s.indexOf('aria-label="Tabela de pagamentos com coluna Ações fixa à direita"');
+assert.ok(tableStart>0, 'rolagem horizontal deve estar contida na tabela');
+assert.match(s,/aria-label="Tabela de pagamentos com coluna Ações fixa à direita"/);
+assert.match(s,/relative w-full max-w-full overflow-x-auto overscroll-x-contain/);
+const stickyHeader=s.match(/<th[^>]*className="[^"]*sticky right-0[^"]*"[^>]*>Ações<\/th>/g) || [];
+assert.equal(stickyHeader.length,1,'cabeçalho de ações permanece visível');
+const stickyCells=s.match(/<td className="sticky right-0 z-10 min-w-\[128px\][^"]*"/g) || [];
+assert.equal(stickyCells.length,2,'grupo e aluno devem manter ações fixas');
+assert.match(s,/onClick=\{\(\) => openPaymentModal\(item.id, 'group'\)\}/);
+assert.match(s,/onClick=\{\(\) => openPaymentModal\(item.id, 'student'\)\}/);
+assert.match(s,/Mensalidade Unificada/);
+assert.match(s,/Confirmar Pagamento/);
+console.log('PASS: ações de baixa acessíveis em largura reduzida, handlers intactos');
