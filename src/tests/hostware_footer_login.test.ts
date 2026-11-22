@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const login=readFileSync(new URL('../views/Login.tsx',import.meta.url),'utf8');
+assert.match(login,/Desenvolvido por/);
+assert.match(login,/Hostware Tecnologia e Soluções Digitais/);
+assert.match(login,/href="https:\/\/hostware\.com\.br"/);
+assert.match(login,/target="_blank"/);
+assert.match(login,/rel="noopener noreferrer"/);
+assert.match(login,/Política de Privacidade/);
+assert.match(login,/signInWithPassword/);
+assert.match(login,/access_status === 'blocked'/);
+assert.doesNotMatch(login,/Esqueceu sua senha\?|resetPasswordForEmail/);
+console.log('PASS: credito Hostware com link oficial e login preservado');
