@@ -159,6 +159,17 @@ export const Login: React.FC = () => {
                     Política de Privacidade
                   </a>
                 </div>
+                <div className="text-[11px] text-zinc-500 leading-relaxed">
+                  Desenvolvido por{' '}
+                  <a
+                    href="https://hostware.com.br"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-indigo-700 hover:text-indigo-900 underline underline-offset-2 transition-colors"
+                  >
+                    Hostware Tecnologia e Soluções Digitais
+                  </a>
+                </div>
               </div>
             </form>
         </div>
