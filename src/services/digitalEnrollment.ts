@@ -24,7 +24,9 @@ export type DigitalOfferTracking = {
  plan_name:string;
  teacher_name:string;
  group_name:string|null;
- submission_status:'pending'|'approved'|'changes_requested'|null;
+ submission_status:'pending'|'approved'|'changes_requested'|'rejected'|null;
+ rejection_reason?:string|null;
+ reviewed_at?:string|null;
  submission_id:string|null;
  student_id:string|null;
  student_name:string|null;
@@ -64,7 +66,8 @@ export async function trackDigitalOfferOpened(token:string):Promise<void>{
  await supabase.rpc('eavra_dev_track_enrollment_open',{p_token:token});
 }
 export type DigitalRequest = {
- id:string; status:'pending'|'approved'|'changes_requested'; student:Record<string,string>;
+ id:string; status:'pending'|'approved'|'changes_requested'|'rejected'; student:Record<string,string>;
+ rejection_reason?:string|null;reviewed_at?:string|null;reviewed_by?:string|null;
  plan_name:string;teacher_name:string;group_name:string|null;monthly_amount:number;
  accepted_at:string;enrollment_id:string|null; student_id:string|null;
  start_date?:string; enrollment_date?:string; due_day?:number;
@@ -129,9 +132,25 @@ export async function approveDigitalRequest(id:string,options:{updateStudent:boo
  return {student_id:data.student_id,enrollment_id:data.enrollment_id,student_reused:!!data.student_reused,enrollment_reused:!!data.enrollment_reused};
 }
 
+export async function rejectDigitalRequest(id:string,reason:string):Promise<void>{
+ requireFeature();
+ const cleanReason=reason.trim();
+ if(cleanReason.length<10||cleanReason.length>500)throw new Error('Informe um motivo entre 10 e 500 caracteres.');
+ const {data,error}=await supabase.rpc('eavra_dev_reject_enrollment_review',{
+  p_submission_id:id,p_reason:cleanReason,
+ });
+ if(error){
+  if(error.message?.includes('request_not_pending'))throw new Error('Este termo não está mais pendente. Atualize a lista antes de continuar.');
+  if(error.message?.includes('access_denied'))throw new Error('Você não possui permissão para rejeitar este termo.');
+  throw error;
+ }
+ if(data?.rejected!==true)throw new Error('A rejeição não foi confirmada no banco.');
+}
+
 export type DigitalTermAudit = {
  status:string; term_title:string; term_body:string; accepted_at:string;
  reviewed_at:string|null; reviewed_by:string|null;
+ rejection_reason?:string|null;
  student_id:string|null; enrollment_id:string|null;
  guardian_name?:string|null;guardian_email?:string|null;guardian_phone?:string|null;guardian_relationship?:string|null;guardian_cpf?:string|null;
 };

@@ -3,7 +3,7 @@ import {sameStudentGuardianCpf} from '../utils/guardianCpfValidation';
 import {useAppStore} from '../store';
 import {TERM_MODELS,validTermForIssue,type TermDraft,type TermModelId} from '../utils/enrollmentTermModels';
 
-import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
+import {createDigitalOffer,readDigitalInbox,approveDigitalRequest,rejectDigitalRequest,reviewDigitalStudentMatch,readDigitalTermAudit,type DigitalTermAudit,type DigitalRequest,type DigitalStudentMatch} from '../services/digitalEnrollment';
 import {isGroupModel} from '../utils/enrollmentTermModels';
 import {termToSafeHtml} from '../utils/richTermMarkup';
 import {RichTermEditor} from '../components/RichTermEditor';
@@ -35,6 +35,9 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
  const [auditId,setAuditId]=useState<string|null>(null);
  const [auditBusy,setAuditBusy]=useState(false);
  const [reviewId,setReviewId]=useState<string|null>(null);
+ const [rejectId,setRejectId]=useState<string|null>(null);
+ const [rejectReason,setRejectReason]=useState('');
+ const rejectingRequest=records.find(r=>r.id===rejectId);
  const [match,setMatch]=useState<DigitalStudentMatch|null>(null);
  const [updateExisting,setUpdateExisting]=useState(false);
  const [forceNewEnrollment,setForceNewEnrollment]=useState(false);
@@ -101,6 +104,18 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
    try{const result=await reviewDigitalStudentMatch(id);setMatch(result);setReviewId(id);setUpdateExisting(false);setForceNewEnrollment(false);}
    catch(e){setNotice(e instanceof Error?e.message:'Não foi possível conferir o aluno');}finally{setBusy(false)}
  };
+ const submitRejection=async()=>{
+   if(!access.digital_enrollment.approve||!rejectId||busy||rejectReason.trim().length<10||rejectReason.trim().length>500)return;
+   const name=rejectingRequest?.student?.name||'este aluno';
+   if(!window.confirm(`Confirmar rejeição do termo de ${name}? O aceite e o motivo ficarão preservados no histórico. Para nova matrícula digital será necessário emitir outro convite.`))return;
+   setBusy(true);setNotice('');
+   try{
+     await rejectDigitalRequest(rejectId,rejectReason);
+     setNotice('Termo rejeitado. O motivo e o responsável foram registrados no histórico; nenhuma matrícula foi criada.');
+     setRejectId(null);setRejectReason('');await refresh();
+   }catch(e){setNotice(e instanceof Error?e.message:'Não foi possível rejeitar o termo.');}
+   finally{setBusy(false);}
+ };
  const approve=async()=>{
    if(!access.digital_enrollment.approve||!reviewId||!match||match.match_count>1||reviewGuardianCpfConflict)return;
    if(!window.confirm('Confirmar aprovação do termo no IACRA? O cadastro será reutilizado quando houver aluno com o mesmo CPF.'))return;
@@ -134,14 +149,33 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
   </section>
   <section className="border bg-white rounded-xl p-5 space-y-4">
    <div className="flex justify-between gap-3"><h2 className="font-bold text-lg">Solicitações recebidas</h2><button type="button" onClick={()=>void refresh()} className="border px-3 py-2 rounded-lg">Atualizar</button></div>
-   {records.every(r=>r.status==='approved')&&<p>Nenhuma solicitação aguardando análise. As aprovadas ficam em Acompanhamento de Termos.</p>}
+   {records.every(r=>r.status!=='pending')&&<p>Nenhuma solicitação pendente. Termos aprovados e rejeitados podem ser consultados no Acompanhamento de Termos.</p>}
    {records.filter(r=>r.status!=='approved').map(r=><div key={r.id} className="border rounded-lg p-4 space-y-2">
      <p><strong>{r.student?.name}</strong> · {r.plan_name} · {r.teacher_name} · R$ {Number(r.monthly_amount).toFixed(2)}</p>
-     <p className="text-sm">Situação: {r.status} · CPF do aluno: {r.student?.cpf} · Matrícula: {r.enrollment_id||'pendente'}</p>
+     <p className="text-sm">Situação: {r.status==='rejected'?'Rejeitado':r.status==='approved'?'Aprovado':r.status==='pending'?'Pendente':r.status} · CPF do aluno: {r.student?.cpf} · Matrícula: {r.enrollment_id||'não registrada'}</p>
+     {r.status==='rejected'&&<p className="rounded-lg bg-rose-50 border border-rose-200 p-2 text-sm text-rose-900"><strong>Motivo da rejeição:</strong> {r.rejection_reason||'Consulte o histórico'}</p>}
      <button type="button" disabled={auditBusy} onClick={()=>void viewAudit(r.id)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 disabled:opacity-40">Ver termo e histórico</button>
-     {r.status==='pending'&&access.digital_enrollment.approve&&<button disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>}
+     {r.status==='pending'&&access.digital_enrollment.approve&&<div className="flex flex-wrap gap-2">
+       <button type="button" disabled={busy} onClick={()=>void openReview(r.id)} className="bg-indigo-700 text-white rounded-lg px-3 py-2 disabled:opacity-40">Conferir aluno e aprovar termo</button>
+       <button type="button" disabled={busy} onClick={()=>{setRejectReason('');setRejectId(r.id);setNotice('');}} className="border border-rose-300 bg-white text-rose-800 rounded-lg px-3 py-2 hover:bg-rose-50 disabled:opacity-40">Rejeitar termo</button>
+     </div>}
    </div>)}
   </section>
+  {rejectId&&rejectingRequest&&<section className="fixed inset-0 z-50 bg-black/50 p-3 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Rejeitar termo">
+    <div className="bg-white rounded-xl max-w-lg w-full max-h-full overflow-y-auto p-5 space-y-4">
+      <h2 className="font-bold text-lg text-zinc-900">Rejeitar termo</h2>
+      <p className="text-sm text-zinc-700">Aluno: <strong>{rejectingRequest.student?.name||'Não informado'}</strong></p>
+      <p className="text-sm text-zinc-600">O termo e o aceite serão preservados. A rejeição ficará no histórico e este termo não poderá ser aprovado posteriormente. Para corrigir e enviar novamente, gere um novo convite.</p>
+      <label className="block text-sm font-semibold text-zinc-800">Motivo da rejeição (obrigatório)
+        <textarea rows={4} maxLength={500} value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="Descreva o motivo para orientar a secretaria." className="mt-1 block w-full rounded-lg border border-zinc-300 p-3 text-sm font-normal" />
+      </label>
+      <p className="text-xs text-zinc-500">{rejectReason.trim().length}/500 caracteres · mínimo de 10</p>
+      <div className="flex flex-wrap justify-end gap-2">
+       <button type="button" disabled={busy} className="border rounded-lg px-4 py-2 disabled:opacity-40" onClick={()=>{setRejectId(null);setRejectReason('');}}>Cancelar</button>
+       <button type="button" disabled={busy||!access.digital_enrollment.approve||rejectReason.trim().length<10||rejectReason.trim().length>500} className="bg-rose-700 hover:bg-rose-800 text-white rounded-lg px-4 py-2 disabled:opacity-40" onClick={()=>void submitRejection()}>{busy?'Registrando...':'Confirmar rejeição'}</button>
+      </div>
+    </div>
+  </section>}
   {reviewId&&match&&<section className="fixed inset-0 z-50 bg-black/50 p-3 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Revisar cadastro e termo">
     <div className="bg-white p-5 rounded-xl max-w-xl w-full max-h-full overflow-y-auto space-y-3">
       <h2 className="text-lg font-bold">Conferir aluno e aprovar termo</h2>
@@ -175,11 +209,12 @@ export function DigitalEnrollmentAdmin():React.ReactElement{
       <div className="flex justify-between items-start gap-3"><h2 className="text-xl font-bold">Termo e histórico da matrícula</h2><button type="button" className="border rounded-lg px-3 py-1" onClick={()=>{setAuditId(null);setAudit(null)}}>Fechar</button></div>
       {auditBusy&&<p>Carregando termo…</p>}
       {audit&&<>
-        <p className="text-sm text-zinc-600">Situação: {audit.status==='approved'?'Aprovada':audit.status==='pending'?'Pendente':audit.status}</p>
+        <p className="text-sm text-zinc-600">Situação: {audit.status==='approved'?'Aprovada':audit.status==='rejected'?'Rejeitada':audit.status==='pending'?'Pendente':audit.status}</p>
         <div className="rounded-lg bg-indigo-50 p-4 space-y-2 text-sm">
           <p><strong>Aceite:</strong> {audit.accepted_at?new Date(audit.accepted_at).toLocaleString('pt-BR'):'Não localizado'}</p>
-          <p><strong>Aprovação:</strong> {audit.reviewed_at?new Date(audit.reviewed_at).toLocaleString('pt-BR'):'Ainda não aprovada'}</p>
-          <p><strong>Responsável pela aprovação (identificador):</strong> {audit.reviewed_by||'Não registrado'}</p>
+          <p><strong>Decisão:</strong> {audit.reviewed_at?new Date(audit.reviewed_at).toLocaleString('pt-BR'):'Aguardando análise'}</p>
+          <p><strong>Responsável pela análise (identificador):</strong> {audit.reviewed_by||'Não registrado'}</p>
+          {audit.status==='rejected'&&<p className="font-semibold text-rose-800"><strong>Motivo da rejeição:</strong> {audit.rejection_reason||'Não informado'}</p>}
           <p><strong>Vínculo da matrícula:</strong> {audit.enrollment_id||'Aguardando aprovação'}</p>
           {audit.guardian_name&&<p><strong>Responsável legal informado no aceite:</strong> {audit.guardian_name} ({audit.guardian_relationship||'vínculo não informado'}), {audit.guardian_email||'sem e-mail'}, {audit.guardian_phone||'sem telefone'}</p>}
         </div>

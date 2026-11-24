@@ -1,0 +1,26 @@
+name: Testar rejeição de termo sem aplicar SQL
+on:
+  push:
+    branches: [iacra-rejeitar-termo-com-motivo-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/enrollment_rejection_contract.test.ts
+      - run: npx tsx src/tests/enrollment_approval_tracking.test.ts
+      - run: npx tsx src/tests/enrollment_tracking_menu.test.ts
+      - run: npx tsx src/tests/guardian_cpf_backend_contract.test.ts
+      - run: npx tsx src/tests/login_sem_recuperacao_email.test.ts
+      - run: npx tsx src/tests/payment_actions_responsive.test.ts
+      - run: npm run lint
+      - run: npm run build

@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import {markDigitalOfferSent,readDigitalOfferTracking,type DigitalOfferTracking} from '../services/digitalEnrollment';
 
-type Status='created'|'sent'|'opened'|'expired'|'submitted'|'approved';
+type Status='created'|'sent'|'opened'|'expired'|'submitted'|'approved'|'rejected';
 const statusNames:Record<Status,string>={
  created:'Criado (sem abertura registrada)',
  sent:'Envio informado (sem abertura registrada)',
@@ -9,9 +9,11 @@ const statusNames:Record<Status,string>={
  expired:'Vencido sem preenchimento',
  submitted:'Preenchido, aguardando análise',
  approved:'Aprovado',
+ rejected:'Rejeitado',
 };
 export function invitationStatus(row:DigitalOfferTracking,now=Date.now()):Status{
  if(row.submission_status==='approved')return 'approved';
+ if(row.submission_status==='rejected')return 'rejected';
  if(row.submitted_at)return 'submitted';
  if(new Date(row.expires_at).getTime()<=now)return 'expired';
  if(row.first_opened_at)return 'opened';
@@ -40,7 +42,7 @@ export function EnrollmentInvitationTracking({canMarkSent,revision,onShowConfirm
  },[]);
  useEffect(()=>{void refresh();},[refresh,revision]);
  const totals=useMemo(()=>{
-  const counts:Record<Status,number>={created:0,sent:0,opened:0,expired:0,submitted:0,approved:0};
+  const counts:Record<Status,number>={created:0,sent:0,opened:0,expired:0,submitted:0,approved:0,rejected:0};
   for(const r of records)counts[invitationStatus(r,now)]++;
   return counts;
  },[records,now]);
@@ -68,8 +70,8 @@ export function EnrollmentInvitationTracking({canMarkSent,revision,onShowConfirm
    </div>
    <button type="button" onClick={()=>void refresh()} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{loading?'Carregando...':'Atualizar acompanhamento'}</button>
   </div>
-  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-   {(['created','sent','opened','expired','submitted','approved'] as Status[]).map(status=>
+  <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
+   {(['created','sent','opened','expired','submitted','approved','rejected'] as Status[]).map(status=>
     <button key={status} type="button" onClick={()=>{setFilter(filter===status?'all':status);setPage(1)}}
      aria-pressed={filter===status}
      className={'rounded-md border px-2 py-2 text-left text-xs '+(filter===status?'border-indigo-600 bg-indigo-50':'border-zinc-200 hover:bg-zinc-50')}>
@@ -109,6 +111,7 @@ export function EnrollmentInvitationTracking({canMarkSent,revision,onShowConfirm
       <span>Primeira abertura: {stamp(r.first_opened_at)}</span>
       <span>Preenchimento: {stamp(r.submitted_at)}</span>
      </div>
+     {r.submission_status==='rejected'&&<div className="rounded-md bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-900"><strong>Termo rejeitado:</strong> {r.rejection_reason||'Consulte a Matrícula Digital para verificar o motivo.'}{r.reviewed_at&&<p className="text-xs mt-1">Analisado em {stamp(r.reviewed_at)}</p>}</div>}
      {r.submission_status==='approved'&&r.enrollment_id&&<div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm"><strong>Matrícula registrada:</strong> {r.student_name||'Aluno cadastrado'}<div className="text-xs break-all">Código: {r.enrollment_id}</div></div>}
      {r.submission_status==='approved'&&r.submission_id&&r.enrollment_id&&onShowConfirmation&&<button type="button" onClick={()=>onShowConfirmation(r.submission_id!)} className="border border-indigo-200 text-indigo-800 rounded-lg px-3 py-2 text-xs">Ver confirmação e comprovante</button>}
      {r.sent_at&&<p className="text-xs text-zinc-600">Envio informado: {stamp(r.sent_at)}</p>}
