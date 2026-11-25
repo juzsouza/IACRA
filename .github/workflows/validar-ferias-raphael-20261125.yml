@@ -1,0 +1,29 @@
+name: Validar ferias Raphael 2026 2027 sem alterar producao
+on:
+  push:
+    branches: [iacra-ferias-raphael-proporcional-dez26-jan27]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/raphael_vacation_dec26_jan27.test.ts
+      - run: npx tsx src/tests/raphael_strict_class_linkage.test.ts
+      - run: npx tsx src/tests/group_inj_credit_november.test.ts
+      - run: npx tsx src/tests/competence_billing_resolver.test.ts
+      - run: npx tsx src/tests/payment_actions_responsive.test.ts
+      - run: npx tsx src/tests/choir_monthly_finance.test.ts
+      - run: npx tsx src/tests/login_sem_recuperacao_email.test.ts
+      - run: npx tsx src/tests/guardian_cpf_distinct.test.ts
+      - run: npx tsx src/tests/enrollment_rejection_contract.test.ts
+      - run: npm run lint
+      - run: npm run build
