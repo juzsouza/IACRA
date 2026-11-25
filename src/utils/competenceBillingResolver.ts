@@ -13,6 +13,7 @@ import {
   Transaction,
 } from '../store';
 import { isRaphaelVacationCompetence } from './raphaelVacation2026';
+import {getChoirCompetenceCharge} from './choirDecember2026Billing';
 import {
   isRaphaelTeacher,
   RAPHAEL_TEACHER_ID,
@@ -640,7 +641,7 @@ export function resolveCompetenceBilling(
       };
     }
 
-    const monthlyFee = choirReg.monthly_fee || 0;
+    const charge = getChoirCompetenceCharge(choirReg.monthly_fee || 0, competence);
 
     return {
       category: 'choir',
@@ -649,17 +650,23 @@ export function resolveCompetenceBilling(
       source: 'open_vigente',
       isFrozen: false,
       isPaid: false,
-      basePrice: monthlyFee,
-      discount: 0,
-      finalPrice: monthlyFee,
+      basePrice: charge.basePrice,
+      discount: charge.discount,
+      finalPrice: charge.finalPrice,
       teacherShare: 0,
-      schoolShare: monthlyFee,
+      schoolShare: charge.finalPrice,
       secShare: 0,
-      isPaying: monthlyFee > 0,
+      isPaying: charge.finalPrice > 0,
       transaction: null,
       snapshot: snapshot || null,
-      statusLabel: 'Pendente (Vigente)',
+      statusLabel: charge.singleRehearsalDecember ? 'Coral: 1 ensaio antecipado (Dez/2026)' : 'Pendente (Vigente)',
       isHistorical: false,
+      metadata: charge.singleRehearsalDecember ? {
+        choir_single_rehearsal_dec2026: true,
+        choir_rehearsals_charged: 1,
+        choir_rehearsals_baseline: 2,
+        choir_charge_reason: charge.explanation,
+      } : {},
     };
   }
 
