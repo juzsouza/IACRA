@@ -12,6 +12,7 @@ import {
   Credit,
   Transaction,
 } from '../store';
+import { isRaphaelVacationCompetence } from './raphaelVacation2026';
 import {
   isRaphaelTeacher,
   RAPHAEL_TEACHER_ID,
@@ -438,7 +439,7 @@ export function resolveCompetenceBilling(
       earlyDiscount = plan.early_discount_value || 0;
     }
 
-    const totalDiscount = crossDiscount + earlyDiscount;
+    let totalDiscount = crossDiscount + earlyDiscount;
     const priceWithDiscount = Math.max(0, basePrice - totalDiscount);
 
     // Se é professor Raphael, invocar o motor de cálculo real do Raphael
@@ -453,11 +454,13 @@ export function resolveCompetenceBilling(
 
     if (isRaphael && context.classes) {
       const student = context.students?.find((s) => s.id === enrollment.student_id);
+      const vacationMonth = isRaphaelVacationCompetence(competence);
       const enrollmentClasses = getClassesForEnrollment(
         enrollment,
         context.classes,
         context.groups || [],
-        plan
+        plan,
+        vacationMonth ? {requireExplicitStudentId:true,allowMissingGroupDuringVacation:true} : {}
       );
       raphaelRealBilling = calculateRaphaelRealStudentBilling({
         enrollment,
@@ -478,6 +481,10 @@ export function resolveCompetenceBilling(
       });
 
       finalAmount = raphaelRealBilling.finalAmount;
+      // Abatimento unico: as aulas reduzidas e os creditos ja estao no valor final.
+      if (isRaphaelVacationCompetence(competence)) {
+        totalDiscount = Math.max(0,Number(basePrice||0)-finalAmount);
+      }
       // No motor do Raphael a remuneração é derivada da quantidade de aulas efetivas
       teacherShare = (raphaelRealBilling.regularLessons + raphaelRealBilling.extraLessons) * raphaelRealBilling.pricePerLesson;
       schoolShare = Math.max(0, finalAmount - teacherShare);

@@ -24,6 +24,7 @@ import {
   isMakeupClass,
 } from "./raphaelBillingSimulation";
 import { getGroupForSession } from "./groupMatch";
+import {isRaphaelVacationCompetence,isRaphaelVacationDate,calculateRaphaelVacationGross} from './raphaelVacation2026';
 
 export interface EligibleCreditDetail {
   id: string;
@@ -43,6 +44,9 @@ export interface RaphaelBillingMemory {
   baseLessons: number;
   monthlyBasePrice: number;
   pricePerLesson: number;
+  vacationAdjusted?: boolean;
+  vacationExcludedLessons?: number;
+  vacationDiscountAmount?: number;
   regularLessons: number;
   extraLessons: number;
   cancelledLessons: number;
@@ -100,10 +104,16 @@ export function getClassesForEnrollment(
   allClasses: ClassSession[],
   allGroups: Group[] = [],
   plan?: FinancialPlan | null,
-  options: { requireExplicitStudentId?: boolean } = {}
+  options: { requireExplicitStudentId?: boolean; allowMissingGroupDuringVacation?: boolean } = {}
 ): ClassSession[] {
   const studentId = enrollment.student_id;
-  const isIndividual = !enrollment.group_id;
+  // Alguns cadastros individuais legados mantem group_id que nao existe.
+  // Somente no recesso, com vinculo explicito do aluno, tratar como individual.
+  const missingGroupId=Boolean(
+    options.allowMissingGroupDuringVacation && options.requireExplicitStudentId &&
+    enrollment.group_id && !(allGroups || []).some(g=>g.id===enrollment.group_id)
+  );
+  const isIndividual = !enrollment.group_id || missingGroupId;
 
   return (allClasses || []).filter((c) => {
     // 1. Participação do aluno
@@ -378,10 +388,19 @@ export function calculateRaphaelRealStudentBilling(params: {
   const pricePerLesson = baseLessons > 0 ? monthlyBasePrice / baseLessons : 0;
 
   // Filtrar exclusivamente aulas que pertencem a esta matrícula no mês específico
+  const vacationAdjusted = isRaphaelVacationCompetence(monthStr) &&
+    isRaphaelTeacher(enrollment.teacher_id,teacher?.name,plan?.exclusive_teacher_id);
   const enrollmentClasses = getClassesForEnrollment(
-    enrollment, classes, allGroups, plan, { requireExplicitStudentId }
+    enrollment, classes, allGroups, plan, {
+      requireExplicitStudentId: vacationAdjusted || requireExplicitStudentId,
+      allowMissingGroupDuringVacation: vacationAdjusted,
+    }
   );
-  const monthClasses = enrollmentClasses.filter((c) => (c.date || "").startsWith(monthStr));
+  const sourceMonthClasses = enrollmentClasses.filter((c) => (c.date || "").startsWith(monthStr));
+  const vacationExcludedLessons = vacationAdjusted
+    ? sourceMonthClasses.filter(c => isRaphaelVacationDate(c.date || '')).length : 0;
+  const monthClasses = vacationAdjusted
+    ? sourceMonthClasses.filter(c => !isRaphaelVacationDate(c.date || '')) : sourceMonthClasses;
 
   let regularLessons = 0;
   let makeupLessons = 0;
@@ -458,7 +477,9 @@ export function calculateRaphaelRealStudentBilling(params: {
   // Se houver mais aulas normais que as aulas-base: cobra as aulas normais pelo valor unitário (ex: 3 * 120 = 360, ou 5 * 50 = 250)
   // Se houver menos ou igual: cobra a mensalidade contratada (em mês de cancelamento de origem, o pagamento é inalterado = 240)
   let grossAmount = monthlyBasePrice;
-  if (regularLessons > baseLessons) {
+  if (vacationAdjusted) {
+    grossAmount = calculateRaphaelVacationGross(monthlyBasePrice,baseLessons,regularLessons);
+  } else if (regularLessons > baseLessons) {
     grossAmount = regularLessons * pricePerLesson;
   } else if (regularLessons === 0 && cancelledLessons === 0 && monthClasses.length === 0) {
     // Nenhuma aula agendada no mês: mantém contratado padrão
@@ -532,7 +553,8 @@ export function calculateRaphaelRealStudentBilling(params: {
 
     for (const cred of remainingCreditsForDiscount) {
       const credVal = cred.amount || pricePerLesson;
-      if (discountAccum + credVal <= grossAmount || discountAccum === 0) {
+      if (vacationAdjusted && (grossAmount<=0 || credVal<=0 || discountAccum + credVal > grossAmount + 0.0001)) continue;
+      if (discountAccum + credVal <= grossAmount || (!vacationAdjusted && discountAccum === 0)) {
         discountAccum += credVal;
         discountCreditsUsed.push(cred);
         if (discountAccum >= grossAmount) break;
@@ -557,6 +579,9 @@ export function calculateRaphaelRealStudentBilling(params: {
     baseLessons,
     monthlyBasePrice,
     pricePerLesson,
+    vacationAdjusted,
+    vacationExcludedLessons,
+    vacationDiscountAmount: vacationAdjusted ? Math.max(0,monthlyBasePrice-grossAmount) : 0,
     regularLessons,
     extraLessons,
     cancelledLessons,
@@ -601,8 +626,14 @@ export function calculateRaphaelRealGroupBilling(params: {
   const pricePerLesson = baseLessons > 0 ? monthlyBasePrice / baseLessons : 0;
 
   // Filtrar exclusivamente aulas do grupo no mês específico
+  const vacationAdjusted = isRaphaelVacationCompetence(monthStr) &&
+    isRaphaelTeacher(group.teacher_id,teacher?.name);
   const groupClasses = getClassesForGroup(group, classes, allGroups);
-  const monthClasses = groupClasses.filter((c) => (c.date || "").startsWith(monthStr));
+  const sourceMonthClasses = groupClasses.filter((c) => (c.date || "").startsWith(monthStr));
+  const vacationExcludedLessons = vacationAdjusted
+    ? sourceMonthClasses.filter(c => isRaphaelVacationDate(c.date || '')).length : 0;
+  const monthClasses = vacationAdjusted
+    ? sourceMonthClasses.filter(c=>!isRaphaelVacationDate(c.date || '')) : sourceMonthClasses;
 
   let regularLessons = 0;
   let makeupLessons = 0;
@@ -666,7 +697,9 @@ export function calculateRaphaelRealGroupBilling(params: {
 
   // Valor Bruto do Grupo
   let grossAmount = monthlyBasePrice;
-  if (regularLessons > baseLessons) {
+  if (vacationAdjusted) {
+    grossAmount = calculateRaphaelVacationGross(monthlyBasePrice,baseLessons,regularLessons);
+  } else if (regularLessons > baseLessons) {
     grossAmount = regularLessons * pricePerLesson;
   } else if (regularLessons === 0 && cancelledLessons === 0 && monthClasses.length === 0) {
     grossAmount = monthlyBasePrice;
@@ -713,7 +746,8 @@ export function calculateRaphaelRealGroupBilling(params: {
 
     for (const cred of remainingCreditsForDiscount) {
       const credVal = cred.amount || pricePerLesson;
-      if (discountAccum + credVal <= grossAmount || discountAccum === 0) {
+      if (vacationAdjusted && (grossAmount<=0 || credVal<=0 || discountAccum + credVal > grossAmount + 0.0001)) continue;
+      if (discountAccum + credVal <= grossAmount || (!vacationAdjusted && discountAccum === 0)) {
         discountAccum += credVal;
         discountCreditsUsed.push(cred);
         if (discountAccum >= grossAmount) break;
@@ -736,6 +770,9 @@ export function calculateRaphaelRealGroupBilling(params: {
     baseLessons,
     monthlyBasePrice,
     pricePerLesson,
+    vacationAdjusted,
+    vacationExcludedLessons,
+    vacationDiscountAmount: vacationAdjusted ? Math.max(0,monthlyBasePrice-grossAmount) : 0,
     regularLessons,
     extraLessons,
     cancelledLessons,
