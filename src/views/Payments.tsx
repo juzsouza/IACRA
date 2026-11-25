@@ -27,6 +27,7 @@ import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
 import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
+import {isRaphaelVacationCompetence} from '../utils/raphaelVacation2026';
 import { getInitialPaymentSelection, pickSinglePaymentCompetence, hasRecordedGroupPayment } from '../utils/paymentCompetenceSelection';
 
 // ============================================================================
@@ -403,7 +404,10 @@ export const Payments: React.FC = () => {
             state.classes,
             state.groups,
             plan,
-            { requireExplicitStudentId: true }
+            {
+              requireExplicitStudentId: true,
+              allowMissingGroupDuringVacation: isRaphaelVacationCompetence(monthRefStr),
+            }
           );
           const previousCredits = calculateCumulativePreviousCredits(
             student.id,
@@ -913,7 +917,10 @@ export const Payments: React.FC = () => {
             const customPriceStr = customAmounts[gi.itemKey];
             const finalAmount = customPriceStr !== undefined && customPriceStr !== '' ? parseFloat(customPriceStr) : (isRaphael && gi.raphaelRealBilling ? gi.raphaelRealBilling.finalAmount : gi.price);
             const discountStr = customDiscounts[gi.itemKey];
-            const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && gi.raphaelRealBilling ? gi.raphaelRealBilling.creditDiscountAmount : 0);
+            const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && gi.raphaelRealBilling
+              ? (isRaphaelVacationCompetence(`${gi.yearStr}-${gi.monthStr}`)
+                  ? Math.max(0,Number(gi.group.price||0)-finalAmount)
+                  : gi.raphaelRealBilling.creditDiscountAmount) : 0);
             const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
 
             // Consume credits if Raphael
@@ -1065,9 +1072,12 @@ export const Payments: React.FC = () => {
         const customPriceStr = customAmounts[eb.itemKey];
         const amountToPay = customPriceStr !== undefined && customPriceStr !== '' ? parseFloat(customPriceStr) : (isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.finalAmount : eb.priceWithDiscount);
         const discountStr = customDiscounts[eb.itemKey];
-        const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.creditDiscountAmount : 0);
-        const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
         const contractualBasePrice = Number(eb.enrollment.custom_price ?? eb.plan.base_price ?? 0);
+        const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && eb.raphaelRealBilling
+          ? (isRaphaelVacationCompetence(`${eb.yearStr}-${eb.monthStr}`)
+              ? Math.max(0,contractualBasePrice-amountToPay)
+              : eb.raphaelRealBilling.creditDiscountAmount) : 0);
+        const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
         const teacherShareOnPayment = eb.plan.teacher_fee_type === 'percentage'
           ? (amountToPay * Number(eb.plan.teacher_fee_value || 0) / 100)
           : Number(eb.plan.teacher_fee_value || 0);
