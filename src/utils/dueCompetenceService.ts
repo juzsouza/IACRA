@@ -13,6 +13,8 @@ import {
   getClassesForEnrollment,
 } from './raphaelRealBilling';
 import { formatLocalDate } from './dateUtils';
+import { isRaphaelVacationCompetence } from './raphaelVacation2026';
+import { calculateRaphaelRealGroupBilling } from './raphaelRealBilling';
 
 export interface IsCompetenceDueOptions {
   category: CompetenceBillingCategory;
@@ -178,7 +180,10 @@ export function calculateDueBillingValues({
         context.classes || [],
         context.groups || [],
         plan,
-        { requireExplicitStudentId: true }
+        {
+          requireExplicitStudentId: true,
+          allowMissingGroupDuringVacation: isRaphaelVacationCompetence(comp)
+        }
       );
 
       const raphaelRealBilling = calculateRaphaelRealStudentBilling({
@@ -195,11 +200,13 @@ export function calculateDueBillingValues({
       });
 
       const finalAmount = raphaelRealBilling.finalAmount;
-      const teacherShare =
+      const vacationMonth = isRaphaelVacationCompetence(comp);
+      const monthlyContract = Number(enrollment.custom_price ?? plan.base_price ?? 0);
+      const teacherShare = vacationMonth && finalAmount <= 0 ? 0 :
         plan.teacher_fee_type === 'percentage'
           ? (finalAmount * Number(plan.teacher_fee_value || 0)) / 100
           : Number(plan.teacher_fee_value || 0);
-      const schoolShare = Math.max(0, finalAmount - teacherShare - Number(plan.secretary_fee_value || 0));
+      const schoolShare = Math.max(0, finalAmount - teacherShare - (finalAmount > 0 ? Number(plan.secretary_fee_value || 0) : 0));
 
       return {
         category: 'individual',
@@ -209,18 +216,20 @@ export function calculateDueBillingValues({
         group_id: null,
         student_id: enrollment.student_id,
         teacher_id: enrollment.teacher_id || plan.exclusive_teacher_id || null,
-        is_paying: true,
-        base_price: plan.base_price,
-        discount: raphaelRealBilling.creditDiscountAmount,
+        is_paying: finalAmount > 0,
+        base_price: vacationMonth ? monthlyContract : plan.base_price,
+        discount: vacationMonth ? Math.max(0,monthlyContract-finalAmount) : raphaelRealBilling.creditDiscountAmount,
         final_price: finalAmount,
         teacher_fee_type: plan.teacher_fee_type || null,
         teacher_fee_value: plan.teacher_fee_value != null ? Number(plan.teacher_fee_value) : null,
         teacher_share: teacherShare,
         school_share: schoolShare,
-        status: 'pending',
+        status: vacationMonth && finalAmount <= 0 ? 'waived' : 'pending',
         is_frozen: false,
         metadata: {
           materialized_at: new Date().toISOString(),
+          vacation_prorata: vacationMonth,
+          vacation_period: vacationMonth ? '2026-12-10/2027-01-10' : undefined,
           raphaelBilling: raphaelRealBilling,
           source: 'due_competence_materializer',
         },
@@ -311,7 +320,21 @@ export function calculateDueBillingValues({
     if (!group) return null;
 
     const basePrice = Number(group.price || 0);
-
+    const teacher = context.teachers?.find(t=>t.id===group.teacher_id);
+    const vacationGroup = isRaphaelVacationCompetence(comp) &&
+      isRaphaelTeacher(group.teacher_id,teacher?.name) && group.payment_type==='group';
+    const vacationBilling = vacationGroup
+      ? calculateRaphaelRealGroupBilling({
+          group,
+          teacher,
+          classes: context.classes || [],
+          monthStr: comp,
+          credits: context.credits || [],
+          applyCredits: true,
+          allGroups: context.groups || [],
+        })
+      : null;
+    const finalPrice = vacationBilling ? vacationBilling.finalAmount : basePrice;
     return {
       category: 'group',
       competence: comp,
@@ -320,19 +343,22 @@ export function calculateDueBillingValues({
       group_id: group.id,
       student_id: null,
       teacher_id: group.teacher_id || null,
-      is_paying: true,
+      is_paying: finalPrice > 0,
       base_price: basePrice,
-      discount: 0,
-      final_price: basePrice,
+      discount: vacationBilling ? Math.max(0,basePrice-finalPrice) : 0,
+      final_price: finalPrice,
       teacher_fee_type: null,
       teacher_fee_value: null,
       teacher_share: 0,
-      school_share: basePrice,
-      status: 'pending',
+      school_share: finalPrice,
+      status: finalPrice > 0 ? 'pending' : 'waived',
       is_frozen: false,
       metadata: {
         materialized_at: new Date().toISOString(),
         source: 'due_competence_materializer',
+        vacation_prorata: vacationGroup,
+        vacation_period: vacationGroup ? '2026-12-10/2027-01-10' : undefined,
+        raphaelBilling: vacationBilling || undefined,
       },
     };
   }
