@@ -1,6 +1,7 @@
 import React, {useMemo, useState} from 'react';
 import type {ChoirCollaborator, ChoirRehearsal, ChoirRegistration, CompetenceBilling, Transaction} from '../store';
 import {calculateChoirMonthlyFinance, nowInSaoPaulo} from '../utils/choirMonthlyFinance';
+import {getChoirCompetenceCharge,isChoirDecemberSingleRehearsal} from '../utils/choirDecember2026Billing';
 
 interface Props {
  collaborators: ChoirCollaborator[];
@@ -21,6 +22,7 @@ export const ChoirMonthlyClosingTab:React.FC<Props>=({
  const [selectedMonth,setSelectedMonth]=useState(nowInSaoPaulo().slice(0,7));
  const availableMonths=useMemo(()=>Array.from(new Set([
    nowInSaoPaulo().slice(0,7),
+   '2026-12',
    ...rehearsals.map(r=>r.date?.slice(0,7)).filter((x):x is string=>Boolean(x&&/^\d{4}-\d{2}$/.test(x))),
    ...billings.filter(b=>b.category==='choir').map(b=>b.competence)
  ])).sort().reverse(),[rehearsals,billings]);
@@ -28,7 +30,7 @@ export const ChoirMonthlyClosingTab:React.FC<Props>=({
  const snapshots=billings.filter(b=>b.category==='choir'&&b.competence===selectedMonth);
  const revenueExpected=snapshots.length
     ? snapshots.reduce((total,b)=>total+(b.is_paying?Number(b.final_price||0):0),0)
-    : registrations.filter(r=>r.status==='approved').reduce((total,r)=>total+Number(r.monthly_fee||0),0);
+    : registrations.filter(r=>r.status==='approved').reduce((total,r)=>total+getChoirCompetenceCharge(Number(r.monthly_fee||0),selectedMonth).finalPrice,0);
  const fallbackRevenue=snapshots.length===0;
  // Data do recebimento e diferente de competencia devida: mostrar em indicadores separados.
  const realizedTransactions=transactions.filter(t=>
@@ -51,6 +53,12 @@ export const ChoirMonthlyClosingTab:React.FC<Props>=({
     </label>
    </div>
    <p className="text-xs text-zinc-500">Somente ensaios deste mês com chamada registrada, realizados até hoje e não cancelados. Colaboradores inativos mantêm as presenças históricas. Valores calculados ainda não são comprovantes de pagamento.</p>
+   {isChoirDecemberSingleRehearsal(selectedMonth) && (
+    <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
+      Cobrança de Dez/2026: somente 1 ensaio antecipado, equivalente a 50% da mensalidade.
+      Os repasses dos colaboradores seguem as presenças reais nas datas dos ensaios.
+    </p>
+   )}
   </div>
   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
    {[
