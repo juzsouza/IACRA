@@ -94,6 +94,19 @@ export const RaphaelPaymentConfirmationCard: React.FC<Props> = ({
         </div>
       </div>
 
+      {memory.vacationAdjusted && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 space-y-1">
+          <p className="font-bold">Abatimento automático: férias do Raphael (10/12/2026 a 10/01/2027)</p>
+          <p>Competência {memory.monthLabel}: {memory.regularLessons} aula(s) contabilizada(s) de {memory.baseLessons} previstas no plano.</p>
+          <p>Abatimento do recesso: <strong>{formatCurrency(memory.vacationDiscountAmount || 0)}</strong>.
+            {memory.creditDiscountAmount > 0 && <> Crédito anterior adicional: {formatCurrency(memory.creditDiscountAmount)}.</>}
+          </p>
+          {(memory.vacationExcludedLessons || 0) > 0 && (
+            <p>{memory.vacationExcludedLessons} aula(s) ainda presentes na agenda durante as férias foram desconsideradas, sem gerar nova cobrança ou crédito.</p>
+          )}
+        </div>
+      )}
+
       {/* Credit & Calculations Breakdown */}
       <div className="bg-white/90 p-3 rounded-xl border border-purple-100 space-y-2 text-xs">
         <div className="flex justify-between items-center text-zinc-700">
@@ -139,7 +152,9 @@ export const RaphaelPaymentConfirmationCard: React.FC<Props> = ({
               Valor Calculado pelo Motor Raphael:
             </span>
             <span className="text-[10px] text-zinc-500">
-              {memory.creditDiscountAmount > 0
+              {memory.vacationAdjusted
+                ? `Cobrança proporcional do recesso: ${formatCurrency(memory.grossAmount)} antes de créditos anteriores`
+                : memory.creditDiscountAmount > 0
                 ? `Bruto: ${formatCurrency(memory.grossAmount)} com abatimento de crédito`
                 : memory.extraLessons > 0
                 ? `Bruto com aula extra: ${formatCurrency(memory.grossAmount)}`
