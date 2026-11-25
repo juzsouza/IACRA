@@ -28,6 +28,7 @@ import { HistoricalRegularizationModal } from '../components/HistoricalRegulariz
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
 import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
 import {isRaphaelVacationCompetence} from '../utils/raphaelVacation2026';
+import {isChoirDecemberSingleRehearsal} from '../utils/choirDecember2026Billing';
 import { getInitialPaymentSelection, pickSinglePaymentCompetence, hasRecordedGroupPayment } from '../utils/paymentCompetenceSelection';
 
 // ============================================================================
@@ -469,6 +470,8 @@ export const Payments: React.FC = () => {
     const choirBilling: Array<{
       registration: any;
       monthlyFee: number;
+      baseFee: number;
+      singleRehearsalDecember: boolean;
       isPaid: boolean;
       transaction: any;
       monthStr: string;
@@ -513,6 +516,8 @@ export const Payments: React.FC = () => {
         choirBilling.push({
           registration: relevantChoir,
           monthlyFee: resolved.finalPrice,
+          baseFee: resolved.basePrice,
+          singleRehearsalDecember: isChoirDecemberSingleRehearsal(comp) && !isPaid && !resolved.isFrozen,
           isPaid,
           transaction: choirPaidTransaction,
           monthStr: mRef.monthStr,
@@ -1228,8 +1233,13 @@ export const Payments: React.FC = () => {
         const customPriceStr = customAmounts[cb.itemKey];
         const amountToPay = customPriceStr !== undefined && customPriceStr !== '' ? parseFloat(customPriceStr) : cb.monthlyFee;
         const discountStr = customDiscounts[cb.itemKey];
-        const discountVal = discountStr ? parseFloat(discountStr) : 0;
-        const discountLabel = discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
+        // O desconto de Dez/26 e a diferença entre mensalidade e valor recebido.
+        const discountVal = cb.singleRehearsalDecember
+          ? Math.max(0, cb.baseFee - amountToPay)
+          : (discountStr ? parseFloat(discountStr) : 0);
+        const discountLabel = cb.singleRehearsalDecember
+          ? ` (Coral Dez/2026: 1 ensaio antecipado; abatimento ${formatCurrency(discountVal)})`
+          : discountVal > 0 ? ` (Desconto: ${formatCurrency(discountVal)})` : '';
         let newTxId = crypto.randomUUID();
 
         const savedTransaction = await addTransaction({
@@ -1262,6 +1272,11 @@ export const Payments: React.FC = () => {
                 ...(existingSnap.metadata || {}),
                 paymentDate,
                 discountLabel,
+                ...(cb.singleRehearsalDecember ? {
+                  choir_single_rehearsal_dec2026:true,
+                  choir_rehearsals_charged:1,
+                  choir_rehearsals_baseline:2,
+                } : {}),
                 source: 'payment_checkout',
               },
             });
@@ -1275,7 +1290,7 @@ export const Payments: React.FC = () => {
               student_id: student.id,
               teacher_id: null,
               is_paying: amountToPay > 0,
-              base_price: cb.monthlyFee,
+              base_price: cb.baseFee,
               discount: discountVal,
               final_price: amountToPay,
               teacher_share: 0,
@@ -1288,6 +1303,11 @@ export const Payments: React.FC = () => {
               metadata: {
                 paymentDate,
                 discountLabel,
+                ...(cb.singleRehearsalDecember ? {
+                  choir_single_rehearsal_dec2026:true,
+                  choir_rehearsals_charged:1,
+                  choir_rehearsals_baseline:2,
+                } : {}),
                 source: 'payment_checkout',
               },
             });
@@ -1970,6 +1990,11 @@ export const Payments: React.FC = () => {
                               </span>
                               <span className="text-zinc-400">|</span>
                               <span className="text-zinc-600">{formatCurrency(cb.monthlyFee)}</span>
+                              {cb.singleRehearsalDecember && (
+                                <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900" title="Dezembro/2026: um ensaio antecipado, metade da mensalidade">
+                                  Coral · 1 ensaio antecipado (Dez/2026)
+                                </span>
+                              )}
                               {cb.isPaid ? (
                                 <div className="inline-flex items-center gap-1">
                                   <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2390,6 +2415,13 @@ export const Payments: React.FC = () => {
                                     <span className="font-semibold">Mensalidade Coral <span className="text-indigo-600">({cb.refLabel})</span></span>
                                     <span className="font-bold">Ref: {formatCurrency(refAmount)}</span>
                                   </div>
+                                  {cb.singleRehearsalDecember && (
+                                    <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                                      Dezembro/2026: somente 1 ensaio antecipado.
+                                      Mensalidade contratada: {formatCurrency(cb.baseFee)} ·
+                                      abatimento: {formatCurrency(Math.max(0,cb.baseFee-cb.monthlyFee))}.
+                                    </div>
+                                  )}
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
                                       <label className="block text-[11px] font-medium text-zinc-500 mb-1">Desconto (R$)</label>

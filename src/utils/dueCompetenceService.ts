@@ -14,6 +14,7 @@ import {
 } from './raphaelRealBilling';
 import { formatLocalDate } from './dateUtils';
 import { isRaphaelVacationCompetence } from './raphaelVacation2026';
+import {getChoirCompetenceCharge} from './choirDecember2026Billing';
 import { calculateRaphaelRealGroupBilling } from './raphaelRealBilling';
 
 export interface IsCompetenceDueOptions {
@@ -284,8 +285,8 @@ export function calculateDueBillingValues({
     const choirReg = context.choirRegistrations.find((c) => c.id === sourceId);
     if (!choirReg) return null;
 
-    const monthlyFee = Number(choirReg.monthly_fee || 0);
-    const isPaying = monthlyFee > 0;
+    const charge = getChoirCompetenceCharge(Number(choirReg.monthly_fee || 0), comp);
+    const isPaying = charge.finalPrice > 0;
 
     return {
       category: 'choir',
@@ -296,18 +297,24 @@ export function calculateDueBillingValues({
       student_id: choirReg.student_id,
       teacher_id: null,
       is_paying: isPaying,
-      base_price: monthlyFee,
-      discount: 0,
-      final_price: monthlyFee,
+      base_price: charge.basePrice,
+      discount: charge.discount,
+      final_price: charge.finalPrice,
       teacher_fee_type: null,
       teacher_fee_value: null,
       teacher_share: 0,
-      school_share: monthlyFee,
+      school_share: charge.finalPrice,
       status: isPaying ? 'pending' : 'waived',
       is_frozen: false,
       metadata: {
         materialized_at: new Date().toISOString(),
         source: 'due_competence_materializer',
+        ...(charge.singleRehearsalDecember ? {
+          choir_single_rehearsal_dec2026: true,
+          choir_rehearsals_charged: 1,
+          choir_rehearsals_baseline: 2,
+          choir_charge_reason: charge.explanation,
+        } : {}),
       },
     };
   }

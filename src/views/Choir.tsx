@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { ChoirMonthlyClosingTab } from '../components/ChoirMonthlyClosingTab';
 import {calculateChoirMonthlyFinance, nowInSaoPaulo} from '../utils/choirMonthlyFinance';
+import {getChoirCompetenceCharge,isChoirDecemberSingleRehearsal} from '../utils/choirDecember2026Billing';
 import { ChoirAttendanceTestsModal } from '../components/ChoirAttendanceTestsModal';
 
 export const isChoirRegistrationActive = (r: { active?: boolean; status?: string } | null | undefined): boolean => {
@@ -611,7 +612,7 @@ export const Choir: React.FC = () => {
     : activeStatementRegistrations.filter(r=>Number(r.monthly_fee)>0).length;
   const totalChoirRevenue = statementBillings.length
     ? statementBillings.reduce((sum,b)=>sum+(b.is_paying?Number(b.final_price||0):0),0)
-    : activeStatementRegistrations.reduce((sum,r)=>sum+Number(r.monthly_fee||0),0);
+    : activeStatementRegistrations.reduce((sum,r)=>sum+getChoirCompetenceCharge(Number(r.monthly_fee||0),statementMonth).finalPrice,0);
   const statementUsesCurrentRegistrations = statementBillings.length===0;
   const statementReceivedInMonth = (state.transactions || [])
     .filter(t=>t.type==='income'&&t.status==='completed'&&t.date?.startsWith(statementMonth)&&/coral/i.test(t.description||''))
@@ -1434,6 +1435,11 @@ export const Choir: React.FC = () => {
             <div>
               <h2 className="text-xl font-bold text-zinc-900">Extrato Financeiro do Coral</h2>
               <p className="text-sm text-zinc-500">Resumo de receitas dos alunos e despesas com colaboradores remunerados por presença.</p>
+              {isChoirDecemberSingleRehearsal(statementMonth) && (
+                <p className="mt-1 text-xs font-semibold text-amber-800">
+                  Dezembro/2026: mensalidade prevista de apenas 1 ensaio antecipado (50% da mensalidade). Repasses dos colaboradores seguem as presenças reais.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
