@@ -54,7 +54,8 @@ const corrupted={...snapshots[0],metadata:{...snapshots[0].metadata,manual_billi
 assert.equal(isManualPendingFixedBilling(corrupted),false);
 const view=readFileSync(new URL('../views/Payments.tsx',import.meta.url),'utf8');
 assert.match(view,/!manuallyReconciled && \(!resolved\.raphaelBilling \|\| recalculatePending\)/);
-assert.match(view,/raphaelRealBilling: manualPending \? null/);
+const resolverSource=readFileSync(new URL('../utils/competenceBillingResolver.ts',import.meta.url),'utf8');
+assert.match(resolverSource,/raphaelBilling: manualPending \? null/);
 assert.match(view,/Valor conferido · sem crédito automático/);
 assert.match(view,/disabled=\{eb\.manuallyReconciled\}/);
 assert.match(view,/eb\.manuallyReconciled && \(Math\.abs\(amountToPay-eb\.priceWithDiscount\)/);

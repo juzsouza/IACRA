@@ -9,7 +9,7 @@ import type { CompetenceBilling } from '../store';
  * consumo automático de créditos. Nunca modifica pagamentos históricos.
  */
 export function isManualPendingFixedBilling(
- snapshot: Pick<CompetenceBilling,'status'|'is_frozen'|'transaction_id'|'metadata'|'final_price'> | null | undefined
+ snapshot: (Pick<CompetenceBilling,'status'|'is_frozen'|'transaction_id'|'metadata'> & Partial<Pick<CompetenceBilling,'final_price'>>) | null | undefined
 ):boolean{
  const fix=snapshot?.metadata?.manual_billing_override;
  return Boolean(snapshot && snapshot.status==='pending' && !snapshot.is_frozen &&
