@@ -1,0 +1,27 @@
+name: Validar credito Raphael aula extra Outubro 2026
+on:
+  push:
+    branches: [iacra-raphael-credito-aula-extra-anaisa-20261126]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsx src/tests/raphael_credit_cancelled_extra_oct2026.test.ts
+      - run: npx tsx src/tests/raphael_vacation_dec26_jan27.test.ts
+      - run: npx tsx src/tests/choir_december_one_rehearsal_2026.test.ts
+      - run: npx tsx src/tests/raphael_strict_class_linkage.test.ts
+      - run: npx tsx src/tests/group_inj_credit_november.test.ts
+      - run: npx tsx src/tests/competence_billing_resolver.test.ts
+      - run: npx tsx src/tests/payment_actions_responsive.test.ts
+      - run: npm run lint
+      - run: npm run build
