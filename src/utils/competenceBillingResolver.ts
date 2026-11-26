@@ -13,6 +13,7 @@ import {
   Transaction,
 } from '../store';
 import { isRaphaelVacationCompetence } from './raphaelVacation2026';
+import {isManualPendingFixedBilling} from './raphaelPendingSnapshotPolicy';
 import {getChoirCompetenceCharge} from './choirDecember2026Billing';
 import {
   isRaphaelTeacher,
@@ -219,6 +220,7 @@ export function resolveCompetenceBilling(
     const isPaid = snapshot.status === 'paid' || !!historicalTx;
     const isWaived = snapshot.status === 'waived';
     const isPending = snapshot.status === 'pending';
+    const manualPending = category === 'individual' && !isPaid && isManualPendingFixedBilling(snapshot);
 
     let statusLabel = 'Pendente (Histórico)';
     if (snapshot.is_frozen) {
@@ -227,6 +229,8 @@ export function resolveCompetenceBilling(
       statusLabel = 'Pago';
     } else if (isWaived) {
       statusLabel = 'Isento / Não Pagante';
+    } else if (manualPending) {
+      statusLabel = 'Pendente (Valor conferido pela secretaria)';
     } else if (isPending) {
       statusLabel = 'Pendente (Fixado)';
     }
@@ -261,7 +265,7 @@ export function resolveCompetenceBilling(
       statusLabel,
       isHistorical: true,
       metadata: snapshot.metadata || {},
-      raphaelBilling: snapshot.metadata?.raphaelBilling || null,
+      raphaelBilling: manualPending ? null : (snapshot.metadata?.raphaelBilling || null),
     };
   }
 

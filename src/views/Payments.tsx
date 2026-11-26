@@ -26,7 +26,7 @@ import { RaphaelPaymentConfirmationCard } from '../components/RaphaelPaymentConf
 import { RaphaelStage5TestsModal } from '../components/RaphaelStage5TestsModal';
 import { HistoricalRegularizationModal } from '../components/HistoricalRegularizationModal';
 import { resolveCompetenceBilling, ResolveBillingContext } from '../utils/competenceBillingResolver';
-import { shouldRecalculatePendingRaphaelSnapshot } from '../utils/raphaelPendingSnapshotPolicy';
+import { shouldRecalculatePendingRaphaelSnapshot, isManualPendingFixedBilling } from '../utils/raphaelPendingSnapshotPolicy';
 import {isRaphaelVacationCompetence} from '../utils/raphaelVacation2026';
 import {isChoirDecemberSingleRehearsal} from '../utils/choirDecember2026Billing';
 import { getInitialPaymentSelection, pickSinglePaymentCompetence, hasRecordedGroupPayment } from '../utils/paymentCompetenceSelection';
@@ -351,6 +351,7 @@ export const Payments: React.FC = () => {
       isPast: boolean;
       itemKey: string;
       isRaphael: boolean;
+      manuallyReconciled?: boolean;
       raphaelPreview: RaphaelBillingSimulationResult | null;
       raphaelRealBilling?: RaphaelBillingMemory | null;
       isFrozen?: boolean;
@@ -394,11 +395,13 @@ export const Payments: React.FC = () => {
         // O snapshot automático pendente pode ter sido criado pelo motor antigo,
         // que contava aulas de outros alunos. Recalcular apenas a PRÉVIA de
         // snapshots não pagos e não congelados; não regravar o banco ao abrir a tela.
-        const recalculatePending = isRaphael && shouldRecalculatePendingRaphaelSnapshot(resolved.snapshot, isPaid);
+        const manuallyReconciled=isRaphael && isManualPendingFixedBilling(resolved.snapshot);
+        const recalculatePending=isRaphael && !manuallyReconciled &&
+          shouldRecalculatePendingRaphaelSnapshot(resolved.snapshot, isPaid);
         let raphaelRealBilling: RaphaelBillingMemory | null =
           recalculatePending ? null : (resolved.raphaelBilling || null);
 
-        if (isRaphael && (!resolved.raphaelBilling || recalculatePending) && !resolved.isFrozen && !isPaid) {
+        if (isRaphael && !manuallyReconciled && (!resolved.raphaelBilling || recalculatePending) && !resolved.isFrozen && !isPaid) {
           const monthRefStr = `${mRef.yearStr}-${mRef.monthStr}`;
           const enrollmentClasses = getClassesForEnrollment(
             e,
@@ -456,6 +459,7 @@ export const Payments: React.FC = () => {
           isPast: !mRef.isCurrent,
           itemKey: `enrollment_${e.id}_${mRef.monthStr}_${mRef.yearStr}`,
           isRaphael,
+          manuallyReconciled,
           raphaelPreview,
           raphaelRealBilling,
           isFrozen: resolved.isFrozen,
@@ -873,7 +877,7 @@ export const Payments: React.FC = () => {
             } else {
               let amount = eb.priceWithDiscount;
               let discount = 0;
-              if (eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast) {
+              if (!eb.manuallyReconciled && eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast) {
                 discount = eb.plan.early_discount_value;
                 amount -= discount;
               }
@@ -1082,6 +1086,10 @@ export const Payments: React.FC = () => {
         const amountToPay = customPriceStr !== undefined && customPriceStr !== '' ? parseFloat(customPriceStr) : (isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.finalAmount : eb.priceWithDiscount);
         const discountStr = customDiscounts[eb.itemKey];
         const contractualBasePrice = Number(eb.enrollment.custom_price ?? eb.plan.base_price ?? 0);
+        if (eb.manuallyReconciled && (Math.abs(amountToPay-eb.priceWithDiscount)>0.001 || Number(discountStr||0)!==0)) {
+          window.alert('Valor conferido pela secretaria. Não é possível mudar esta competência sem nova conciliação.');
+          return;
+        }
         const discountVal = discountStr ? parseFloat(discountStr) : (isRaphael && eb.raphaelRealBilling
           ? (isRaphaelVacationCompetence(`${eb.yearStr}-${eb.monthStr}`)
               ? Math.max(0,contractualBasePrice-amountToPay)
@@ -1821,6 +1829,11 @@ export const Payments: React.FC = () => {
                                     Raphael Etapa 5
                                   </span>
                                 )}
+                                {eb.manuallyReconciled && (
+                                  <span className="rounded border border-teal-300 bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-900" title="Valor conferido, sem abatimento automático de créditos nesta competência">
+                                    Valor conferido · sem crédito automático
+                                  </span>
+                                )}
                                 {eb.raphaelRealBilling?.vacationAdjusted && !eb.isPaid && (
                                   <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900" title="Aulas fora do recesso de 10/12 a 10/01">
                                     Férias Raphael · proporcional
@@ -2348,7 +2361,7 @@ export const Payments: React.FC = () => {
                                 );
                               }
 
-                              const isEarly = eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
+                              const isEarly = !eb.manuallyReconciled && eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
                               const refAmount = eb.priceWithDiscount - (isEarly ? eb.plan.early_discount_value : 0);
 
                               return (
@@ -2375,6 +2388,7 @@ export const Payments: React.FC = () => {
                                           min="0"
                                           step="0.01"
                                           value={customDiscounts[eb.itemKey] ?? ''}
+                                          disabled={eb.manuallyReconciled}
                                           onChange={(e) => handleDiscountChange(eb.itemKey, refAmount, e.target.value)}
                                           className="w-full pl-8 pr-2 py-1.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-xs font-semibold text-emerald-700"
                                           placeholder="0,00"
@@ -2391,6 +2405,7 @@ export const Payments: React.FC = () => {
                                           min="0"
                                           step="0.01"
                                           value={customAmounts[eb.itemKey] ?? ''}
+                                          disabled={eb.manuallyReconciled}
                                           onChange={(e) => handleAmountChange(eb.itemKey, refAmount, e.target.value)}
                                           className="w-full pl-8 pr-2 py-1.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-xs font-semibold text-zinc-800"
                                           placeholder="0,00"
@@ -2467,7 +2482,7 @@ export const Payments: React.FC = () => {
 
                             unpaidEnrollments.forEach(eb => {
                               if (!selectedPaymentItems[eb.itemKey]) return;
-                              const isEarly = eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
+                              const isEarly = !eb.manuallyReconciled && eb.plan.allow_early_discount && paymentDay <= eb.plan.early_discount_deadline_day && !eb.isPast;
                               const standardRef = eb.priceWithDiscount - (isEarly ? eb.plan.early_discount_value : 0);
                               const refAmount = eb.isRaphael && eb.raphaelRealBilling ? eb.raphaelRealBilling.finalAmount : standardRef;
                               const val = parseFloat(customAmounts[eb.itemKey] || '0');
