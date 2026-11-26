@@ -1,5 +1,6 @@
 import { Enrollment, FinancialPlan, Teacher, ClassSession, Group } from "../store";
 import { findGroupMatch, getGroupForSession } from "./groupMatch";
+import { getEligibleTeacherCancelledClasses } from "./raphaelCreditCapacity";
 
 export interface RaphaelBillingSimulationParams {
   enrollment: {
@@ -181,7 +182,8 @@ export function calculateRaphaelClassCreditValue(
   enrollments: Enrollment[],
   financialPlans: FinancialPlan[],
   groups: Group[],
-  teachers: Teacher[]
+  teachers: Teacher[],
+  allClasses?: ClassSession[]
 ): {
   isEligible: boolean;
   studentId?: string;
@@ -288,6 +290,24 @@ export function calculateRaphaelClassCreditValue(
 
     const baseLessons = modality === "quinzenal" ? 2 : 4;
     const amount = baseLessons > 0 ? basePrice / baseLessons : 0;
+
+    if (matchingEnrollment && allClasses) {
+      const month=(classSession.date||'').slice(0,7);
+      const linked=allClasses.filter(c=>
+        (c.date||'').slice(0,7)===month &&
+        c.teacher_id===classSession.teacher_id &&
+        !c.group_id && Array.isArray(c.student_ids) &&
+        c.student_ids.includes(studentId)
+      );
+      if (!getEligibleTeacherCancelledClasses(linked,baseLessons).has(classSession.id)) {
+        return {
+          isEligible:false,studentId,enrollmentId:matchingEnrollment.id,
+          teacherId:classSession.teacher_id||RAPHAEL_TEACHER_ID,
+          amount:0,
+          reason:'A carga mensal já foi cumprida; cancelamento de aula extra não gera crédito.',
+        };
+      }
+    }
 
     return {
       isEligible: true,
