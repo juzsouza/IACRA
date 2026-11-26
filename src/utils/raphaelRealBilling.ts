@@ -24,6 +24,7 @@ import {
   isMakeupClass,
 } from "./raphaelBillingSimulation";
 import { getGroupForSession } from "./groupMatch";
+import { getEligibleTeacherCancelledClasses } from "./raphaelCreditCapacity";
 import {isRaphaelVacationCompetence,isRaphaelVacationDate,calculateRaphaelVacationGross} from './raphaelVacation2026';
 
 export interface EligibleCreditDetail {
@@ -408,10 +409,12 @@ export function calculateRaphaelRealStudentBilling(params: {
   let studentAbsences = 0;
 
   const classifiedClasses: RaphaelBillingMemory["classifiedClasses"] = [];
+  const eligibleCancellationIds=getEligibleTeacherCancelledClasses(monthClasses,baseLessons);
 
   for (const c of monthClasses) {
     const isCancelled = c.status === "cancelled";
-    const isCancelledByRaphael = isCancelled && isCancelledByTeacherEligible(c);
+    const isCancelledByRaphael = isCancelled && isCancelledByTeacherEligible(c) &&
+      eligibleCancellationIds.has(c.id);
     const isMakeup = !isCancelled && isMakeupClass(c);
 
     let isAbsent = false;
@@ -438,7 +441,9 @@ export function calculateRaphaelRealStudentBilling(params: {
         status: "cancelled",
         type: "cancelled_other",
         isAbsent: false,
-        notes: "Cancelada (sem flag de cancelamento pelo professor - não gera crédito)",
+        notes: isCancelledByTeacherEligible(c)
+          ? "Aula adicional cancelada após a carga mensal ser cumprida — não gera crédito"
+          : "Cancelada (sem flag de cancelamento pelo professor - não gera crédito)",
       });
     } else if (isMakeup) {
       makeupLessons++;
@@ -506,6 +511,15 @@ export function calculateRaphaelRealStudentBilling(params: {
     if (c.status !== "available") return false;
     if (c.teacher_id && c.teacher_id !== RAPHAEL_TEACHER_ID) return false;
     if (monthStr && (c.competency_month || "") >= monthStr) return false;
+    // Impede crédito histórico indevido gerado por terceira aula cancelada
+    // quando o número contratual de aulas já havia sido cumprido.
+    const origin=enrollmentClasses.find(cl=>cl.id===c.source_class_id);
+    if (origin && origin.status==='cancelled' && isCancelledByTeacherEligible(origin)) {
+      const related=enrollmentClasses.filter(cl=>
+        (cl.date||'').slice(0,7)===(origin.date||'').slice(0,7)
+      );
+      if (!getEligibleTeacherCancelledClasses(related,baseLessons).has(origin.id)) return false;
+    }
 
     // Crédito de aula de grupo pode ser abatido individualmente SOMENTE
     // quando foi alocado de forma explícita a este participante e matrícula.

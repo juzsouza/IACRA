@@ -4234,7 +4234,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
                   finalEnrollments,
                   financialPlans || [],
                   (groups || []),
-                  parsedTeachers
+                  parsedTeachers,
+                  classesToKeep
                 );
 
                 if (calc.isEligible) {
@@ -5434,7 +5435,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             s.enrollments,
             s.financialPlans,
             s.groups,
-            s.teachers
+            s.teachers,
+            updatedList
           );
           const updatedCredits = [...(s.credits || [])];
           const existingIdx = updatedCredits.findIndex((c) => c.source_class_id === id);
@@ -7082,7 +7084,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           s.enrollments,
           s.financialPlans,
           s.groups,
-          s.teachers
+          s.teachers,
+          s.classes
         );
 
         if (calc.isEligible) {
